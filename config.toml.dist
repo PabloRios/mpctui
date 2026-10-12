@@ -1,0 +1,78 @@
+# Configuración de mpctui, con todas las opciones y sus valores por defecto.
+#
+# Copiar a ~/.config/mpctui/config.toml y ajustar lo que haga falta:
+#
+#     mkdir -p ~/.config/mpctui
+#     cp config.toml.dist ~/.config/mpctui/config.toml
+#
+# Todo es opcional: una opción que no está toma su valor por defecto (el que figura
+# acá). Un nombre de opción desconocido o un valor inválido no deja arrancar y se
+# explica el motivo.
+#
+# Precedencia: valores por defecto < este archivo < variables de entorno
+# (MPD_HOST, MPD_PORT y MPCTUI_GLYPHS).
+
+# --- Servidor MPD --------------------------------------------------------------
+
+# Host o ruta a un socket unix (por ejemplo "/run/mpd/socket").
+# MPD_HOST lo reemplaza y admite "contraseña@host", como mpc.
+host = "localhost"
+
+# Puerto TCP. MPD_PORT lo reemplaza.
+port = 6600
+
+# Contraseña de MPD, si el servidor la pide. Sin saltos de línea.
+# password = "secreto"
+
+# --- Apariencia ----------------------------------------------------------------
+
+# Juego de glifos: "auto", "unicode" o "ascii".
+# "auto" usa ASCII si el locale no es UTF-8 o si TERM es "linux" o "dumb".
+# MPCTUI_GLYPHS lo reemplaza.
+glyphs = "auto"
+
+# Barras opcionales del panel "ahora suena" (la del tema siempre se muestra).
+album_progress = false   # un segmento por tema del álbum en curso
+queue_progress = false   # un segmento por álbum de la cola
+
+# --- Visualizador (vista 6) ----------------------------------------------------
+
+# Salida fifo de MPD que lee el visualizador. No puede estar vacía. Que no exista
+# no es un error: la vista explica cómo crearla en mpd.conf.
+visualizer_fifo = "/tmp/mpd.fifo"
+
+# Formato de esa salida: debe coincidir con el "format" del audio_output fifo de
+# mpd.conf. Solo 16 bits, 1 o 2 canales y entre 8000 y 192000 Hz.
+visualizer_format = "44100:16:2"
+
+# Forma con la que arranca la vista: "bars", "mirror", "wave", "waterfall",
+# "vectorscope" o "meters". La tecla 6 pasa a la siguiente.
+# "mirror" y "vectorscope" necesitan un formato de 2 canales.
+visualizer_style = "bars"
+
+# --- Letras (vista 7) ----------------------------------------------------------
+
+[lyrics]
+
+# false: no aparece la vista 7 y no se busca ninguna letra (ni archivos, ni MPD,
+# ni la red).
+enabled = true
+
+# Fuentes en orden de búsqueda; gana la primera que tenga letra. Sin repetidos y,
+# con las letras activadas, al menos una.
+#   "cache"        directory/Artista - Título.lrc (o .txt)
+#   "song_folder"  un .lrc/.txt junto al archivo del tema (necesita music_directory)
+#   "tags"         la letra embebida en el archivo (FLAC y Ogg; en MP3 MPD no la expone)
+#   "lrclib"       lrclib.net: envía artista, título, álbum y duración del tema
+# Por defecto se usan todas; "song_folder" solo si se configuró music_directory.
+# Sacar "lrclib" deja todo sin red; sacar "cache" evita escribir en disco.
+sources = ["cache", "tags", "lrclib"]
+# sources = ["cache", "song_folder", "tags", "lrclib"]
+
+# Caché de letras: ahí se buscan y ahí se guardan las de LRCLIB. "~/" es el
+# directorio del usuario. ~/.lyrics es la misma carpeta de ncmpcpp y ncmpc.
+directory = "~/.lyrics"
+
+# Raíz de la biblioteca de MPD (su music_directory). Solo la usa "song_folder":
+# por TCP, MPD no informa dónde está la música.
+# music_directory = "~/Music"

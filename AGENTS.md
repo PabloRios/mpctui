@@ -106,6 +106,7 @@ domain  ←  repository  ←  service  ←  tui
   - `visualizer_fifo` (`/tmp/mpd.fifo`), `visualizer_format` (`44100:16:2`, validado como `PcmFormat`) y `visualizer_style` (`bars` por defecto; una forma estéreo con FIFO mono es error). Vacío o inválido no arranca; un FIFO inexistente no es error de configuración (la vista lo explica). La forma inicial viaja en `Appearance`.
   - `album_progress` / `queue_progress` (bool, `false` por defecto) muestran las barras opcionales del panel. La factory los convierte en `tui::appearance::ProgressBars` dentro de `Appearance` (junto con los glifos), que se inyecta en `App`; la TUI no conoce `Settings`.
   - El TOML usa `deny_unknown_fields`.
+  - `config.toml.dist` (raíz) documenta todas las opciones con sus valores por defecto. Una opción nueva se agrega también ahí: los tests `the_dist_config_*` exigen que resuelva a los valores por defecto y que sus líneas comentadas sean válidas.
 - **`src/logging.rs`:** `tracing` a `~/.local/state/mpctui/mpctui.log`, nivel INFO.
 - **`src/factory.rs`:**
   - `MpdBackend` fija los tipos concretos del trait `Backend`.

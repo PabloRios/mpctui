@@ -19,7 +19,7 @@ cargo run --release
 
 Todo es opcional. El orden de precedencia es: valores por defecto < archivo < variables de entorno.
 
-**Archivo** `~/.config/mpctui/config.toml`:
+**Archivo** `~/.config/mpctui/config.toml`. En la raíz del repositorio está `config.toml.dist`, una plantilla comentada con todas las opciones y sus valores por defecto: `cp config.toml.dist ~/.config/mpctui/config.toml`. Resumen:
 
 ```toml
 host = "localhost"        # o la ruta a un socket unix, p. ej. "/run/mpd/socket"

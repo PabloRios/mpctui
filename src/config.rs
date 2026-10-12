@@ -721,6 +721,44 @@ mod tests {
         ));
     }
 
+    /// La plantilla de la raíz del repositorio, con todas las opciones.
+    const DIST_CONFIG: &str = include_str!("../config.toml.dist");
+
+    #[test]
+    fn the_dist_config_holds_the_defaults() {
+        let dist = resolve_with_home(DIST_CONFIG).unwrap();
+        let defaults = resolve(FileConfig::default(), environment(None, None)).unwrap();
+        assert_eq!(dist.address, defaults.address);
+        assert_eq!(dist.glyph_mode, defaults.glyph_mode);
+        assert_eq!(
+            (dist.album_progress, dist.queue_progress),
+            (defaults.album_progress, defaults.queue_progress)
+        );
+        assert_eq!(dist.visualizer_fifo, defaults.visualizer_fifo);
+        assert_eq!(dist.visualizer_format, defaults.visualizer_format);
+        assert_eq!(dist.visualizer_style, defaults.visualizer_style);
+        assert_eq!(dist.lyrics, defaults.lyrics);
+        assert!(dist.password.is_none());
+    }
+
+    #[test]
+    fn the_dist_config_commented_options_are_valid() {
+        let active_sources = "sources = [\"cache\", \"tags\", \"lrclib\"]\n";
+        assert!(DIST_CONFIG.contains(active_sources));
+        let uncommented = DIST_CONFIG
+            .replace(active_sources, "")
+            .replace("# password = ", "password = ")
+            .replace("# sources = ", "sources = ")
+            .replace("# music_directory = ", "music_directory = ");
+        let settings = resolve_with_home(&uncommented).unwrap();
+        assert!(settings.password.is_some());
+        assert_eq!(settings.lyrics.sources, LyricsSource::ALL);
+        assert_eq!(
+            settings.lyrics.music_directory,
+            Some(PathBuf::from("/home/prueba/Music"))
+        );
+    }
+
     #[test]
     fn invalid_glyphs_fail_fast() {
         assert!(toml::from_str::<FileConfig>("glyphs = \"emoji\"").is_err());
