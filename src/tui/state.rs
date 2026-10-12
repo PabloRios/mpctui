@@ -347,6 +347,19 @@ pub enum LyricsStatus {
     },
 }
 
+impl LyricsStatus {
+    /// Solo se reintenta una búsqueda en la que falló alguna fuente (red, MPD, disco).
+    pub fn can_retry(&self) -> bool {
+        matches!(
+            self,
+            LyricsStatus::NotFound {
+                problem: Some(_),
+                ..
+            }
+        )
+    }
+}
+
 #[derive(Debug, Default)]
 pub struct LyricsView {
     /// El último tema pedido; si el actual es otro, hay que buscar de nuevo.
@@ -432,5 +445,21 @@ mod tests {
             search.cycle_field();
         }
         assert_eq!(search.field, Tag::Any);
+    }
+
+    #[test]
+    fn only_failed_searches_can_be_retried() {
+        let failed = LyricsStatus::NotFound {
+            untitled: false,
+            problem: Some(Error::Closed),
+        };
+        assert!(failed.can_retry());
+        let missing = LyricsStatus::NotFound {
+            untitled: false,
+            problem: None,
+        };
+        assert!(!missing.can_retry());
+        assert!(!LyricsStatus::Searching.can_retry());
+        assert!(!LyricsStatus::Instrumental.can_retry());
     }
 }

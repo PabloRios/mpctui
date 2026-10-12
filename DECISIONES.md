@@ -214,6 +214,13 @@ están en `DESIGN.md` ni en `DESIGN_EXTRA.md`.
 - **Privacidad:** con cualquiera de las dos y `lrclib` en las fuentes, se consulta cada
   tema que suena (si no está en las fuentes anteriores); la memoria de la sesión evita
   repetir pedidos.
+- **Reintento con `Ctrl+r` (`Action::RetryLyrics`):** la `r` sola es "repetir" y casi todas
+  las letras libres ya tienen uso; `Ctrl+r` se asocia con "recargar". Solo actúa en la
+  vista Letra y solo si la búsqueda terminó en `NotFound` con un error
+  (`LyricsStatus::can_retry`): un "no hay letra" de LRCLIB queda en la memoria de la
+  sesión, así que reintentarlo no cambiaría nada. Vuelve a pedir la misma consulta a
+  `LyricsLookup` (el `watch` marca el cambio aunque el valor sea igual). La tecla se
+  sugiere debajo del error, no en la línea inferior: solo tiene sentido en ese estado.
 
 
 ### I1 · Interfaz en inglés y español

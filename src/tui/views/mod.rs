@@ -894,12 +894,17 @@ mod tests {
             untitled: true,
             problem: None,
         };
+        let untitled = lyrics_screen(&ASCII, SIZES[0], untitled);
         assert_contains(
-            &lyrics_screen(&ASCII, SIZES[0], untitled),
+            &untitled,
             &[
                 "No se encontró la letra para «Un tema con un nombre bastante largo 3»",
                 "faltan el artista o el título",
             ],
+        );
+        assert!(
+            !untitled.contains("reintentar"),
+            "sin error no hay qué reintentar"
         );
         let failed = LyricsStatus::NotFound {
             untitled: false,
@@ -907,7 +912,10 @@ mod tests {
         };
         assert_contains(
             &lyrics_screen(&ASCII, SIZES[0], failed),
-            &["Último error: la conexión con MPD se cerró"],
+            &[
+                "Último error: la conexión con MPD se cerró",
+                "Ctrl+r reintentar",
+            ],
         );
     }
 

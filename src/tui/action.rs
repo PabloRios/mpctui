@@ -56,6 +56,8 @@ pub enum Action {
     CycleSingle,
     ToggleConsume,
     ShowPlaying,
+    /// En la vista Letra, vuelve a buscar la letra si la búsqueda falló.
+    RetryLyrics,
 }
 
 /// Las vistas de listas comparten descripción (`Phrase::GoToView`): la ayuda las
@@ -248,6 +250,11 @@ pub const BINDINGS: &[Binding] = &[
         Action::ShowPlaying,
         Phrase::ShowPlaying,
     ),
+    control(
+        &[KeyCode::Char('r')],
+        Action::RetryLyrics,
+        Phrase::RetryLyrics,
+    ),
 ];
 
 /// La acción que abre cada vista: la del visualizador además cambia de forma.
@@ -324,7 +331,9 @@ impl HelpGroup {
             | Action::ToggleRepeat
             | Action::CycleSingle
             | Action::ToggleConsume => HelpGroup::Modes,
-            Action::StartSearch | Action::ToggleHelp | Action::Quit => HelpGroup::Other,
+            Action::StartSearch | Action::RetryLyrics | Action::ToggleHelp | Action::Quit => {
+                HelpGroup::Other
+            }
         }
     }
 }
@@ -452,6 +461,18 @@ mod tests {
         assert_eq!(
             action_for(key(KeyCode::Char('x'), KeyModifiers::NONE)),
             None
+        );
+    }
+
+    #[test]
+    fn control_r_retries_lyrics_and_plain_r_toggles_repeat() {
+        assert_eq!(
+            action_for(key(KeyCode::Char('r'), KeyModifiers::CONTROL)),
+            Some(Action::RetryLyrics)
+        );
+        assert_eq!(
+            action_for(key(KeyCode::Char('r'), KeyModifiers::NONE)),
+            Some(Action::ToggleRepeat)
         );
     }
 

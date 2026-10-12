@@ -118,6 +118,7 @@ mpctui
 | `S` | Guardar la cola como playlist (si el nombre no es válido, el diálogo lo dice y sigue abierto) |
 | `c` | Vaciar la cola (pide confirmación) |
 | `o` | Ir al tema que suena |
+| `Ctrl+r` | Letra: reintentar la búsqueda si falló una fuente (sin red, LRCLIB no respondió…) |
 | `?` | Ayuda completa |
 | `q` / `Ctrl+c` | Salir |
 
@@ -152,7 +153,7 @@ La vista Letra prueba las fuentes de `lyrics.sources` en orden y muestra la prim
 | `tags` | La letra embebida en el archivo (`LYRICS` o `UNSYNCEDLYRICS`, en FLAC y Ogg). En MP3, MPD no expone la letra (`USLT`) |
 | `lrclib` | [lrclib.net](https://lrclib.net): gratis y sin registro, muchas letras sincronizadas. Pide la coincidencia exacta (artista, título, álbum y duración) y, si no hay, busca por artista y título y elige un resultado con una duración parecida (±2 s), prefiriendo los sincronizados. Lo descargado se guarda en la caché si `cache` está en `sources`; lo que no encontró se recuerda hasta cerrar mpctui, para no volver a pedirlo |
 
-Si LRCLIB dice que el tema es instrumental, la vista muestra `Instrumental`.
+Si LRCLIB dice que el tema es instrumental, la vista muestra `Instrumental`. Si no encontró la letra y alguna fuente falló (sin red, LRCLIB no respondió a tiempo…), la vista muestra el último error y `Ctrl+r` vuelve a buscar en todas las fuentes. Los errores no se recuerdan, así que el reintento vuelve a consultar LRCLIB.
 
 Por defecto, la letra se busca solo con la vista Letra abierta. Con `fetch_in_background = true` se busca la de cada tema apenas empieza, así ya está lista al abrir la vista. Con `now_playing_line = true`, el panel "ahora suena" muestra la línea que se está cantando después del título (`♪ Time · Ticking away the moments…`), también en el modo compacto; como la necesita siempre, también busca la letra de cada tema. Solo se muestra con letras sincronizadas; si no entra, se recorta antes que el artista y el título.
 

@@ -219,6 +219,7 @@ impl<B: Backend> App<B> {
             Action::ToggleHelp => self.state.help_visible = !self.state.help_visible,
             Action::StartSearch => self.start_search().await,
             Action::ShowPlaying => self.show_playing().await,
+            Action::RetryLyrics => self.retry_lyrics(),
             Action::SaveQueue => {
                 self.state.prompt = Some(Prompt::text(PromptKind::SavePlaylist, String::new()));
             }

@@ -72,6 +72,7 @@ pub enum Phrase {
     CycleSingle,
     Consume,
     ShowPlaying,
+    RetryLyrics,
     // Secciones y marco de la ayuda.
     HelpNavigation,
     HelpLists,
@@ -109,6 +110,7 @@ pub enum Phrase {
     HintSaveQueue,
     HintPause,
     HintNextStyle,
+    HintRetry,
     /// Teclas de la línea de búsqueda.
     SearchKeys,
     // Diálogos.

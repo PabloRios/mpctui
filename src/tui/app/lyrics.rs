@@ -45,6 +45,22 @@ impl<B: Backend> App<B> {
         view.query = query;
     }
 
+    /// En la vista Letra, si la búsqueda falló, pide de nuevo la letra del mismo tema.
+    /// Los errores no se recuerdan, así que se vuelve a probar cada fuente.
+    pub(super) fn retry_lyrics(&mut self) {
+        let Some(lookup) = &self.services.lyrics else {
+            return;
+        };
+        let view = &mut self.state.lyrics;
+        if self.state.view != ViewKind::Lyrics || !view.status.can_retry() {
+            return;
+        }
+        if let Some(query) = &view.query {
+            lookup.request(query.clone());
+            view.status = LyricsStatus::Searching;
+        }
+    }
+
     /// Un resultado de un tema que ya no suena se descarta.
     pub(super) fn apply_lyrics(&mut self, result: LyricsResult) {
         let view = &mut self.state.lyrics;

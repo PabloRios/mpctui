@@ -13,6 +13,7 @@ use super::{draw_line, text_row};
 use crate::domain::{Lyrics, LyricsSource};
 use crate::i18n::{Message, Phrase};
 use crate::service::PlaybackClock;
+use crate::tui::action::Action;
 use crate::tui::glyphs::Glyphs;
 use crate::tui::state::{AppState, LyricsStatus};
 use crate::tui::views::chrome::Context;
@@ -56,7 +57,13 @@ pub fn render(frame: &mut Frame, area: Rect, state: &mut AppState, context: &Con
             };
             let title = song_title(state);
             let not_found = context.message(Message::LyricsNotFound { title: &title });
-            draw_not_found(frame, body, not_found, detail);
+            let retry = state.lyrics.status.can_retry().then(|| retry_hint(context));
+            let rows = [
+                Some(Line::styled(not_found, theme::MUTED)),
+                detail.map(|detail| Line::styled(detail, theme::MUTED)),
+                retry,
+            ];
+            draw_not_found(frame, body, rows);
         }
         LyricsStatus::Found(lyrics) if lyrics.is_synced() => {
             draw_synced(frame, body, lyrics, &state.clock, context.now, glyphs);
@@ -121,20 +128,30 @@ fn message(frame: &mut Frame, area: Rect, text: &str) {
     centered_message(frame, area, Line::styled(text.to_owned(), theme::MUTED));
 }
 
-/// `No se encontró la letra para «Time»` y, debajo, el motivo si se sabe.
-fn draw_not_found(frame: &mut Frame, area: Rect, not_found: String, detail: Option<String>) {
+/// `Ctrl+r reintentar`, con la tecla resaltada como en la línea inferior.
+fn retry_hint(context: &Context<'_>) -> Line<'static> {
+    let key = context.key(Action::RetryLyrics);
+    let hint = context.phrase(Phrase::HintRetry);
+    Line::from(vec![
+        Span::styled(key, theme::ACCENT),
+        Span::styled(format!(" {hint}"), theme::MUTED),
+    ])
+}
+
+/// `No se encontró la letra para «Time»` y, debajo, el motivo si se sabe y cómo
+/// reintentar si falló una fuente.
+fn draw_not_found(frame: &mut Frame, area: Rect, rows: [Option<Line<'static>>; 3]) {
     if area.is_empty() {
         return;
     }
     let middle = area.y + area.height / 2;
-    let rows = [Some(not_found), detail];
-    for (offset, text) in rows.into_iter().enumerate() {
+    for (offset, line) in rows.into_iter().enumerate() {
         let y = middle + saturating_u16(offset);
-        if let Some(text) = text
+        if let Some(line) = line
             && y < area.bottom()
         {
             let row = Rect::new(area.x, y, area.width, 1);
-            frame.render_widget(Line::styled(text, theme::MUTED).centered(), row);
+            frame.render_widget(line.centered(), row);
         }
     }
 }
