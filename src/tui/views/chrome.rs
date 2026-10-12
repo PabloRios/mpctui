@@ -10,7 +10,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::Block;
 
 use super::format::saturating_u16;
-use super::layout::{ARTIST_COLUMN_MIN_WIDTH, LayoutMode};
+use super::layout::{ALBUM_COLUMN_MIN_WIDTH, LayoutMode};
 use super::theme;
 use crate::tui::appearance::ProgressBars;
 use crate::tui::glyphs::Glyphs;
@@ -31,9 +31,9 @@ impl Context<'_> {
         self.mode == LayoutMode::Compact
     }
 
-    /// Las tablas de temas pierden la columna Artista en terminales angostas.
-    pub fn shows_artist(&self) -> bool {
-        self.width >= ARTIST_COLUMN_MIN_WIDTH
+    /// Las tablas de temas pierden la columna Álbum en terminales angostas.
+    pub fn shows_album(&self) -> bool {
+        self.width >= ALBUM_COLUMN_MIN_WIDTH
     }
 }
 

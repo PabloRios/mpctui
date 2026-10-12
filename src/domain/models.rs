@@ -83,7 +83,17 @@ impl Song {
     pub fn file_name(&self) -> &str {
         last_component(&self.file)
     }
+
+    /// Número de pista sin el total del disco (`3/12` → `3`).
+    pub fn track_number(&self) -> Option<&str> {
+        self.track
+            .as_deref()
+            .and_then(|track| track.split(TRACK_TOTAL_SEPARATOR).next())
+    }
 }
+
+/// Separa el número de pista del total en el tag `Track` (`3/12`).
+const TRACK_TOTAL_SEPARATOR: char = '/';
 
 /// Último tramo de una ruta de la biblioteca.
 fn last_component(path: &str) -> &str {
@@ -150,5 +160,24 @@ impl TagFilter {
             tag,
             value: value.into(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn song_with_track(track: &str) -> Song {
+        Song {
+            track: Some(track.into()),
+            ..Song::default()
+        }
+    }
+
+    #[test]
+    fn track_number_drops_the_disc_total() {
+        assert_eq!(song_with_track("3/12").track_number(), Some("3"));
+        assert_eq!(song_with_track("7").track_number(), Some("7"));
+        assert_eq!(Song::default().track_number(), None);
     }
 }

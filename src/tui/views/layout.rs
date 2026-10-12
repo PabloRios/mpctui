@@ -4,8 +4,8 @@ pub const FULL_MIN_WIDTH: u16 = 100;
 pub const FULL_MIN_HEIGHT: u16 = 28;
 pub const COMPACT_MIN_WIDTH: u16 = 60;
 pub const COMPACT_MIN_HEIGHT: u16 = 16;
-/// Por debajo de este ancho las tablas de temas no muestran la columna Artista.
-pub const ARTIST_COLUMN_MIN_WIDTH: u16 = 80;
+/// Por debajo de este ancho las tablas de temas no muestran la columna Álbum.
+pub const ALBUM_COLUMN_MIN_WIDTH: u16 = 80;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LayoutMode {

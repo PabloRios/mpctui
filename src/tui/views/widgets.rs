@@ -31,9 +31,9 @@ pub const DURATION_WIDTH: u16 = 7;
 const TRACK_WIDTH: u16 = 3;
 /// Celdas del medidor de duración relativa en la columna Tema.
 const RELATIVE_DURATION_CELLS: usize = 6;
-/// Proporción Título / Artista en las tablas de temas.
+/// Proporción Título / Álbum en las tablas de temas.
 const TITLE_SHARE: u16 = 55;
-const ARTIST_SHARE: u16 = 45;
+const ALBUM_SHARE: u16 = 45;
 /// Cifras mínimas de la columna `pos`.
 const POSITION_MIN_DIGITS: usize = 3;
 /// Repeticiones de la regla a cada lado de una separadora de álbum.
@@ -253,7 +253,7 @@ pub fn state_glyph(state: PlayState, glyphs: &Glyphs) -> &'static str {
 pub struct SongColumns {
     /// Posición en la cola (solo en la cola).
     pub position: bool,
-    pub artist: bool,
+    pub album: bool,
 }
 
 /// El tema que suena, para marcar su fila.
@@ -287,8 +287,9 @@ enum GroupedRow {
 struct SongWidths {
     state: u16,
     position: u16,
+    track: u16,
     title: u16,
-    artist: u16,
+    album: u16,
     duration: u16,
 }
 
@@ -328,22 +329,24 @@ impl GroupedSongRows<'_> {
             .unwrap_or_default();
         let digits = self.songs.len().to_string().len().max(POSITION_MIN_DIGITS);
         let position = if self.columns.position { digits } else { 0 };
-        let artist = if self.columns.artist { ARTIST_SHARE } else { 0 };
-        let [state, position, title, artist, duration] = column_widths(
+        let album = if self.columns.album { ALBUM_SHARE } else { 0 };
+        let [state, position, track, title, album, duration] = column_widths(
             width,
             [
                 Constraint::Length(saturating_u16(state)),
                 Constraint::Length(saturating_u16(position)),
+                Constraint::Length(TRACK_WIDTH),
                 Constraint::Fill(TITLE_SHARE),
-                Constraint::Fill(artist),
+                Constraint::Fill(album),
                 Constraint::Length(DURATION_WIDTH),
             ],
         );
         SongWidths {
             state,
             position,
+            track,
             title,
-            artist,
+            album,
             duration,
         }
     }
@@ -363,8 +366,9 @@ impl GroupedSongRows<'_> {
         join_cells(vec![
             header("", widths.state, Alignment::Left),
             header("pos", widths.position, Alignment::Right),
+            header("#", widths.track, Alignment::Right),
             header("Título", widths.title, Alignment::Left),
-            header("Artista", widths.artist, Alignment::Left),
+            header("Álbum", widths.album, Alignment::Left),
             header("dur", widths.duration, Alignment::Right),
         ])
         .style(theme::TABLE_HEADER)
@@ -387,7 +391,8 @@ impl GroupedSongRows<'_> {
             .position
             .map(|position| (u64::from(position) + 1).to_string())
             .unwrap_or_default();
-        let artist = or_missing(song.artist.as_deref().or(song.album_artist.as_deref()));
+        let track = song.track_number().unwrap_or_default();
+        let album = or_missing(song.album.as_deref());
         let duration = song.duration.map(format_duration).unwrap_or_default();
         join_cells(vec![
             table_cell(
@@ -403,14 +408,20 @@ impl GroupedSongRows<'_> {
                 glyphs,
             ),
             table_cell(
+                Line::styled(track, theme::MUTED),
+                widths.track,
+                Alignment::Right,
+                glyphs,
+            ),
+            table_cell(
                 highlight_matches(song.display_title(), self.highlight, style),
                 widths.title,
                 Alignment::Left,
                 glyphs,
             ),
             table_cell(
-                highlight_matches(artist, self.highlight, style),
-                widths.artist,
+                highlight_matches(album, self.highlight, style),
+                widths.album,
                 Alignment::Left,
                 glyphs,
             ),
@@ -540,11 +551,7 @@ impl RowSource for LibrarySongRows<'_> {
                 Constraint::Length(meter_columns),
             ],
         );
-        let number = song
-            .track
-            .as_deref()
-            .and_then(|track| track.split('/').next())
-            .unwrap_or_default();
+        let number = song.track_number().unwrap_or_default();
         ListRow::Item(join_cells(vec![
             table_cell(
                 Line::styled(number, theme::MUTED),
@@ -629,7 +636,7 @@ mod tests {
             glyphs: &ASCII,
             columns: SongColumns {
                 position: true,
-                artist: true,
+                album: true,
             },
             now_playing: None,
             highlight: None,
@@ -656,6 +663,42 @@ mod tests {
         assert_eq!(rows.row_of_song(2), Some(4));
         assert_eq!(rows.header_of(2), 0);
         assert_eq!(rows.header_of(4), 3);
+    }
+
+    #[test]
+    fn song_rows_show_position_track_title_album_and_duration() {
+        let songs = [Song {
+            title: Some("Time".into()),
+            track: Some("4/10".into()),
+            position: Some(303),
+            ..album_song("Dark Side")
+        }];
+        let timeline = timeline(&songs);
+        let rows = grouped(&songs, &timeline);
+        let header = rows.column_header(60).to_string();
+        let words: Vec<_> = header.split_whitespace().collect();
+        assert_eq!(words, ["pos", "#", "Título", "Álbum", "dur"]);
+        let line = rows.song_line(0, 60).to_string();
+        let words: Vec<_> = line.split_whitespace().collect();
+        assert_eq!(words, ["304", "4", "Time", "Dark", "Side", "1:00"]);
+    }
+
+    #[test]
+    fn narrow_song_rows_hide_the_album() {
+        let songs = [Song {
+            title: Some("Time".into()),
+            ..album_song("Dark Side")
+        }];
+        let timeline = timeline(&songs);
+        let rows = GroupedSongRows {
+            columns: SongColumns {
+                position: true,
+                album: false,
+            },
+            ..grouped(&songs, &timeline)
+        };
+        assert!(!rows.column_header(60).to_string().contains("Álbum"));
+        assert!(!rows.song_line(0, 60).to_string().contains("Dark Side"));
     }
 
     #[test]

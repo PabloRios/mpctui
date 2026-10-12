@@ -70,7 +70,7 @@ mpctui
 ### Pantalla
 
 - **Encabezado:** el servidor y el estado de la conexión, las pestañas (la activa entre corchetes) y, si entra, el resumen de la cola (`cola: 1229 temas  65:04:13`). Mientras MPD actualiza la base de datos, junto al nombre aparece `◐ actualizando biblioteca 0:42` (el tiempo cuenta desde que mpctui la vio; en modo compacto, solo el indicador). Al terminar, la línea inferior muestra `Biblioteca actualizada (1:05)`.
-- **Listas de temas** (cola, búsqueda, playlists): agrupadas por álbum con una fila separadora (`── Artista - Álbum (año) ──── 10 temas  42:51 ──`). Si la lista empieza en medio de un álbum, arriba se ve su separadora. La selección se marca con `▸` y video inverso. A la derecha aparece una barra de desplazamiento si la lista no entra.
+- **Listas de temas** (cola, búsqueda, playlists): agrupadas por álbum con una fila separadora (`── Artista - Álbum (año) ──── 10 temas  42:51 ──`) y columnas `pos` (solo en la cola), `#` (pista), Título, Álbum y duración. Si la lista empieza en medio de un álbum, arriba se ve su separadora. La selección se marca con `▸` y video inverso. A la derecha aparece una barra de desplazamiento si la lista no entra.
 - **Panel "ahora suena":** en su borde superior, el estado (`▶ reproduciendo`) y, a la derecha, el formato de audio (`FLAC  44.1 kHz  16 bit  estéreo  1411 kbps`). Las partes que no se conocen se omiten y, si no entran, se quitan desde la izquierda; detenido o en modo compacto no se muestra. Mientras suena, el bitrate se actualiza cada 2 segundos. Adentro, título y álbum del tema, y barras alineadas:
   - **tema:** el progreso del tema. Siempre se muestra.
   - **álbum:** un segmento por tema del álbum en curso. Oculta por defecto; se activa con `album_progress = true`.
@@ -79,7 +79,7 @@ mpctui
   Cada barra activada suma una fila al panel. Si falta la duración de algún tema, las barras del álbum y de la cola cuentan temas en lugar de tiempo. Debajo van el volumen, los modos con su tecla (`z ● aleatorio`) y la posición en la cola.
 - **Espectro:** una barra por banda (entre 8 y 64, según el ancho) en escala logarítmica de 40 Hz a 16 kHz, con picos que se sostienen medio segundo y caen. El color va por altura: verde abajo, amarillo al medio y rojo arriba. En pausa o detenido, las barras caen a cero y se lee `sin señal`. En modo compacto las barras son de una columna, sin título ni eje. El FIFO solo se lee mientras la vista está activa.
 - **Línea inferior:** los atajos más útiles de la vista activa. Los avisos y errores la reemplazan durante 5 segundos.
-- **Tamaño:** desde 100 × 28 se ve todo. Desde 60 × 16 hay un modo compacto: panel de 3 filas, pestañas abreviadas y, por debajo de 80 columnas, sin columna Artista. Más chica, mpctui muestra el mínimo necesario y el tamaño actual.
+- **Tamaño:** desde 100 × 28 se ve todo. Desde 60 × 16 hay un modo compacto: panel de 3 filas, pestañas abreviadas y, por debajo de 80 columnas, sin columna Álbum. Más chica, mpctui muestra el mínimo necesario y el tamaño actual.
 
 ### Atajos principales
 

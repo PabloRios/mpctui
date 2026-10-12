@@ -108,25 +108,25 @@ La pantalla se divide en cuatro zonas, siempre en este orden vertical:
 ┌─ mpctui ────────────────────────────────────────────────────────────────────── ● localhost:6600 ─┐
 │ [1 Cola]  2 Biblioteca   3 Directorios   4 Búsqueda   5 Playlists     cola: 1229 temas  65:04:13 │
 ├──────────────────────────────────────────────────────────────────────────────────────────────────┤
-│      pos  Título                                       Artista                            dur    │
+│      pos   # Título                                    Álbum                              dur    │
 │── Pink Floyd - Meddle (1971) ───────────────────────────────────────────────── 6 temas  46:46 ──▲│
-│      297  Fearless                                     Pink Floyd                        6:08   ││
-│      298  San Tropez                                   Pink Floyd                        3:44   ││
-│      299  Seamus                                       Pink Floyd                        2:16   ││
-│      300  Echoes                                       Pink Floyd                       23:31   ││
+│      297   3 Fearless                                  Meddle                            6:08   ││
+│      298   4 San Tropez                                Meddle                            3:44   ││
+│      299   5 Seamus                                    Meddle                            2:16   ││
+│      300   6 Echoes                                    Meddle                           23:31   ││
 │── Pink Floyd - The Dark Side of the Moon (1973) ───────────────────────────── 10 temas  42:51 ──█│
-│      301  Speak to Me                                  Pink Floyd                        1:05   █│
-│      302  Breathe (In the Air)                         Pink Floyd                        2:49   ││
-│      303  On the Run                                   Pink Floyd                        3:45   ││
-│  ▶   304  Time                                         Pink Floyd                        6:53   ││
-│      305  The Great Gig in the Sky                     Pink Floyd                        4:44   ││
-│▸     306  Money                                        Pink Floyd                        6:22   ││
-│      307  Us and Them                                  Pink Floyd                        7:49   ││
-│      308  Any Colour You Like                          Pink Floyd                        3:26   ││
-│      309  Brain Damage                                 Pink Floyd                        3:46   ││
-│      310  Eclipse                                      Pink Floyd                        2:12   ││
+│      301   1 Speak to Me                               The Dark Side of the Moon         1:05   █│
+│      302   2 Breathe (In the Air)                      The Dark Side of the Moon         2:49   ││
+│      303   3 On the Run                                The Dark Side of the Moon         3:45   ││
+│  ▶   304   4 Time                                      The Dark Side of the Moon         6:53   ││
+│      305   5 The Great Gig in the Sky                  The Dark Side of the Moon         4:44   ││
+│▸     306   6 Money                                     The Dark Side of the Moon         6:22   ││
+│      307   7 Us and Them                               The Dark Side of the Moon         7:49   ││
+│      308   8 Any Colour You Like                       The Dark Side of the Moon         3:26   ││
+│      309   9 Brain Damage                              The Dark Side of the Moon         3:46   ││
+│      310  10 Eclipse                                   The Dark Side of the Moon         2:12   ││
 │── Radiohead - OK Computer (1997) ──────────────────────────────────────────── 12 temas  53:21 ──││
-│      311  Airbag                                       Radiohead                         4:44   ▼│
+│      311   1 Airbag                                    OK Computer                       4:44   ▼│
 ├─ ▶ reproduciendo ────────────────────────────────────────────────────────────────────────────────┤
 │ ♪ Time                                             Pink Floyd - The Dark Side of the Moon (1973) │
 │ tema   ━━━━━━━━━━━━━━━━━━●─────────────────────────────────────                      2:13 / 6:53 │
@@ -143,25 +143,25 @@ La pantalla se divide en cuatro zonas, siempre en este orden vertical:
 +- mpctui -------------------------------------------------------------------- (*) localhost:6600 -+
 | [1 Cola]  2 Biblioteca   3 Directorios   4 Búsqueda   5 Playlists     cola: 1229 temas  65:04:13 |
 +--------------------------------------------------------------------------------------------------+
-|      pos  Título                                       Artista                            dur    |
+|      pos   # Título                                    Álbum                              dur    |
 |== Pink Floyd - Meddle (1971) ================================================= 6 temas  46:46 ==^|
-|      297  Fearless                                     Pink Floyd                        6:08   :|
-|      298  San Tropez                                   Pink Floyd                        3:44   :|
-|      299  Seamus                                       Pink Floyd                        2:16   :|
-|      300  Echoes                                       Pink Floyd                       23:31   :|
+|      297   3 Fearless                                  Meddle                            6:08   :|
+|      298   4 San Tropez                                Meddle                            3:44   :|
+|      299   5 Seamus                                    Meddle                            2:16   :|
+|      300   6 Echoes                                    Meddle                           23:31   :|
 |== Pink Floyd - The Dark Side of the Moon (1973) ============================= 10 temas  42:51 ==#|
-|      301  Speak to Me                                  Pink Floyd                        1:05   #|
-|      302  Breathe (In the Air)                         Pink Floyd                        2:49   :|
-|      303  On the Run                                   Pink Floyd                        3:45   :|
-|  |>  304  Time                                         Pink Floyd                        6:53   :|
-|      305  The Great Gig in the Sky                     Pink Floyd                        4:44   :|
-|>     306  Money                                        Pink Floyd                        6:22   :|
-|      307  Us and Them                                  Pink Floyd                        7:49   :|
-|      308  Any Colour You Like                          Pink Floyd                        3:26   :|
-|      309  Brain Damage                                 Pink Floyd                        3:46   :|
-|      310  Eclipse                                      Pink Floyd                        2:12   :|
+|      301   1 Speak to Me                               The Dark Side of the Moon         1:05   #|
+|      302   2 Breathe (In the Air)                      The Dark Side of the Moon         2:49   :|
+|      303   3 On the Run                                The Dark Side of the Moon         3:45   :|
+|  |>  304   4 Time                                      The Dark Side of the Moon         6:53   :|
+|      305   5 The Great Gig in the Sky                  The Dark Side of the Moon         4:44   :|
+|>     306   6 Money                                     The Dark Side of the Moon         6:22   :|
+|      307   7 Us and Them                               The Dark Side of the Moon         7:49   :|
+|      308   8 Any Colour You Like                       The Dark Side of the Moon         3:26   :|
+|      309   9 Brain Damage                              The Dark Side of the Moon         3:46   :|
+|      310  10 Eclipse                                   The Dark Side of the Moon         2:12   :|
 |== Radiohead - OK Computer (1997) ============================================ 12 temas  53:21 ==:|
-|      311  Airbag                                       Radiohead                         4:44   v|
+|      311   1 Airbag                                    OK Computer                       4:44   v|
 +- |> reproduciendo -------------------------------------------------------------------------------+
 | ~ Time                                             Pink Floyd - The Dark Side of the Moon (1973) |
 | tema   [=================>------------------------------------]                      2:13 / 6:53 |
@@ -311,7 +311,7 @@ En **Cola**, **Búsqueda** y el contenido de **Playlists**, las canciones se agr
 - **No son seleccionables.** `j`/`k`, `g`/`G` y las páginas saltan las filas separadoras: la selección y los índices siguen siendo de canciones, igual que hoy.
 - **Cabecera fija:** si la primera fila visible está en medio de un tramo, en su lugar se muestra la separadora de ese tramo. Con 1000+ temas siempre se sabe qué álbum se está mirando.
 - **Marcadores de fila** (columnas fijas a la izquierda): `cursor` en la fila seleccionada, glifo de estado (`play`/`pause`) en el tema que suena. En ASCII: `>` y `|>`.
-- Como el álbum ya está en la separadora, la columna "Álbum" **desaparece** de estas tablas y su espacio pasa a Título y Artista.
+- **Columnas:** marcadores · `pos` (solo en la cola) · `#` (número de pista, sin el total: `3/12` → `3`) · Título · Álbum · `dur`. El artista ya está en la separadora, así que no tiene columna. Por debajo de 80 columnas se oculta Álbum y su espacio pasa a Título.
 
 ### 4.3 Medidores
 
@@ -348,7 +348,7 @@ Los mockups de esta sección muestran solo la zona de la vista (encabezado y pan
 
 ### 5.1 Cola (`1`)
 
-Ver sección 3.1. Columnas: marcadores · `pos` (posición en la cola, 1-based) · Título · Artista · `dur`. Filas separadoras de álbum según 4.2. La tecla `o` lleva al tema actual y lo deja centrado verticalmente si se puede.
+Ver sección 3.1. Columnas: marcadores · `pos` (posición en la cola, 1-based) · `#` (pista) · Título · Álbum · `dur`. Filas separadoras de álbum según 4.2. La tecla `o` lleva al tema actual y lo deja centrado verticalmente si se puede.
 
 ### 5.2 Biblioteca (`2`)
 
@@ -420,19 +420,19 @@ En ASCII:
 │ 4 resultados en 4 álbumes                                                                        │
 ├──────────────────────────────────────────────────────────────────────────────────────────────────┤
 │── Cyndi Lauper - She's So Unusual (1983) ──────────────────────────────────────── 1 tema  4:01 ──│
-│▸       Time After Time                              Cyndi Lauper                      4:01       │
+│▸        4 Time After Time                           She's So Unusual                  4:01       │
 │── Foo Fighters - One by One (2002) ────────────────────────────────────────────── 1 tema  4:25 ──│
-│        Times Like These                             Foo Fighters                      4:25       │
+│         4 Times Like These                          One by One                        4:25       │
 │── Muse - Absolution (2003) ────────────────────────────────────────────────────── 1 tema  3:57 ──│
-│        Time Is Running Out                          Muse                              3:57       │
+│         3 Time Is Running Out                       Absolution                        3:57       │
 │── Pink Floyd - The Dark Side of the Moon (1973) ───────────────────────────────── 1 tema  6:53 ──│
-│        Time                                         Pink Floyd                        6:53       │
+│         4 Time                                      The Dark Side of the Moon         6:53       │
 ```
 
 - Fila 1: el texto buscado (con el cursor `_` mientras se escribe) y, a la derecha, los campos posibles con el activo entre paréntesis.
 - Fila 2: `N resultados en M álbumes`. Sin resultados: `Sin resultados para "time"`.
 - Resultados agrupados por tramos de álbum (4.2).
-- El texto que coincide con la búsqueda va **subrayado y en negrita** (no solo color) dentro de Título, Artista y la separadora.
+- El texto que coincide con la búsqueda va **subrayado y en negrita** (no solo color) dentro de Título, Álbum y la separadora.
 
 ### 5.5 Playlists (`5`)
 
@@ -440,12 +440,12 @@ En ASCII:
 │ [Playlists (3)]            │ domingo: 5 temas  25:12                                             │
 ├────────────────────────────┼─────────────────────────────────────────────────────────────────────┤
 │ ▸ ≡ domingo                │ ── Pink Floyd - Wish You Were Here (1975) ──────── 2 temas  18:39 ──│
-│   ≡ para correr            │    Wish You Were Here                 Pink Floyd             5:34   │
-│   ≡ rock nacional          │    Shine On You Crazy Diamond         Pink Floyd            13:05   │
+│   ≡ para correr            │     4 Wish You Were Here              Wish You Were Here     5:34   │
+│   ≡ rock nacional          │     1 Shine On You Crazy Diamond      Wish You Were Here    13:05   │
 │                            │ ── Radiohead - In Rainbows (2007) ───────────────── 3 temas  6:33 ──│
-│                            │    Nude                               Radiohead              4:15   │
-│                            │    Reckoner                           Radiohead              4:50   │
-│                            │    Videotape                          Radiohead              4:39   │
+│                            │     3 Nude                            In Rainbows            4:15   │
+│                            │     7 Reckoner                        In Rainbows            4:50   │
+│                            │    10 Videotape                       In Rainbows            4:39   │
 ```
 
 - Panel izquierdo: nombres con la insignia `playlist`. Panel derecho: contenido de la seleccionada, agrupado por tramos.
@@ -546,7 +546,7 @@ Todos los estilos viven en `theme.rs`. Si falta un rol, se agrega ahí. Solo col
 | Tamaño | Modo | Cambios |
 |---|---|---|
 | ≥ 100 × 28 | Completo | Todo lo descrito |
-| ≥ 60 × 16 | Compacto | Panel de 4 filas: solo barra del tema; modos con letras (`z● r○ y◐ R○`); pestañas abreviadas; tablas sin la columna Artista por debajo de 80 columnas |
+| ≥ 60 × 16 | Compacto | Panel de 4 filas: solo barra del tema; modos con letras (`z● r○ y◐ R○`); pestañas abreviadas; tablas sin la columna Álbum por debajo de 80 columnas |
 | Menor | Aviso | Solo un mensaje con el mínimo y el tamaño actual |
 
 Los umbrales son constantes con nombre (`FULL_MIN_WIDTH`, `FULL_MIN_HEIGHT`, `COMPACT_MIN_WIDTH`, `COMPACT_MIN_HEIGHT`). El modo se decide en cada dibujado a partir de `frame.area()`: es una función pura `layout_mode(width, height) -> LayoutMode`.
@@ -557,12 +557,12 @@ Compacto — Unicode (72 × 16):
 ┌─ mpctui ────────────────────────────────────────── ● localhost:6600 ─┐
 │ [1 Cola]  2 Bibl.  3 Dir.  4 Búsq.  5 Playl.                         │
 ├──────────────────────────────────────────────────────────────────────┤
-│      303  On the Run                         Pink Floyd       3:45   │
-│  ▶   304  Time                               Pink Floyd       6:53   │
-│      305  The Great Gig in the Sky           Pink Floyd       4:44   │
-│▸     306  Money                              Pink Floyd       6:22   │
-│      307  Us and Them                        Pink Floyd       7:49   │
-│      308  Any Colour You Like                Pink Floyd       3:26   │
+│      303   3 On the Run                                       3:45   │
+│  ▶   304   4 Time                                             6:53   │
+│      305   5 The Great Gig in the Sky                         4:44   │
+│▸     306   6 Money                                            6:22   │
+│      307   7 Us and Them                                      7:49   │
+│      308   8 Any Colour You Like                              3:26   │
 ├──────────────────────────────────────────────────────────────────────┤
 │ ▶ ━━━━━━━━━━━━━━━━━●──────────────────────────────────── 2:13/6:53   │
 │ ♪ Time - Pink Floyd                     vol 70%  tema 4/10  304/1229 │
@@ -577,12 +577,12 @@ Compacto — ASCII:
 +- mpctui ---------------------------------------- (*) localhost:6600 -+
 | [1 Cola]  2 Bibl.  3 Dir.  4 Búsq.  5 Playl.                         |
 +----------------------------------------------------------------------+
-|      303  On the Run                         Pink Floyd       3:45   |
-|  |>  304  Time                               Pink Floyd       6:53   |
-|      305  The Great Gig in the Sky           Pink Floyd       4:44   |
-|>     306  Money                              Pink Floyd       6:22   |
-|      307  Us and Them                        Pink Floyd       7:49   |
-|      308  Any Colour You Like                Pink Floyd       3:26   |
+|      303   3 On the Run                                       3:45   |
+|  |>  304   4 Time                                             6:53   |
+|      305   5 The Great Gig in the Sky                         4:44   |
+|>     306   6 Money                                            6:22   |
+|      307   7 Us and Them                                      7:49   |
+|      308   8 Any Colour You Like                              3:26   |
 +----------------------------------------------------------------------+
 | |>[================>-----------------------------------] 2:13/6:53   |
 | ~ Time - Pink Floyd                     vol 70%  tema 4/10  304/1229 |

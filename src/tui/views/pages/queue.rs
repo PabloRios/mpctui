@@ -1,4 +1,5 @@
-//! Cola (`1`): cabecera de columnas y temas agrupados por álbum.
+//! Cola (`1`): cabecera de columnas (pos, pista, título, álbum, duración) y temas
+//! agrupados por álbum.
 
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
@@ -29,7 +30,7 @@ pub fn render(frame: &mut Frame, area: Rect, state: &mut AppState, context: &Con
     let look = GroupedLook {
         columns: SongColumns {
             position: true,
-            artist: context.shows_artist(),
+            album: context.shows_album(),
         },
         now_playing,
         highlight: None,

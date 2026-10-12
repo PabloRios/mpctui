@@ -62,7 +62,7 @@ pub fn render(frame: &mut Frame, area: Rect, state: &mut AppState, context: &Con
     let look = GroupedLook {
         columns: SongColumns {
             position: false,
-            artist: context.shows_artist(),
+            album: context.shows_album(),
         },
         now_playing: None,
         highlight: None,
