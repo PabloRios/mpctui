@@ -230,6 +230,14 @@ async fn database_update_starts_and_finishes() {
 }
 
 #[tokio::test]
+async fn requests_a_database_update() {
+    let (address, server) = fake_server(vec![("update", "updating_db: 4\nOK\n")]).await;
+    let mut client = connect_mpd(&address, None).await.unwrap();
+    client.update_database().await.unwrap();
+    server.await.unwrap();
+}
+
+#[tokio::test]
 async fn pings_the_server() {
     let (address, server) = fake_server(vec![("ping", "OK\n")]).await;
     let mut client = connect_mpd(&address, None).await.unwrap();

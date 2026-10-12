@@ -4,7 +4,7 @@ use std::time::Instant;
 
 use super::{App, Backend};
 use crate::domain::{Status, Subsystem};
-use crate::i18n::Message;
+use crate::i18n::{Message, Phrase};
 use crate::service::{PlaybackClock, UpdateTransition, update_transition};
 use crate::tui::list::SelectionPolicy;
 use crate::tui::state::ViewKind;
@@ -80,6 +80,15 @@ impl<B: Backend> App<B> {
         let result = self.services.playback.status().await;
         if let Some(status) = self.report(result) {
             self.apply_status(status);
+        }
+    }
+
+    /// Pide al servidor que relea la biblioteca. El indicador del encabezado y el aviso
+    /// final llegan solos por `idle`, como si la hubiera pedido otro cliente.
+    pub(super) async fn request_database_update(&mut self) {
+        let result = self.services.library.update_database().await;
+        if self.report(result).is_some() {
+            self.notify_info(self.phrase(Phrase::LibraryUpdateRequested));
         }
     }
 

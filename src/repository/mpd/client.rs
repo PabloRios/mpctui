@@ -166,6 +166,10 @@ impl<T: Transport + Send> LibraryRepository for MpdClient<T> {
                 .await?,
         )
     }
+
+    async fn update_database(&mut self) -> Result<()> {
+        self.run(Command::new(Verb::Update)).await
+    }
 }
 
 impl<T: Transport + Send> PlaylistRepository for MpdClient<T> {

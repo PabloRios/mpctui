@@ -36,6 +36,7 @@ pub enum Verb {
     Save,
     Remove,
     ReadComments,
+    Update,
 }
 
 impl Verb {
@@ -72,6 +73,7 @@ impl Verb {
             Verb::Save => "save",
             Verb::Remove => "rm",
             Verb::ReadComments => "readcomments",
+            Verb::Update => "update",
         }
     }
 }

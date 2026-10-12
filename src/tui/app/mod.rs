@@ -220,6 +220,7 @@ impl<B: Backend> App<B> {
             Action::StartSearch => self.start_search().await,
             Action::ShowPlaying => self.show_playing().await,
             Action::RetryLyrics => self.retry_lyrics(),
+            Action::UpdateDatabase => self.request_database_update().await,
             Action::SaveQueue => {
                 self.state.prompt = Some(Prompt::text(PromptKind::SavePlaylist, String::new()));
             }

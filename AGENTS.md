@@ -216,7 +216,7 @@ tmux capture-pane -t prueba -p        # pantalla
 tmux kill-session -t prueba
 ```
 
-Contra el MPD real solo se envían teclas de lectura: `1`–`7`, `Tab`, `j`/`k`, `g`/`G`, `h`/`l`, `/` + búsqueda, `o` y `?`. **Nunca** `Enter` en la cola, `p`, `s`, `<`, `>`, `+`, `-`, `f`, `b`, `z`, `r`, `y`, `R`, `a`, `A`, `d`, `c` ni `S`.
+Contra el MPD real solo se envían teclas de lectura: `1`–`7`, `Tab`, `j`/`k`, `g`/`G`, `h`/`l`, `/` + búsqueda, `o` y `?`. **Nunca** `Enter` en la cola, `p`, `s`, `<`, `>`, `+`, `-`, `f`, `b`, `z`, `r`, `y`, `R`, `a`, `A`, `d`, `c`, `S` ni `u`.
 
 Checklist antes de dar un cambio por terminado:
 

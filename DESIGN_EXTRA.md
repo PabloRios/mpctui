@@ -101,7 +101,7 @@ Estado en la TUI: `AppState` guarda `database_update: Option<Instant>` (cuándo 
 
 ### 2.3 Fuera de alcance
 
-Disparar una actualización desde mpctui (`update`) **no** forma parte de esto: sería un atajo nuevo y un comando que modifica el servidor. Se agrega solo si el usuario lo pide.
+Disparar una actualización desde mpctui (`update`) no formaba parte de esto. El usuario lo pidió después: la tecla `u` envía `update` y el indicador sigue llegando por `idle`.
 
 ---
 
@@ -702,7 +702,6 @@ Orden sugerido: E1 → E2 → E3 → E4 → E5, de menor a mayor riesgo. E4 es l
 
 ## 9. Sigue fuera de alcance
 
-- Disparar `update` desde mpctui (§2.3).
 - Tecla para "reintentar ahora" (§3.3).
 - Rotación automática de formas cada N segundos (modo demo).
 - Guardar la última forma al salir de mpctui.

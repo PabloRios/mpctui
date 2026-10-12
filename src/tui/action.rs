@@ -73,6 +73,7 @@ pub enum Action {
     ShowPlaying,
     /// En la vista Letra, vuelve a buscar la letra si la búsqueda falló.
     RetryLyrics,
+    UpdateDatabase,
 }
 
 /// Las vistas de listas comparten descripción (`Phrase::GoToView`): la ayuda las
@@ -270,6 +271,11 @@ pub const BINDINGS: &[Binding] = &[
         Action::RetryLyrics,
         Phrase::RetryLyrics,
     ),
+    plain(
+        &[KeyCode::Char('u')],
+        Action::UpdateDatabase,
+        Phrase::UpdateDatabase,
+    ),
 ];
 
 /// La acción que abre cada vista: la del visualizador además cambia de forma.
@@ -346,9 +352,11 @@ impl HelpGroup {
             | Action::ToggleRepeat
             | Action::CycleSingle
             | Action::ToggleConsume => HelpGroup::Modes,
-            Action::StartSearch | Action::RetryLyrics | Action::ToggleHelp | Action::Quit => {
-                HelpGroup::Other
-            }
+            Action::StartSearch
+            | Action::RetryLyrics
+            | Action::UpdateDatabase
+            | Action::ToggleHelp
+            | Action::Quit => HelpGroup::Other,
         }
     }
 }
@@ -498,6 +506,18 @@ mod tests {
         assert_eq!(
             action_for(key(KeyCode::Char('r'), KeyModifiers::NONE)),
             Some(Action::ToggleRepeat)
+        );
+    }
+
+    #[test]
+    fn u_updates_the_database_and_control_u_pages_up() {
+        assert_eq!(
+            action_for(key(KeyCode::Char('u'), KeyModifiers::NONE)),
+            Some(Action::UpdateDatabase)
+        );
+        assert_eq!(
+            action_for(key(KeyCode::Char('u'), KeyModifiers::CONTROL)),
+            Some(Action::Navigate(Navigation::PageUp))
         );
     }
 

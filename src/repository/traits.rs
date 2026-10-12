@@ -60,6 +60,9 @@ pub trait LibraryRepository {
         field: Tag,
         text: &SearchText,
     ) -> impl Future<Output = Result<Vec<Song>>> + Send;
+    /// Pide al servidor que relea la biblioteca completa. Solo la encola: el avance
+    /// llega por `idle` (`changed: update`).
+    fn update_database(&mut self) -> impl Future<Output = Result<()>> + Send;
 }
 
 pub trait PlaylistRepository {

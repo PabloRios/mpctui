@@ -37,4 +37,8 @@ impl<R: LibraryRepository + Send> LibraryService<R> {
     pub async fn search(&mut self, field: Tag, text: &SearchText) -> Result<Vec<Song>> {
         self.repository.search(field, text).await
     }
+
+    pub async fn update_database(&mut self) -> Result<()> {
+        self.repository.update_database().await
+    }
 }

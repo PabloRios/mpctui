@@ -73,6 +73,7 @@ pub enum Phrase {
     Consume,
     ShowPlaying,
     RetryLyrics,
+    UpdateDatabase,
     // Secciones y marco de la ayuda.
     HelpNavigation,
     HelpLists,
@@ -205,6 +206,7 @@ pub enum Phrase {
     // Avisos.
     ConnectionRecovered,
     LyricsDisabled,
+    LibraryUpdateRequested,
     QueueCleared,
     NoVolumeControl,
     TerminalTooSmall,

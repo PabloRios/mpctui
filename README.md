@@ -118,6 +118,7 @@ mpctui
 | `S` | Guardar la cola como playlist (si el nombre no es válido, el diálogo lo dice y sigue abierto) |
 | `c` | Vaciar la cola (pide confirmación) |
 | `o` | Ir al tema que suena |
+| `u` | Actualizar la biblioteca (MPD relee la carpeta de música; el encabezado muestra el avance) |
 | `Ctrl+r` | Letra: reintentar la búsqueda si falló una fuente (sin red, LRCLIB no respondió…) |
 | `?` | Ayuda completa |
 | `q` / `Ctrl+c` | Salir |
