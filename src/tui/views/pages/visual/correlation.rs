@@ -2,6 +2,7 @@
 
 use ratatui::text::{Line, Span};
 
+use crate::i18n::{Catalog, Phrase};
 use crate::tui::glyphs::Glyphs;
 use crate::tui::views::theme;
 
@@ -9,12 +10,19 @@ use crate::tui::views::theme;
 const RULE_WIDTH: usize = 41;
 const MINIMUM_LABEL: &str = "-1 ";
 const MAXIMUM_LABEL: &str = " +1";
-const VALUE_PREFIX: &str = "   correlación ";
+/// Antes y después del nombre del valor.
+const VALUE_GAP: &str = "   ";
 
 /// La línea entra en `available` columnas: si no alcanza, se acorta la regla.
-pub fn correlation_line(value: f32, available: u16, glyphs: &Glyphs) -> Line<'static> {
+pub fn correlation_line(
+    value: f32,
+    available: u16,
+    glyphs: &Glyphs,
+    texts: &dyn Catalog,
+) -> Line<'static> {
     let value_text = format!("{value:+.2}");
-    let fixed = [MINIMUM_LABEL, MAXIMUM_LABEL, VALUE_PREFIX, &value_text]
+    let prefix = format!("{VALUE_GAP}{} ", texts.phrase(Phrase::Correlation));
+    let fixed = [MINIMUM_LABEL, MAXIMUM_LABEL, &prefix, &value_text]
         .iter()
         .map(|text| Span::raw(*text).width())
         .sum::<usize>();
@@ -22,7 +30,7 @@ pub fn correlation_line(value: f32, available: u16, glyphs: &Glyphs) -> Line<'st
     let mut spans = vec![Span::styled(MINIMUM_LABEL, theme::MUTED)];
     spans.extend(rule(value, width, glyphs));
     spans.push(Span::styled(MAXIMUM_LABEL, theme::MUTED));
-    spans.push(Span::styled(VALUE_PREFIX, theme::MUTED));
+    spans.push(Span::styled(prefix, theme::MUTED));
     spans.push(Span::styled(value_text, theme::BOLD));
     Line::from(spans)
 }
@@ -50,15 +58,16 @@ fn rule(value: f32, width: usize, glyphs: &Glyphs) -> Vec<Span<'static>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::i18n::{English, Spanish};
     use crate::tui::glyphs::ASCII;
 
     #[test]
     fn the_marker_sits_on_its_value() {
-        let line = correlation_line(1.0, 80, &ASCII).to_string();
+        let line = correlation_line(1.0, 80, &ASCII, &Spanish).to_string();
         assert!(line.starts_with("-1 ----"), "{line}");
         assert!(line.contains("-o +1   correlación +1.00"), "{line}");
         assert_eq!(line.matches('+').count(), 3);
-        let centered = correlation_line(0.0, 80, &ASCII).to_string();
+        let centered = correlation_line(0.0, 80, &ASCII, &Spanish).to_string();
         assert!(
             centered.contains("-o-") && !centered.contains("-+-"),
             "{centered}"
@@ -67,8 +76,11 @@ mod tests {
 
     #[test]
     fn the_rule_shrinks_to_fit() {
-        let line = correlation_line(-0.5, 40, &ASCII);
+        let line = correlation_line(-0.5, 40, &ASCII, &Spanish);
         assert!(line.width() <= 40);
         assert!(line.to_string().ends_with("correlación -0.50"));
+        let line = correlation_line(-0.5, 40, &ASCII, &English);
+        assert!(line.width() <= 40);
+        assert!(line.to_string().ends_with("correlation -0.50"));
     }
 }

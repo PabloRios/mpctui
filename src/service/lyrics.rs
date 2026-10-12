@@ -12,7 +12,7 @@ use tokio::task::JoinHandle;
 
 use super::lrc::parse_lrc;
 use crate::domain::{FetchedLyrics, Lyrics, LyricsQuery, LyricsSource, TrackIdentity};
-use crate::repository::{EmbeddedLyricsRepository, LyricsFiles, LyricsProvider, Result};
+use crate::repository::{EmbeddedLyricsRepository, Error, LyricsFiles, LyricsProvider, Result};
 
 /// Resultado de una búsqueda.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -22,7 +22,7 @@ pub enum LyricsOutcome {
     Instrumental,
     /// Ninguna fuente tenía letra. `problem` es el último error, si alguna falló.
     NotFound {
-        problem: Option<String>,
+        problem: Option<Error>,
     },
 }
 
@@ -71,7 +71,7 @@ where
                 Ok(FetchedLyrics::Missing) => {}
                 Err(error) => {
                     tracing::warn!("no se pudo leer la letra ({source:?}): {error}");
-                    problem = Some(error.to_string());
+                    problem = Some(error);
                 }
             }
         }
@@ -192,7 +192,13 @@ mod tests {
 
     use super::*;
     use crate::domain::Song;
-    use crate::repository::Error;
+    use crate::repository::HttpFailure;
+
+    /// LRCLIB no responde.
+    const UNREACHABLE: Error = Error::Http {
+        service: "LRCLIB",
+        failure: HttpFailure::Connect,
+    };
 
     /// Lo que pasó durante la búsqueda: pedidos a LRCLIB y archivos guardados.
     #[derive(Debug, Default)]
@@ -215,7 +221,7 @@ mod tests {
     impl EmbeddedLyricsRepository for Memory {
         async fn embedded_lyrics(&mut self, uri: &str) -> Result<Option<String>> {
             if self.failing {
-                return Err(Error::Io(io::Error::other("se cortó")));
+                return Err(io::Error::other("se cortó").into());
             }
             Ok(self.tags.get(uri).cloned())
         }
@@ -243,9 +249,7 @@ mod tests {
     impl LyricsProvider for Memory {
         async fn fetch(&mut self, _track: &TrackIdentity) -> Result<FetchedLyrics> {
             self.journal.lock().unwrap().fetches += 1;
-            self.remote
-                .clone()
-                .ok_or_else(|| Error::Http("LRCLIB: no se pudo conectar".into()))
+            self.remote.clone().ok_or(UNREACHABLE)
         }
     }
 
@@ -360,7 +364,7 @@ mod tests {
         assert_eq!(
             offline.find(&query()).await,
             LyricsOutcome::NotFound {
-                problem: Some("LRCLIB: no se pudo conectar".into())
+                problem: Some(UNREACHABLE)
             }
         );
     }

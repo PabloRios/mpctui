@@ -9,7 +9,6 @@ use crate::service::{LyricsLookup, LyricsOutcome, LyricsResult};
 use crate::tui::action::{Action, Navigation};
 use crate::tui::state::{LyricsStatus, ViewKind};
 
-pub(super) const DISABLED_NOTICE: &str = "Letras desactivadas (lyrics.enabled = false)";
 /// Líneas que salta una página en una letra sin sincronizar.
 const PAGE_LINES: usize = 10;
 

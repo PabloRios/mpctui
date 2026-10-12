@@ -6,7 +6,8 @@ use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::text::Line;
 
 use super::{GroupedLook, draw_grouped};
-use crate::tui::action::{Action, key_label};
+use crate::i18n::Message;
+use crate::tui::action::Action;
 use crate::tui::state::{AppState, ViewKind};
 use crate::tui::views::chrome::Context;
 use crate::tui::views::theme;
@@ -14,9 +15,8 @@ use crate::tui::views::widgets::{NowPlaying, SongColumns, centered_message};
 
 pub fn render(frame: &mut Frame, area: Rect, state: &mut AppState, context: &Context<'_>) {
     if state.queue.items().is_empty() {
-        let library =
-            key_label(Action::ShowView(ViewKind::Library), context.glyphs).unwrap_or_default();
-        let text = format!("La cola está vacía. {library} abre la biblioteca para agregar temas.");
+        let key = context.key(Action::ShowView(ViewKind::Library));
+        let text = context.message(Message::EmptyQueue { key: &key });
         return centered_message(frame, area, Line::styled(text, theme::MUTED));
     }
     let header_rows = if context.is_compact() { 0 } else { 1 };

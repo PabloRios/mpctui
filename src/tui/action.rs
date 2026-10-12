@@ -2,8 +2,15 @@
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
-use super::glyphs::Glyphs;
+use super::glyphs::{ArrowKeys, Glyphs};
 use super::state::ViewKind;
+use crate::i18n::{Catalog, Phrase};
+
+/// Nombres de teclas que se escriben igual en todos los idiomas.
+const CONTROL_PREFIX: &str = "Ctrl+";
+const ENTER_KEY: &str = "Enter";
+const TAB_KEY: &str = "Tab";
+const BACK_TAB_KEY: &str = "Shift+Tab";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Navigation {
@@ -51,14 +58,16 @@ pub enum Action {
     ShowPlaying,
 }
 
+/// Las vistas de listas comparten descripción (`Phrase::GoToView`): la ayuda las
+/// muestra en una sola línea.
 pub struct Binding {
     pub keys: &'static [KeyCode],
     pub control: bool,
     pub action: Action,
-    pub description: &'static str,
+    pub description: Phrase,
 }
 
-const fn plain(keys: &'static [KeyCode], action: Action, description: &'static str) -> Binding {
+const fn plain(keys: &'static [KeyCode], action: Action, description: Phrase) -> Binding {
     Binding {
         keys,
         control: false,
@@ -67,7 +76,7 @@ const fn plain(keys: &'static [KeyCode], action: Action, description: &'static s
     }
 }
 
-const fn control(keys: &'static [KeyCode], action: Action, description: &'static str) -> Binding {
+const fn control(keys: &'static [KeyCode], action: Action, description: Phrase) -> Binding {
     Binding {
         keys,
         control: true,
@@ -76,159 +85,168 @@ const fn control(keys: &'static [KeyCode], action: Action, description: &'static
     }
 }
 
-/// Las vistas de listas comparten descripción: la ayuda las muestra en una sola línea.
-const GO_TO_VIEW: &str = "Ir a la vista";
-
 pub const BINDINGS: &[Binding] = &[
-    plain(&[KeyCode::Char('q')], Action::Quit, "Salir"),
-    control(&[KeyCode::Char('c')], Action::Quit, "Salir"),
+    plain(&[KeyCode::Char('q')], Action::Quit, Phrase::Quit),
+    control(&[KeyCode::Char('c')], Action::Quit, Phrase::Quit),
     plain(
         &[KeyCode::Char('?')],
         Action::ToggleHelp,
-        "Mostrar u ocultar la ayuda",
+        Phrase::ToggleHelp,
     ),
     plain(
         &[KeyCode::Char('1')],
         Action::ShowView(ViewKind::Queue),
-        GO_TO_VIEW,
+        Phrase::GoToView,
     ),
     plain(
         &[KeyCode::Char('2')],
         Action::ShowView(ViewKind::Library),
-        GO_TO_VIEW,
+        Phrase::GoToView,
     ),
     plain(
         &[KeyCode::Char('3')],
         Action::ShowView(ViewKind::Browse),
-        GO_TO_VIEW,
+        Phrase::GoToView,
     ),
     plain(
         &[KeyCode::Char('4')],
         Action::ShowView(ViewKind::Search),
-        GO_TO_VIEW,
+        Phrase::GoToView,
     ),
     plain(
         &[KeyCode::Char('5')],
         Action::ShowView(ViewKind::Playlists),
-        GO_TO_VIEW,
+        Phrase::GoToView,
     ),
     plain(
         &[KeyCode::Char('6')],
         Action::ShowVisualizer,
-        "Visualizador / otra forma",
+        Phrase::CycleVisualizer,
     ),
     plain(
         &[KeyCode::Char('7')],
         Action::ShowView(ViewKind::Lyrics),
-        GO_TO_VIEW,
+        Phrase::GoToView,
     ),
-    plain(&[KeyCode::Tab], Action::NextView, "Vista siguiente"),
-    plain(&[KeyCode::BackTab], Action::PreviousView, "Vista anterior"),
+    plain(&[KeyCode::Tab], Action::NextView, Phrase::NextView),
+    plain(
+        &[KeyCode::BackTab],
+        Action::PreviousView,
+        Phrase::PreviousView,
+    ),
     plain(
         &[KeyCode::Char('j'), KeyCode::Down],
         Action::Navigate(Navigation::Next),
-        "Bajar",
+        Phrase::MoveDown,
     ),
     plain(
         &[KeyCode::Char('k'), KeyCode::Up],
         Action::Navigate(Navigation::Previous),
-        "Subir",
+        Phrase::MoveUp,
     ),
     plain(
         &[KeyCode::PageDown],
         Action::Navigate(Navigation::PageDown),
-        "Bajar una página",
+        Phrase::PageDown,
     ),
     control(
         &[KeyCode::Char('d')],
         Action::Navigate(Navigation::PageDown),
-        "Bajar una página",
+        Phrase::PageDown,
     ),
     plain(
         &[KeyCode::PageUp],
         Action::Navigate(Navigation::PageUp),
-        "Subir una página",
+        Phrase::PageUp,
     ),
     control(
         &[KeyCode::Char('u')],
         Action::Navigate(Navigation::PageUp),
-        "Subir una página",
+        Phrase::PageUp,
     ),
     plain(
         &[KeyCode::Char('g'), KeyCode::Home],
         Action::Navigate(Navigation::First),
-        "Ir al principio",
+        Phrase::GoToFirst,
     ),
     plain(
         &[KeyCode::Char('G'), KeyCode::End],
         Action::Navigate(Navigation::Last),
-        "Ir al final",
+        Phrase::GoToLast,
     ),
-    plain(
-        &[KeyCode::Enter],
-        Action::Activate,
-        "Reproducir / entrar / cargar",
-    ),
+    plain(&[KeyCode::Enter], Action::Activate, Phrase::Activate),
     plain(
         &[KeyCode::Char('l'), KeyCode::Right],
         Action::Forward,
-        "Entrar / columna siguiente",
+        Phrase::Forward,
     ),
     plain(
         &[KeyCode::Char('h'), KeyCode::Left, KeyCode::Backspace],
         Action::Back,
-        "Volver / columna anterior",
+        Phrase::Back,
     ),
-    plain(
-        &[KeyCode::Char('a')],
-        Action::Add,
-        "Agregar (playlist: cargar)",
-    ),
-    plain(&[KeyCode::Char('A')], Action::AddAll, "Agregar todos"),
+    plain(&[KeyCode::Char('a')], Action::Add, Phrase::AddSelection),
+    plain(&[KeyCode::Char('A')], Action::AddAll, Phrase::AddAll),
     plain(
         &[KeyCode::Char('d'), KeyCode::Delete],
         Action::Delete,
-        "Borrar (playlist: confirma)",
+        Phrase::DeleteSelection,
     ),
     plain(
         &[KeyCode::Char('p'), KeyCode::Char(' ')],
         Action::TogglePause,
-        "Pausa / reanudar",
+        Phrase::TogglePause,
     ),
-    plain(&[KeyCode::Char('s')], Action::Stop, "Detener"),
-    plain(&[KeyCode::Char('>')], Action::NextSong, "Tema siguiente"),
-    plain(&[KeyCode::Char('<')], Action::PreviousSong, "Tema anterior"),
+    plain(&[KeyCode::Char('s')], Action::Stop, Phrase::Stop),
+    plain(&[KeyCode::Char('>')], Action::NextSong, Phrase::NextSong),
+    plain(
+        &[KeyCode::Char('<')],
+        Action::PreviousSong,
+        Phrase::PreviousSong,
+    ),
     plain(
         &[KeyCode::Char('+'), KeyCode::Char('=')],
         Action::VolumeUp,
-        "Subir volumen",
+        Phrase::VolumeUp,
     ),
-    plain(&[KeyCode::Char('-')], Action::VolumeDown, "Bajar volumen"),
-    plain(&[KeyCode::Char('f')], Action::SeekForward, "Adelantar"),
-    plain(&[KeyCode::Char('b')], Action::SeekBackward, "Retroceder"),
+    plain(
+        &[KeyCode::Char('-')],
+        Action::VolumeDown,
+        Phrase::VolumeDown,
+    ),
+    plain(
+        &[KeyCode::Char('f')],
+        Action::SeekForward,
+        Phrase::SeekForward,
+    ),
+    plain(
+        &[KeyCode::Char('b')],
+        Action::SeekBackward,
+        Phrase::SeekBackward,
+    ),
     plain(
         &[KeyCode::Char('c')],
         Action::ClearQueue,
-        "Vaciar la cola (confirma)",
+        Phrase::ClearQueue,
     ),
-    plain(
-        &[KeyCode::Char('S')],
-        Action::SaveQueue,
-        "Guardar la cola como playlist",
-    ),
-    plain(&[KeyCode::Char('/')], Action::StartSearch, "Buscar"),
-    plain(&[KeyCode::Char('z')], Action::ToggleRandom, "Aleatorio"),
-    plain(&[KeyCode::Char('r')], Action::ToggleRepeat, "Repetir"),
+    plain(&[KeyCode::Char('S')], Action::SaveQueue, Phrase::SaveQueue),
+    plain(&[KeyCode::Char('/')], Action::StartSearch, Phrase::Search),
+    plain(&[KeyCode::Char('z')], Action::ToggleRandom, Phrase::Random),
+    plain(&[KeyCode::Char('r')], Action::ToggleRepeat, Phrase::Repeat),
     plain(
         &[KeyCode::Char('y')],
         Action::CycleSingle,
-        "Single: no, sí, una vez",
+        Phrase::CycleSingle,
     ),
-    plain(&[KeyCode::Char('R')], Action::ToggleConsume, "Consumir"),
+    plain(
+        &[KeyCode::Char('R')],
+        Action::ToggleConsume,
+        Phrase::Consume,
+    ),
     plain(
         &[KeyCode::Char('o')],
         Action::ShowPlaying,
-        "Ir al tema que suena",
+        Phrase::ShowPlaying,
     ),
 ];
 
@@ -268,13 +286,13 @@ impl HelpGroup {
         HelpGroup::Other,
     ];
 
-    pub fn title(self) -> &'static str {
+    pub fn title(self) -> Phrase {
         match self {
-            HelpGroup::Navigation => "Navegación",
-            HelpGroup::Lists => "Cola y listas",
-            HelpGroup::Playback => "Reproducción",
-            HelpGroup::Modes => "Modos",
-            HelpGroup::Other => "Otros",
+            HelpGroup::Navigation => Phrase::HelpNavigation,
+            HelpGroup::Lists => Phrase::HelpLists,
+            HelpGroup::Playback => Phrase::HelpPlayback,
+            HelpGroup::Modes => Phrase::HelpModes,
+            HelpGroup::Other => Phrase::HelpOther,
         }
     }
 
@@ -314,7 +332,7 @@ impl HelpGroup {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HelpEntry {
     pub keys: String,
-    pub description: &'static str,
+    pub description: Phrase,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -324,34 +342,34 @@ pub struct HelpSection {
 }
 
 /// Texto de una tecla, con `Ctrl+` si hace falta.
-fn key_text(binding: &Binding, code: KeyCode, glyphs: &Glyphs) -> String {
-    let prefix = if binding.control { "Ctrl+" } else { "" };
-    format!("{prefix}{}", key_name(code, glyphs))
+fn key_text(binding: &Binding, code: KeyCode, glyphs: &Glyphs, texts: &dyn Catalog) -> String {
+    let prefix = if binding.control { CONTROL_PREFIX } else { "" };
+    format!("{prefix}{}", key_name(code, glyphs, texts))
 }
 
 /// Texto legible de las teclas de un atajo, para la ayuda.
-fn keys_label(binding: &Binding, glyphs: &Glyphs) -> String {
+fn keys_label(binding: &Binding, glyphs: &Glyphs, texts: &dyn Catalog) -> String {
     binding
         .keys
         .iter()
-        .map(|code| key_text(binding, *code, glyphs))
+        .map(|code| key_text(binding, *code, glyphs, texts))
         .collect::<Vec<_>>()
         .join(" ")
 }
 
 /// La tecla principal de una acción (la primera de la tabla), para sugerirla en pantalla.
-pub fn key_label(action: Action, glyphs: &Glyphs) -> Option<String> {
+pub fn key_label(action: Action, glyphs: &Glyphs, texts: &dyn Catalog) -> Option<String> {
     let binding = BINDINGS.iter().find(|binding| binding.action == action)?;
     let code = binding.keys.first()?;
-    Some(key_text(binding, *code, glyphs))
+    Some(key_text(binding, *code, glyphs, texts))
 }
 
 /// Una línea por descripción, juntando todas sus teclas, agrupadas por sección y en el
 /// orden de la tabla. Las flechas se nombran con los glifos del juego activo.
-pub fn help_sections(glyphs: &Glyphs) -> Vec<HelpSection> {
+pub fn help_sections(glyphs: &Glyphs, texts: &dyn Catalog) -> Vec<HelpSection> {
     let mut entries: Vec<(HelpGroup, HelpEntry)> = Vec::new();
     for binding in BINDINGS {
-        let keys = keys_label(binding, glyphs);
+        let keys = keys_label(binding, glyphs, texts);
         match entries
             .iter_mut()
             .find(|(_, entry)| entry.description == binding.description)
@@ -382,23 +400,31 @@ pub fn help_sections(glyphs: &Glyphs) -> Vec<HelpSection> {
         .collect()
 }
 
-fn key_name(code: KeyCode, glyphs: &Glyphs) -> String {
+/// Las flechas, con su glifo si el juego lo tiene; si no, con palabras del idioma.
+fn key_name(code: KeyCode, glyphs: &Glyphs, texts: &dyn Catalog) -> String {
+    let arrow = |pick: fn(&ArrowKeys) -> &'static str, word: Phrase| {
+        glyphs
+            .arrow_keys
+            .as_ref()
+            .map_or_else(|| texts.phrase(word), pick)
+            .to_owned()
+    };
     match code {
-        KeyCode::Char(' ') => "Espacio".into(),
+        KeyCode::Char(' ') => texts.phrase(Phrase::KeySpace).into(),
         KeyCode::Char(character) => character.to_string(),
-        KeyCode::Enter => "Enter".into(),
-        KeyCode::Tab => "Tab".into(),
-        KeyCode::BackTab => "Shift+Tab".into(),
-        KeyCode::Up => glyphs.key_up.into(),
-        KeyCode::Down => glyphs.key_down.into(),
-        KeyCode::Left => glyphs.key_left.into(),
-        KeyCode::Right => glyphs.key_right.into(),
-        KeyCode::PageUp => "RePág".into(),
-        KeyCode::PageDown => "AvPág".into(),
-        KeyCode::Home => "Inicio".into(),
-        KeyCode::End => "Fin".into(),
-        KeyCode::Backspace => "Retroceso".into(),
-        KeyCode::Delete => "Supr".into(),
+        KeyCode::Enter => ENTER_KEY.into(),
+        KeyCode::Tab => TAB_KEY.into(),
+        KeyCode::BackTab => BACK_TAB_KEY.into(),
+        KeyCode::Up => arrow(|arrows| arrows.up, Phrase::KeyUp),
+        KeyCode::Down => arrow(|arrows| arrows.down, Phrase::KeyDown),
+        KeyCode::Left => arrow(|arrows| arrows.left, Phrase::KeyLeft),
+        KeyCode::Right => arrow(|arrows| arrows.right, Phrase::KeyRight),
+        KeyCode::PageUp => texts.phrase(Phrase::KeyPageUp).into(),
+        KeyCode::PageDown => texts.phrase(Phrase::KeyPageDown).into(),
+        KeyCode::Home => texts.phrase(Phrase::KeyHome).into(),
+        KeyCode::End => texts.phrase(Phrase::KeyEnd).into(),
+        KeyCode::Backspace => texts.phrase(Phrase::KeyBackspace).into(),
+        KeyCode::Delete => texts.phrase(Phrase::KeyDelete).into(),
         other => format!("{other:?}"),
     }
 }
@@ -406,6 +432,7 @@ fn key_name(code: KeyCode, glyphs: &Glyphs) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::i18n::{English, Spanish};
     use crate::tui::glyphs::{ASCII, UNICODE};
 
     fn key(code: KeyCode, modifiers: KeyModifiers) -> KeyEvent {
@@ -440,7 +467,10 @@ mod tests {
             Action::ShowView(ViewKind::Queue)
         );
         for view in ViewKind::ALL {
-            assert!(key_label(view_action(view), &UNICODE).is_some(), "{view:?}");
+            assert!(
+                key_label(view_action(view), &UNICODE, &English).is_some(),
+                "{view:?}"
+            );
         }
     }
 
@@ -472,7 +502,7 @@ mod tests {
     }
 
     fn all_entries(glyphs: &Glyphs) -> Vec<HelpEntry> {
-        help_sections(glyphs)
+        help_sections(glyphs, &Spanish)
             .into_iter()
             .flat_map(|section| section.entries)
             .collect()
@@ -483,23 +513,26 @@ mod tests {
         let entries = all_entries(&UNICODE);
         let views = entries
             .iter()
-            .find(|entry| entry.description == GO_TO_VIEW)
+            .find(|entry| entry.description == Phrase::GoToView)
             .unwrap();
         assert_eq!(views.keys, "1 2 3 4 5 7");
         let quit = entries
             .iter()
-            .find(|entry| entry.description == "Salir")
+            .find(|entry| entry.description == Phrase::Quit)
             .unwrap();
         assert_eq!(quit.keys, "q Ctrl+c");
-        let mut descriptions: Vec<_> = BINDINGS.iter().map(|binding| binding.description).collect();
-        descriptions.sort_unstable();
-        descriptions.dedup();
+        let mut descriptions: Vec<_> = Vec::new();
+        for binding in BINDINGS {
+            if !descriptions.contains(&binding.description) {
+                descriptions.push(binding.description);
+            }
+        }
         assert_eq!(entries.len(), descriptions.len());
     }
 
     #[test]
     fn help_sections_follow_their_order() {
-        let sections = help_sections(&UNICODE);
+        let sections = help_sections(&UNICODE, &English);
         let groups: Vec<_> = sections.iter().map(|section| section.group).collect();
         assert_eq!(groups, HelpGroup::ALL);
         assert!(sections.iter().all(|section| !section.entries.is_empty()));
@@ -508,24 +541,28 @@ mod tests {
     #[test]
     fn key_label_is_the_first_key_of_the_action() {
         assert_eq!(
-            key_label(Action::Activate, &UNICODE).as_deref(),
+            key_label(Action::Activate, &UNICODE, &English).as_deref(),
             Some("Enter")
         );
         assert_eq!(
-            key_label(Action::TogglePause, &UNICODE).as_deref(),
+            key_label(Action::TogglePause, &UNICODE, &English).as_deref(),
             Some("p")
         );
-        assert_eq!(key_label(Action::ToggleHelp, &ASCII).as_deref(), Some("?"));
+        assert_eq!(
+            key_label(Action::ToggleHelp, &ASCII, &English).as_deref(),
+            Some("?")
+        );
     }
 
     #[test]
     fn labels_are_readable() {
-        assert_eq!(keys_label(&BINDINGS[1], &UNICODE), "Ctrl+c");
+        assert_eq!(keys_label(&BINDINGS[1], &UNICODE, &Spanish), "Ctrl+c");
         let pause = BINDINGS
             .iter()
             .find(|binding| binding.action == Action::TogglePause)
             .unwrap();
-        assert_eq!(keys_label(pause, &UNICODE), "p Espacio");
+        assert_eq!(keys_label(pause, &UNICODE, &Spanish), "p Espacio");
+        assert_eq!(keys_label(pause, &UNICODE, &English), "p Space");
     }
 
     #[test]
@@ -534,17 +571,14 @@ mod tests {
             .iter()
             .find(|binding| binding.action == Action::Navigate(Navigation::Next))
             .unwrap();
+        let arrows = UNICODE.arrow_keys.unwrap();
         assert_eq!(
-            keys_label(down, &UNICODE),
-            format!("j {}", UNICODE.key_down)
+            keys_label(down, &UNICODE, &English),
+            format!("j {}", arrows.down)
         );
-        assert_eq!(keys_label(down, &ASCII), format!("j {}", ASCII.key_down));
-        let unicode_arrows = [
-            UNICODE.key_up,
-            UNICODE.key_down,
-            UNICODE.key_left,
-            UNICODE.key_right,
-        ];
+        assert_eq!(keys_label(down, &ASCII, &English), "j Down");
+        assert_eq!(keys_label(down, &ASCII, &Spanish), "j Abajo");
+        let unicode_arrows = [arrows.up, arrows.down, arrows.left, arrows.right];
         for entry in all_entries(&ASCII) {
             assert!(
                 !unicode_arrows

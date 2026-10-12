@@ -19,6 +19,8 @@ use ratatui::text::{Line, Span};
 
 use super::{draw_line, text_row};
 use crate::domain::{VisualContent, VisualFrame, VisualRequest, VisualizerStyle};
+use crate::i18n::{Catalog, Message, Phrase};
+use crate::repository::Error;
 use crate::service::VisualState;
 use crate::tui::glyphs::Glyphs;
 use crate::tui::state::{AppState, VisualView};
@@ -28,8 +30,6 @@ use crate::tui::views::theme;
 use crate::tui::views::widgets::{centered_message, spread};
 
 const TITLE_ROWS: u16 = 1;
-const TITLE: &str = "Visualizador";
-const NO_SIGNAL: &str = "sin señal";
 const PART_GAP: &str = "  ";
 /// Entre los puntos del indicador de páginas.
 const PAGE_GAP: &str = " ";
@@ -42,11 +42,11 @@ pub fn render(frame: &mut Frame, area: Rect, state: &mut AppState, context: &Con
     let content_area = text_row(body);
     view.request = Some(request(view.style, content_area, context));
     if !title.is_empty() {
-        draw_title(frame, text_row(title), view, context.glyphs);
+        draw_title(frame, text_row(title), view, context);
     }
     match &view.state {
         VisualState::Frame(visual) => draw_frame(frame, content_area, visual, view.style, context),
-        VisualState::Unavailable(reason) => draw_help(frame, body, view, reason),
+        VisualState::Unavailable(error) => draw_help(frame, body, view, error, context.texts),
     }
 }
 
@@ -74,7 +74,8 @@ fn draw_frame(
         return;
     }
     if !visual.signal && visual.content.is_flat() {
-        return centered_message(frame, area, Line::styled(NO_SIGNAL, theme::MUTED));
+        let no_signal = context.phrase(Phrase::NoSignal);
+        return centered_message(frame, area, Line::styled(no_signal, theme::MUTED));
     }
     match &visual.content {
         VisualContent::Bars(bands) => bars::render(frame, area, bands, context),
@@ -94,18 +95,24 @@ fn draw_frame(
 
 /// `Visualizador: Barras  ● ○ ○ ○ ○ ○  1/6` y, a la derecha, los datos de la forma.
 /// Sin FIFO, solo `Visualizador` y `sin señal`.
-fn draw_title(frame: &mut Frame, area: Rect, view: &VisualView, glyphs: &Glyphs) {
+fn draw_title(frame: &mut Frame, area: Rect, view: &VisualView, context: &Context<'_>) {
+    let glyphs = context.glyphs;
+    let title = context.phrase(Phrase::VisualizerTitle);
     let (left, details) = match &view.state {
-        VisualState::Unavailable(_) => (Line::styled(TITLE, theme::BOLD), NO_SIGNAL.to_owned()),
+        VisualState::Unavailable(_) => (
+            Line::styled(title, theme::BOLD),
+            context.phrase(Phrase::NoSignal).to_owned(),
+        ),
         VisualState::Frame(visual) => {
-            let name = format!("{TITLE}: {}", visualizer_style_name(view.style));
+            let style = context.phrase(visualizer_style_name(view.style));
+            let name = format!("{title}: {style}");
             let left = Line::from(vec![
                 Span::styled(name, theme::BOLD),
                 Span::raw(PART_GAP),
                 Span::styled(page_indicator(view, glyphs), theme::MUTED),
             ]);
             let details = if visual.content.style() == view.style {
-                details(&visual.content, view.request)
+                details(&visual.content, view.request, context.texts)
             } else {
                 String::new()
             };
@@ -145,34 +152,40 @@ fn page_indicator(view: &VisualView, glyphs: &Glyphs) -> String {
     )
 }
 
-fn details(content: &VisualContent, request: Option<VisualRequest>) -> String {
+fn details(content: &VisualContent, request: Option<VisualRequest>, texts: &dyn Catalog) -> String {
     match content {
-        VisualContent::Bars(bands) => bars::details(bands),
-        VisualContent::Mirror { left, .. } => mirror::details(left),
-        VisualContent::Wave { synced, span, .. } => wave::details(*synced, *span),
-        VisualContent::Waterfall { .. } => request.map(waterfall::details).unwrap_or_default(),
-        VisualContent::Vectorscope { points, .. } => vectorscope::details(points.len()),
-        VisualContent::Meters { .. } => meters::details(),
+        VisualContent::Bars(bands) => bars::details(bands, texts),
+        VisualContent::Mirror { left, .. } => mirror::details(left, texts),
+        VisualContent::Wave { synced, span, .. } => wave::details(*synced, *span, texts),
+        VisualContent::Waterfall { .. } => request
+            .map(|request| waterfall::details(request, texts))
+            .unwrap_or_default(),
+        VisualContent::Vectorscope { points, .. } => vectorscope::details(points.len(), texts),
+        VisualContent::Meters { .. } => meters::details(texts),
     }
 }
 
 /// Qué falta y cómo configurarlo.
-fn draw_help(frame: &mut Frame, area: Rect, view: &VisualView, reason: &str) {
+fn draw_help(frame: &mut Frame, area: Rect, view: &VisualView, error: &Error, texts: &dyn Catalog) {
     let source = &view.source;
+    let cannot_read = texts.message(&Message::CannotRead { source, error });
     let lines = [
         String::new(),
-        format!("  No se puede leer {source} ({reason})."),
+        format!("  {cannot_read}"),
         String::new(),
-        "  Agregá una salida fifo en mpd.conf y reiniciá MPD:".to_owned(),
+        format!("  {}", texts.phrase(Phrase::FifoAddOutput)),
         String::new(),
         "      audio_output {".to_owned(),
         "          type   \"fifo\"".to_owned(),
-        "          name   \"visualizador\"".to_owned(),
+        format!(
+            "          name   \"{}\"",
+            texts.phrase(Phrase::FifoOutputName)
+        ),
         format!("          path   \"{source}\""),
         format!("          format \"{}\"", view.format),
         "      }".to_owned(),
         String::new(),
-        "  Si usás otra ruta o formato, configurá visualizer_fifo y visualizer_format.".to_owned(),
+        format!("  {}", texts.phrase(Phrase::FifoOtherPath)),
     ];
     let rows = Layout::vertical(vec![Constraint::Length(1); lines.len()]).split(text_row(area));
     for (text, row) in lines.into_iter().zip(rows.iter()) {

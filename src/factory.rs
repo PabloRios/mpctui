@@ -6,6 +6,7 @@ use tokio::sync::mpsc;
 
 use crate::config::{GlyphMode, Settings};
 use crate::domain::Password;
+use crate::i18n;
 use crate::repository::mpd::{Address, MpdClient, MpdConnector, ReconnectingTransport};
 use crate::repository::{FifoPcmSource, LRCLIB_URL, LocalLyricsFiles, LrclibProvider, Result};
 use crate::service::{
@@ -62,6 +63,7 @@ pub async fn build_app(settings: &Settings) -> Result<App<MpdBackend>> {
     tokio::spawn(watcher.run());
     let appearance = Appearance {
         glyphs: glyphs_for(settings.glyph_mode),
+        texts: i18n::catalog(settings.language),
         progress_bars: ProgressBars {
             album: settings.album_progress,
             queue: settings.queue_progress,

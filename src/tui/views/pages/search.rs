@@ -7,15 +7,14 @@ use ratatui::text::{Line, Span};
 
 use super::{GroupedLook, draw_grouped, draw_line, text_row};
 use crate::domain::Tag;
-use crate::tui::action::{Action, key_label};
+use crate::i18n::{Message, Phrase};
+use crate::tui::action::Action;
 use crate::tui::prompt::PromptKind;
 use crate::tui::state::{AppState, SEARCH_FIELDS, SearchView};
 use crate::tui::views::chrome::{self, Context};
-use crate::tui::views::format::{plural, tag_label};
+use crate::tui::views::format::tag_label;
 use crate::tui::views::theme;
 use crate::tui::views::widgets::{SongColumns, spread};
-
-const FIELD_HINT: &str = "Tab cambia";
 
 pub fn render(frame: &mut Frame, area: Rect, state: &mut AppState, context: &Context<'_>) {
     let [query_area, summary_area, rule_area, list_area] = Layout::vertical([
@@ -35,14 +34,17 @@ pub fn render(frame: &mut Frame, area: Rect, state: &mut AppState, context: &Con
         prompt.input.as_str()
     });
     let mut query = vec![
-        Span::styled("Buscar: ", theme::ACCENT),
+        Span::styled(
+            format!("{}: ", context.phrase(Phrase::Search)),
+            theme::ACCENT,
+        ),
         Span::raw(shown.to_owned()),
     ];
     if editing.is_some() {
         query.push(Span::styled(context.glyphs.input_cursor, theme::ACCENT));
     }
     let query_area = text_row(query_area);
-    let fields = fields_line(search.field);
+    let fields = fields_line(search.field, context);
     let line = spread(Line::from(query), fields, query_area.width, context.glyphs);
     draw_line(frame, query_area, &line);
     let summary = summary_line(search, last_query, context);
@@ -62,17 +64,19 @@ pub fn render(frame: &mut Frame, area: Rect, state: &mut AppState, context: &Con
 }
 
 /// `campo: (todo)  artista   álbum   título  Tab cambia`.
-fn fields_line(active: Tag) -> Line<'static> {
-    let mut spans = vec![Span::styled("campo:", theme::MUTED)];
+fn fields_line(active: Tag, context: &Context<'_>) -> Line<'static> {
+    let field_label = context.phrase(Phrase::FieldLabel);
+    let mut spans = vec![Span::styled(format!("{field_label}:"), theme::MUTED)];
     for field in SEARCH_FIELDS {
-        let label = tag_label(field).to_lowercase();
+        let label = context.phrase(tag_label(field)).to_lowercase();
         spans.push(if field == active {
             Span::styled(format!(" ({label})"), theme::ACCENT)
         } else {
             Span::styled(format!("  {label} "), theme::MUTED)
         });
     }
-    spans.push(Span::styled(format!("  {FIELD_HINT}"), theme::MUTED));
+    let hint = context.phrase(Phrase::FieldHint);
+    spans.push(Span::styled(format!("  {hint}"), theme::MUTED));
     Line::from(spans)
 }
 
@@ -80,15 +84,14 @@ fn summary_line(search: &SearchView, query: Option<&str>, context: &Context<'_>)
     let results = search.results.items().len();
     let text = match query {
         None => {
-            let key = key_label(Action::StartSearch, context.glyphs).unwrap_or_default();
-            format!("{key} busca en la biblioteca")
+            let key = context.key(Action::StartSearch);
+            context.message(Message::SearchHint { key: &key })
         }
-        Some(query) if results == 0 => format!("Sin resultados para \"{query}\""),
-        Some(_) => format!(
-            "{} en {}",
-            plural(results, "resultado", "resultados"),
-            plural(search.results.timeline().runs.len(), "álbum", "álbumes")
-        ),
+        Some(query) if results == 0 => context.message(Message::NoResults { query }),
+        Some(_) => context.message(Message::ResultsInAlbums {
+            results,
+            albums: search.results.timeline().runs.len(),
+        }),
     };
     Line::styled(text, theme::MUTED)
 }

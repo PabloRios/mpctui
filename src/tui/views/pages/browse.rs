@@ -6,10 +6,11 @@ use ratatui::text::{Line, Span};
 
 use super::{breadcrumbs, draw_line, draw_list, text_row};
 use crate::domain::{Entry, PATH_SEPARATOR};
+use crate::i18n::Message;
 use crate::tui::glyphs::Glyphs;
 use crate::tui::state::AppState;
 use crate::tui::views::chrome::{self, Context};
-use crate::tui::views::format::{fit_start, format_duration, plural};
+use crate::tui::views::format::{fit_start, format_duration};
 use crate::tui::views::theme;
 use crate::tui::views::widgets::{ListRow, RowSource, spread};
 
@@ -34,7 +35,7 @@ pub fn render(frame: &mut Frame, area: Rect, state: &mut AppState, context: &Con
         .filter(|segment| !segment.is_empty());
     let crumbs = breadcrumbs(std::iter::once(ROOT_LABEL).chain(segments), context);
     let count = Line::styled(
-        plural(browse.entries.items().len(), "entrada", "entradas"),
+        context.message(Message::EntryCount(browse.entries.items().len())),
         theme::MUTED,
     );
     let crumbs_area = text_row(crumbs_area);

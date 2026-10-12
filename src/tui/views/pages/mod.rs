@@ -78,6 +78,7 @@ fn draw_grouped(
         songs: items,
         timeline,
         glyphs: context.glyphs,
+        texts: context.texts,
         columns: look.columns,
         now_playing: look.now_playing,
         highlight: look.highlight,

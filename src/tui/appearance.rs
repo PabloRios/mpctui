@@ -1,11 +1,15 @@
-//! Cómo se ve la interfaz. Lo arma el composition root a partir de la configuración.
+//! Cómo se ve la interfaz (glifos, idioma, barras). Lo arma el composition root a
+//! partir de la configuración.
 
 use super::glyphs::Glyphs;
 use crate::domain::VisualizerStyle;
+use crate::i18n::Catalog;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy)]
 pub struct Appearance {
     pub glyphs: &'static Glyphs,
+    /// Textos en el idioma configurado.
+    pub texts: &'static dyn Catalog,
     pub progress_bars: ProgressBars,
     /// Forma con la que arranca el visualizador.
     pub visualizer_style: VisualizerStyle,

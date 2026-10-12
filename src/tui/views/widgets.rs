@@ -11,11 +11,12 @@ use ratatui::widgets::{Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarStat
 
 use super::format::{
     album_title, cell, duration_or_unknown, fit_line, format_duration, highlight_matches,
-    or_missing, saturating_u16, songs_count,
+    or_missing, saturating_u16,
 };
 use super::gauges::{meter, meter_line, meter_width};
 use super::theme;
 use crate::domain::{PlayState, Song, Timeline};
+use crate::i18n::{Catalog, Message, Phrase};
 use crate::tui::glyphs::Glyphs;
 
 /// Columna de la barra de desplazamiento, a la derecha de toda lista.
@@ -40,6 +41,8 @@ const POSITION_MIN_DIGITS: usize = 3;
 const GROUP_RULE_EDGE: usize = 2;
 /// En una separadora: el espacio después del título y al menos una celda de regla.
 const SEPARATOR_MIN_FILL: usize = 2;
+/// Cabecera de la columna de la pista: igual en todos los idiomas.
+const TRACK_HEADER: &str = "#";
 
 /// Una fila visible.
 pub enum ListRow<'a> {
@@ -269,6 +272,7 @@ pub struct GroupedSongRows<'a> {
     pub songs: &'a [Song],
     pub timeline: &'a Timeline,
     pub glyphs: &'a Glyphs,
+    pub texts: &'a dyn Catalog,
     pub columns: SongColumns,
     pub now_playing: Option<NowPlaying>,
     /// Texto buscado, para resaltarlo.
@@ -355,6 +359,7 @@ impl GroupedSongRows<'_> {
     pub fn column_header(&self, width: u16) -> Line<'static> {
         let widths = self.widths(width);
         let glyphs = self.glyphs;
+        let texts = self.texts;
         let header = |text: &'static str, width: u16, alignment| {
             let (width, spans) = table_cell(Line::from(text), width, alignment, glyphs);
             let spans: Vec<Span<'static>> = spans
@@ -365,11 +370,27 @@ impl GroupedSongRows<'_> {
         };
         join_cells(vec![
             header("", widths.state, Alignment::Left),
-            header("pos", widths.position, Alignment::Right),
-            header("#", widths.track, Alignment::Right),
-            header("Título", widths.title, Alignment::Left),
-            header("Álbum", widths.album, Alignment::Left),
-            header("dur", widths.duration, Alignment::Right),
+            header(
+                texts.phrase(Phrase::ColumnPosition),
+                widths.position,
+                Alignment::Right,
+            ),
+            header(TRACK_HEADER, widths.track, Alignment::Right),
+            header(
+                texts.phrase(Phrase::TagTitle),
+                widths.title,
+                Alignment::Left,
+            ),
+            header(
+                texts.phrase(Phrase::TagAlbum),
+                widths.album,
+                Alignment::Left,
+            ),
+            header(
+                texts.phrase(Phrase::ColumnDuration),
+                widths.duration,
+                Alignment::Right,
+            ),
         ])
         .style(theme::TABLE_HEADER)
     }
@@ -439,7 +460,7 @@ impl GroupedSongRows<'_> {
     fn separator_line(&self, run_index: usize, width: u16) -> Line<'static> {
         let run = self.timeline.runs[run_index];
         let rule = self.glyphs.group_rule;
-        let mut summary = songs_count(run.song_count);
+        let mut summary = self.texts.message(&Message::SongCount(run.song_count));
         if let Some(duration) = run.duration {
             summary.push_str(&format!("  {}", format_duration(duration)));
         }
@@ -447,7 +468,7 @@ impl GroupedSongRows<'_> {
         let left = format!("{edge} ");
         let right = format!(" {summary} {edge}");
         let fixed = Span::raw(&left).width() + Span::raw(&right).width() + SEPARATOR_MIN_FILL;
-        let title = album_title(&self.songs[run.first_index]);
+        let title = album_title(&self.songs[run.first_index], self.texts);
         let title = owned_line(highlight_matches(
             &title,
             self.highlight,
@@ -618,6 +639,7 @@ pub fn panel_title(text: String, focused: bool) -> Span<'static> {
 mod tests {
     use super::*;
     use crate::domain::timeline;
+    use crate::i18n::Spanish;
     use crate::tui::glyphs::ASCII;
 
     fn album_song(album: &str) -> Song {
@@ -634,6 +656,7 @@ mod tests {
             songs,
             timeline,
             glyphs: &ASCII,
+            texts: &Spanish,
             columns: SongColumns {
                 position: true,
                 album: true,

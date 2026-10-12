@@ -5,12 +5,12 @@ use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::text::Line;
 
 use super::{breadcrumbs, draw_line, draw_list, text_row};
+use crate::i18n::{Catalog, Phrase};
 use crate::tui::state::{AppState, LibraryColumn};
 use crate::tui::views::chrome::{self, Context};
 use crate::tui::views::format::{fit_start, or_unnamed};
 use crate::tui::views::widgets::{ItemRows, LibrarySongRows, RowSource, panel_title};
 
-const LIBRARY_ROOT_LABEL: &str = "Biblioteca";
 const ARTISTS_SHARE: u16 = 26;
 const ALBUMS_SHARE: u16 = 32;
 /// Separación entre columnas: la ocupa el divisor.
@@ -25,11 +25,18 @@ pub fn render(frame: &mut Frame, area: Rect, state: &mut AppState, context: &Con
     ])
     .areas(area);
     let library = &mut state.library;
+    let texts = context.texts;
     let crumbs = breadcrumbs(
         [
-            Some(LIBRARY_ROOT_LABEL),
-            library.artists.selected().map(|name| or_unnamed(name)),
-            library.albums.selected().map(|name| or_unnamed(name)),
+            Some(context.phrase(Phrase::ViewLibrary)),
+            library
+                .artists
+                .selected()
+                .map(|name| or_unnamed(name, texts)),
+            library
+                .albums
+                .selected()
+                .map(|name| or_unnamed(name, texts)),
         ]
         .into_iter()
         .flatten(),
@@ -54,14 +61,23 @@ pub fn render(frame: &mut Frame, area: Rect, state: &mut AppState, context: &Con
     let focus = library.focus;
     let titles = [
         (
-            "Artista",
+            Phrase::TagArtist,
             library.artists.items().len(),
             LibraryColumn::Artists,
         ),
-        ("Álbum", library.albums.items().len(), LibraryColumn::Albums),
-        ("Tema", library.songs.items().len(), LibraryColumn::Songs),
+        (
+            Phrase::TagAlbum,
+            library.albums.items().len(),
+            LibraryColumn::Albums,
+        ),
+        (
+            Phrase::ColumnSong,
+            library.songs.items().len(),
+            LibraryColumn::Songs,
+        ),
     ];
     for (column, (name, count, kind)) in columns.iter().zip(titles) {
+        let name = context.phrase(name);
         let title = panel_title(format!("{name} ({count})"), focus == kind);
         let title_area = Rect::new(column.x, titles_area.y, column.width, 1);
         draw_line(frame, title_area, &Line::from(title));
@@ -74,7 +90,7 @@ pub fn render(frame: &mut Frame, area: Rect, state: &mut AppState, context: &Con
         context,
         &mut library.artists,
         focus == LibraryColumn::Artists,
-        name_rows,
+        |names| name_rows(names, texts),
     );
     draw_list(
         frame,
@@ -82,7 +98,7 @@ pub fn render(frame: &mut Frame, area: Rect, state: &mut AppState, context: &Con
         context,
         &mut library.albums,
         focus == LibraryColumn::Albums,
-        name_rows,
+        |names| name_rows(names, texts),
     );
     let glyphs = context.glyphs;
     draw_list(
@@ -99,9 +115,9 @@ pub fn render(frame: &mut Frame, area: Rect, state: &mut AppState, context: &Con
     }
 }
 
-fn name_rows<'a>(names: &'a [String]) -> impl RowSource + 'a {
+fn name_rows<'a>(names: &'a [String], texts: &'a dyn Catalog) -> impl RowSource + 'a {
     ItemRows {
         items: names,
-        line: |name: &'a String| Line::from(or_unnamed(name)),
+        line: move |name: &'a String| Line::from(or_unnamed(name, texts)),
     }
 }

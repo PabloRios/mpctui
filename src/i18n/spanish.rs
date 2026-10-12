@@ -1,0 +1,375 @@
+//! Textos en español.
+
+use std::io;
+
+use super::{Catalog, Message, Phrase, counted, seconds_with_decimal};
+use crate::config::{
+    ConfigError, GLYPHS_VARIABLE, PORT_VARIABLE, glyph_choices, language_choices,
+    lyrics_source_choices, visualizer_style_choices,
+};
+use crate::domain::{
+    InputError, MAX_VOLUME, PATH_SEPARATOR, PCM_BITS, PCM_MAX_CHANNELS, PCM_MAX_SAMPLE_RATE,
+    PCM_MIN_SAMPLE_RATE,
+};
+use crate::repository::{Error, HttpFailure};
+
+const DECIMAL_SEPARATOR: char = ',';
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Spanish;
+
+impl Catalog for Spanish {
+    fn phrase(&self, phrase: Phrase) -> &'static str {
+        match phrase {
+            Phrase::Quit => "Salir",
+            Phrase::ToggleHelp => "Mostrar u ocultar la ayuda",
+            Phrase::GoToView => "Ir a la vista",
+            Phrase::CycleVisualizer => "Visualizador / otra forma",
+            Phrase::NextView => "Vista siguiente",
+            Phrase::PreviousView => "Vista anterior",
+            Phrase::MoveDown => "Bajar",
+            Phrase::MoveUp => "Subir",
+            Phrase::PageDown => "Bajar una página",
+            Phrase::PageUp => "Subir una página",
+            Phrase::GoToFirst => "Ir al principio",
+            Phrase::GoToLast => "Ir al final",
+            Phrase::Activate => "Reproducir / entrar / cargar",
+            Phrase::Forward => "Entrar / columna siguiente",
+            Phrase::Back => "Volver / columna anterior",
+            Phrase::AddSelection => "Agregar (playlist: cargar)",
+            Phrase::AddAll => "Agregar todos",
+            Phrase::DeleteSelection => "Borrar (playlist: confirma)",
+            Phrase::TogglePause => "Pausa / reanudar",
+            Phrase::Stop => "Detener",
+            Phrase::NextSong => "Tema siguiente",
+            Phrase::PreviousSong => "Tema anterior",
+            Phrase::VolumeUp => "Subir volumen",
+            Phrase::VolumeDown => "Bajar volumen",
+            Phrase::SeekForward => "Adelantar",
+            Phrase::SeekBackward => "Retroceder",
+            Phrase::ClearQueue => "Vaciar la cola (confirma)",
+            Phrase::SaveQueue => "Guardar la cola como playlist",
+            Phrase::Search => "Buscar",
+            Phrase::Random => "Aleatorio",
+            Phrase::Repeat => "Repetir",
+            Phrase::CycleSingle => "Single: no, sí, una vez",
+            Phrase::Consume => "Consumir",
+            Phrase::ShowPlaying => "Ir al tema que suena",
+            Phrase::HelpNavigation => "Navegación",
+            Phrase::HelpLists => "Cola y listas",
+            Phrase::HelpPlayback => "Reproducción",
+            Phrase::HelpModes => "Modos",
+            Phrase::HelpOther => "Otros",
+            Phrase::HelpTitle => "Ayuda",
+            Phrase::HelpClose => "cualquier tecla cierra",
+            Phrase::KeySpace => "Espacio",
+            Phrase::KeyPageUp => "RePág",
+            Phrase::KeyPageDown => "AvPág",
+            Phrase::KeyHome => "Inicio",
+            Phrase::KeyEnd => "Fin",
+            Phrase::KeyBackspace => "Retroceso",
+            Phrase::KeyDelete => "Supr",
+            Phrase::KeyUp => "Arriba",
+            Phrase::KeyDown => "Abajo",
+            Phrase::KeyLeft => "Izq",
+            Phrase::KeyRight => "Der",
+            Phrase::HintPlay => "reproducir",
+            Phrase::HintDelete => "borrar",
+            Phrase::HintShowPlaying => "ir al actual",
+            Phrase::HintSearch => "buscar",
+            Phrase::HintHelp => "ayuda",
+            Phrase::HintOpen => "entrar",
+            Phrase::HintBack => "volver",
+            Phrase::HintAdd => "agregar",
+            Phrase::HintAddAlbum => "agregar álbum",
+            Phrase::HintOpenOrAdd => "entrar o agregar",
+            Phrase::HintParent => "subir",
+            Phrase::HintAddAll => "agregar todos",
+            Phrase::HintLoad => "cargar",
+            Phrase::HintSaveQueue => "guardar cola",
+            Phrase::HintPause => "pausa",
+            Phrase::HintNextStyle => "siguiente forma",
+            Phrase::SearchKeys => "Enter busca   Tab cambia el campo   Esc cancela",
+            Phrase::SaveQueueTitle => "Guardar cola como playlist",
+            Phrase::ConfirmTitle => "Confirmar",
+            Phrase::NameLabel => "Nombre",
+            Phrase::SaveKeys => "Enter guarda   Esc cancela",
+            Phrase::Yes => "sí",
+            Phrase::No => "no",
+            Phrase::ConfirmKey => "s",
+            Phrase::ViewQueue => "Cola",
+            Phrase::ViewLibrary => "Biblioteca",
+            Phrase::ViewLibraryShort => "Bibl.",
+            Phrase::ViewBrowse => "Directorios",
+            Phrase::ViewBrowseShort => "Dir.",
+            Phrase::ViewSearch => "Búsqueda",
+            Phrase::ViewSearchShort => "Búsq.",
+            Phrase::ViewPlaylists => "Playlists",
+            Phrase::ViewPlaylistsShort => "Playl.",
+            Phrase::ViewVisualizer => "Visual",
+            Phrase::ViewLyrics => "Letra",
+            Phrase::Disconnected => "sin conexión",
+            Phrase::Connecting => "conectando",
+            Phrase::Playing => "reproduciendo",
+            Phrase::Paused => "en pausa",
+            Phrase::Stopped => "detenido",
+            Phrase::NothingPlaying => "sin reproducción",
+            Phrase::Live => "en vivo",
+            Phrase::VolumeUnavailable => "n/d",
+            Phrase::VolumeLabel => "vol",
+            Phrase::PositionLabel => "pos",
+            Phrase::SongLabel => "tema",
+            Phrase::AlbumLabel => "álbum",
+            Phrase::QueueLabel => "cola",
+            Phrase::ModeRandom => "aleatorio",
+            Phrase::ModeRepeat => "repetir",
+            Phrase::ModeSingle => "single",
+            Phrase::ModeConsume => "consumir",
+            Phrase::Unnamed => "(sin nombre)",
+            Phrase::NoAlbum => "[sin álbum]",
+            Phrase::TagAny => "Todo",
+            Phrase::TagArtist => "Artista",
+            Phrase::TagAlbumArtist => "Artista del álbum",
+            Phrase::TagAlbum => "Álbum",
+            Phrase::TagTitle => "Título",
+            Phrase::ColumnPosition => "pos",
+            Phrase::ColumnDuration => "dur",
+            Phrase::ColumnSong => "Tema",
+            Phrase::Mono => "mono",
+            Phrase::Stereo => "estéreo",
+            Phrase::FloatSamples => "flotante",
+            Phrase::StyleBars => "Barras",
+            Phrase::StyleMirror => "Espejo estéreo",
+            Phrase::StyleWave => "Onda",
+            Phrase::StyleWaterfall => "Cascada",
+            Phrase::StyleVectorscope => "Vectorscopio",
+            Phrase::StyleMeters => "Medidores",
+            Phrase::VisualizerTitle => "Visualizador",
+            Phrase::NoSignal => "sin señal",
+            Phrase::FifoAddOutput => "Agregá una salida fifo en mpd.conf y reiniciá MPD:",
+            Phrase::FifoOutputName => "visualizador",
+            Phrase::FifoOtherPath => {
+                "Si usás otra ruta o formato, configurá visualizer_fifo y visualizer_format."
+            }
+            Phrase::MetersDetail => "RMS y pico por canal",
+            Phrase::Peak => "pico",
+            Phrase::Now => "ahora",
+            Phrase::Correlation => "correlación",
+            Phrase::NoSong => "Sin tema en reproducción",
+            Phrase::SearchingLyrics => "buscando letra",
+            Phrase::Instrumental => "Instrumental",
+            Phrase::UntitledHint => "Al tema le faltan el artista o el título en los tags.",
+            Phrase::LastError => "Último error",
+            Phrase::Synced => "sincronizada",
+            Phrase::PlainText => "texto",
+            Phrase::SourceCache => "caché",
+            Phrase::SourceSongFolder => "carpeta del tema",
+            Phrase::SourceTags => "etiquetas",
+            Phrase::FieldLabel => "campo",
+            Phrase::FieldHint => "Tab cambia",
+            Phrase::ConnectionRecovered => "Conexión recuperada",
+            Phrase::LyricsDisabled => "Letras desactivadas (lyrics.enabled = false)",
+            Phrase::QueueCleared => "Cola vaciada",
+            Phrase::NoVolumeControl => "El servidor no tiene control de volumen",
+            Phrase::TerminalTooSmall => "La terminal es muy chica.",
+        }
+    }
+
+    fn message(&self, message: &Message<'_>) -> String {
+        match *message {
+            Message::SongCount(count) => songs(count),
+            Message::EntryCount(count) => counted(count, "entrada", "entradas"),
+            Message::ChannelCount(count) => format!("{count} canales"),
+            Message::ResultsInAlbums { results, albums } => format!(
+                "{} en {}",
+                counted(results, "resultado", "resultados"),
+                counted(albums, "álbum", "álbumes")
+            ),
+            Message::UpdatingLibrary { elapsed } => format!("actualizando biblioteca {elapsed}"),
+            Message::RetryIn { countdown } => format!("reintento en {countdown}"),
+            Message::Attempt(attempt) => format!("(intento {attempt})"),
+            Message::QueueSummary(count) => format!("cola: {}", songs(count)),
+            Message::ConfirmClearQueue(count) => {
+                format!("¿Vaciar la cola? Se quitan {}.", songs(count))
+            }
+            Message::ConfirmRemovePlaylist(name) => format!("¿Borrar la playlist «{name}»?"),
+            Message::TerminalSize {
+                minimum_width,
+                minimum_height,
+                width,
+                height,
+            } => format!("Mínimo: {minimum_width} x {minimum_height}. Actual: {width} x {height}."),
+            Message::EmptyQueue { key } => {
+                format!("La cola está vacía. {key} abre la biblioteca para agregar temas.")
+            }
+            Message::NoPlaylists { key } => {
+                format!("No hay playlists guardadas. {key} guarda la cola como playlist.")
+            }
+            Message::SearchHint { key } => format!("{key} busca en la biblioteca"),
+            Message::NoResults { query } => format!("Sin resultados para \"{query}\""),
+            Message::LyricsNotFound { title } => {
+                format!("No se encontró la letra para «{title}»")
+            }
+            Message::CannotRead { source, error } => {
+                format!("No se puede leer {source} ({}).", unreadable(error))
+            }
+            Message::BarsDetail { bands, low, high } => {
+                format!("{bands} bandas  {low} - {high}")
+            }
+            Message::MirrorDetail { bands } => {
+                format!("{bands} bandas por canal  L arriba, R abajo")
+            }
+            Message::WaveDetail { span, synced } => {
+                let sync = if synced { "sincronizado" } else { "libre" };
+                format!("{} ms  {sync}", span.as_millis())
+            }
+            Message::WaterfallDetail { bands, seconds } => {
+                format!("{bands} bandas  últimos {seconds} s")
+            }
+            Message::VectorscopeDetail { points } => format!("M/S  {points} muestras"),
+            Message::MetersLegend {
+                window,
+                peak_glyph,
+                hold,
+            } => format!(
+                "barra = RMS ({} ms)   {peak_glyph} = pico retenido {}",
+                window.as_millis(),
+                seconds_with_decimal(hold, DECIMAL_SEPARATOR)
+            ),
+            Message::VisualizerChanged { style, key } => {
+                format!("Visualizador: {style} ({key}: siguiente forma)")
+            }
+            Message::ConnectionLost(error) => {
+                format!("Sin conexión con MPD: {}", failure(error))
+            }
+            Message::AddedToQueue(what) => format!("Agregado a la cola: {what}"),
+            Message::SongsAdded(count) => format!("Agregados a la cola: {}", songs(count)),
+            Message::ResultsFound(count) => counted(count, "resultado", "resultados"),
+            Message::QueueSaved(name) => format!("Cola guardada como «{name}»"),
+            Message::PlaylistDeleted(name) => format!("Playlist «{name}» borrada"),
+            Message::PlaylistLoaded(name) => format!("Playlist «{name}» agregada a la cola"),
+            Message::LibraryUpdated { elapsed } => format!("Biblioteca actualizada ({elapsed})"),
+            Message::Failure(error) => failure(error),
+            Message::Input(error) => input(error),
+            Message::Config(error) => config(error),
+            Message::ConnectFailed { address, error } => {
+                format!("no se pudo conectar a MPD en {address}: {}", failure(error))
+            }
+        }
+    }
+}
+
+fn songs(count: usize) -> String {
+    counted(count, "tema", "temas")
+}
+
+/// Por qué no se puede leer la salida fifo.
+fn unreadable(error: &Error) -> String {
+    match error {
+        Error::Io(io) if io.kind() == io::ErrorKind::NotFound => "no existe".to_owned(),
+        Error::Io(io) if io.kind() == io::ErrorKind::PermissionDenied => {
+            "sin permiso de lectura".to_owned()
+        }
+        Error::Io(io) => io.to_string(),
+        other => failure(other),
+    }
+}
+
+fn failure(error: &Error) -> String {
+    match error {
+        Error::Io(io) => format!("error de E/S: {io}"),
+        Error::Ack(ack) => format!("MPD: {ack}"),
+        Error::Protocol(detail) => format!("respuesta inválida de MPD: {detail}"),
+        Error::Closed => "la conexión con MPD se cerró".to_owned(),
+        Error::Http { service, failure } => format!("{service}: {}", http(failure)),
+    }
+}
+
+fn http(failure: &HttpFailure) -> String {
+    match failure {
+        HttpFailure::Timeout => "no respondió a tiempo".to_owned(),
+        HttpFailure::Connect => "no se pudo conectar".to_owned(),
+        HttpFailure::InvalidResponse => "respuesta inválida".to_owned(),
+        HttpFailure::Status(code) => format!("respondió {code}"),
+        HttpFailure::Other(detail) => detail.clone(),
+    }
+}
+
+fn input(error: &InputError) -> String {
+    match error {
+        InputError::VolumeOutOfRange(value) => {
+            format!("el volumen debe estar entre 0 y {MAX_VOLUME}; se recibió {value}")
+        }
+        InputError::EmptyText => "el texto no puede estar vacío".to_owned(),
+        InputError::ControlCharacter => {
+            "el texto no puede contener saltos de línea ni caracteres de control".to_owned()
+        }
+        InputError::PathSeparatorInName => {
+            format!("el nombre de la playlist no puede contener '{PATH_SEPARATOR}'")
+        }
+        InputError::MalformedPcmFormat(value) => format!(
+            "el formato PCM debe ser frecuencia:bits:canales (como \"44100:16:2\"), no {value:?}"
+        ),
+        InputError::SampleRateOutOfRange(rate) => format!(
+            "la frecuencia debe estar entre {PCM_MIN_SAMPLE_RATE} y {PCM_MAX_SAMPLE_RATE} Hz; se recibió {rate}"
+        ),
+        InputError::UnsupportedBits(bits) => {
+            format!("solo se admiten muestras de {PCM_BITS} bits; se recibió {bits}")
+        }
+        InputError::UnsupportedChannels(channels) => {
+            format!("solo se admiten 1 o {PCM_MAX_CHANNELS} canales; se recibió {channels}")
+        }
+    }
+}
+
+fn config(error: &ConfigError) -> String {
+    match error {
+        ConfigError::Read { path, source } => {
+            format!("no se pudo leer {}: {source}", path.display())
+        }
+        ConfigError::Parse { path, source } => {
+            format!("configuración inválida en {}: {source}", path.display())
+        }
+        ConfigError::InvalidPort(value) => {
+            format!("{PORT_VARIABLE} no es un puerto válido: {value:?}")
+        }
+        ConfigError::EmptyHost => "el host de MPD no puede estar vacío".to_owned(),
+        ConfigError::InvalidPassword(error) => {
+            format!("contraseña de MPD inválida: {}", input(error))
+        }
+        ConfigError::InvalidGlyphs(setting) => format!(
+            "{GLYPHS_VARIABLE} debe ser {}, no {:?}",
+            glyph_choices(),
+            setting.0
+        ),
+        ConfigError::InvalidLanguage(value) => {
+            format!("language debe ser {}, no {value:?}", language_choices())
+        }
+        ConfigError::EmptyVisualizerFifo => "visualizer_fifo no puede estar vacío".to_owned(),
+        ConfigError::InvalidVisualizerFormat(error) => {
+            format!("visualizer_format inválido: {}", input(error))
+        }
+        ConfigError::InvalidVisualizerStyle(value) => format!(
+            "visualizer_style debe ser {}, no {value:?}",
+            visualizer_style_choices()
+        ),
+        ConfigError::StereoStyleWithMonoFifo(value) => format!(
+            "visualizer_style = {value:?} necesita dos canales y visualizer_format tiene uno"
+        ),
+        ConfigError::UnknownLyricsSource(value) => format!(
+            "lyrics.sources admite {}, no {value:?}",
+            lyrics_source_choices()
+        ),
+        ConfigError::RepeatedLyricsSource(value) => format!("lyrics.sources repite {value:?}"),
+        ConfigError::EmptyLyricsSources => {
+            "lyrics.sources no puede estar vacía con las letras activadas".to_owned()
+        }
+        ConfigError::SongFolderWithoutMusicDirectory => {
+            "lyrics.sources incluye \"song_folder\" pero falta lyrics.music_directory".to_owned()
+        }
+        ConfigError::EmptyLyricsPath(field) => format!("lyrics.{field} no puede estar vacío"),
+        ConfigError::UnknownHomeDirectory(field) => {
+            format!("no se pudo saber el directorio del usuario para lyrics.{field}")
+        }
+    }
+}

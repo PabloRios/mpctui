@@ -8,6 +8,7 @@ use ratatui::layout::Rect;
 use super::canvas::DotCanvas;
 use super::correlation::correlation_line;
 use crate::domain::{ScopePoint, VisualRequest, VisualizerStyle};
+use crate::i18n::{Catalog, Message};
 use crate::tui::glyphs::{CellPlot, Plot};
 use crate::tui::views::chrome::Context;
 use crate::tui::views::format::saturating_u16;
@@ -37,8 +38,8 @@ pub fn request() -> VisualRequest {
 }
 
 /// `M/S  2048 muestras`.
-pub fn details(points: usize) -> String {
-    format!("{MID_LABEL}/S  {points} muestras")
+pub fn details(points: usize, texts: &dyn Catalog) -> String {
+    texts.message(&Message::VectorscopeDetail { points })
 }
 
 pub fn render(
@@ -71,7 +72,7 @@ pub fn render(
         draw_labels(buffer, area, square, y);
     }
     if let Some(y) = correlation_y {
-        let line = correlation_line(correlation, area.width, context.glyphs);
+        let line = correlation_line(correlation, area.width, context.glyphs, context.texts);
         let x = area.x + area.width.saturating_sub(saturating_u16(line.width())) / 2;
         buffer.set_line(x, y, &line, area.width);
     }

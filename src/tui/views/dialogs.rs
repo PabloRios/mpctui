@@ -6,10 +6,11 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Clear, Paragraph};
 
 use super::chrome::{Context, titled_block};
-use super::format::{fit_start, saturating_u16, songs_count};
+use super::format::{fit_start, saturating_u16};
 use super::theme;
+use crate::i18n::{Message, Phrase};
 use crate::tui::glyphs::Glyphs;
-use crate::tui::prompt::{CONFIRM_KEYS, Confirmation, DECLINE_KEYS, Prompt, PromptKind};
+use crate::tui::prompt::{Confirmation, DECLINE_KEYS, Prompt, PromptKind};
 use crate::tui::state::AppState;
 
 /// Bordes, filas en blanco y contenido: siempre cinco filas interiores.
@@ -20,11 +21,9 @@ const SAVE_WIDTH: u16 = 56;
 const PADDING: usize = 2;
 /// Columnas de los dos bordes.
 const BORDERS: u16 = 2;
-const SAVE_TITLE: &str = "Guardar cola como playlist";
-const CONFIRM_TITLE: &str = "Confirmar";
-const NAME_LABEL: &str = "Nombre: [";
+/// Entre la etiqueta y el campo, y al cerrar el campo: `Nombre: [texto]`.
+const FIELD_OPEN: &str = ": [";
 const FIELD_CLOSE: &str = "]";
-const SAVE_KEYS: &str = "Enter guarda   Esc cancela";
 const ANSWERS_GAP: &str = "        ";
 
 pub fn render(frame: &mut Frame, area: Rect, state: &AppState, context: &Context<'_>) {
@@ -33,21 +32,22 @@ pub fn render(frame: &mut Frame, area: Rect, state: &AppState, context: &Context
     };
     match &prompt.kind {
         PromptKind::Search => {}
-        PromptKind::SavePlaylist => save_dialog(frame, area, prompt, context.glyphs),
+        PromptKind::SavePlaylist => save_dialog(frame, area, prompt, context),
         PromptKind::Confirm(confirmation) => {
-            let question = question(confirmation, state);
-            confirm_dialog(frame, area, question, context.glyphs);
+            let question = question(confirmation, state, context);
+            confirm_dialog(frame, area, question, context);
         }
     }
 }
 
-fn question(confirmation: &Confirmation, state: &AppState) -> String {
+fn question(confirmation: &Confirmation, state: &AppState, context: &Context<'_>) -> String {
     match confirmation {
-        Confirmation::ClearQueue => format!(
-            "¿Vaciar la cola? Se quitan {}.",
-            songs_count(state.queue.items().len())
-        ),
-        Confirmation::RemovePlaylist(name) => format!("¿Borrar la playlist «{name}»?"),
+        Confirmation::ClearQueue => {
+            context.message(Message::ConfirmClearQueue(state.queue.items().len()))
+        }
+        Confirmation::RemovePlaylist(name) => {
+            context.message(Message::ConfirmRemovePlaylist(name.as_str()))
+        }
     }
 }
 
@@ -75,15 +75,18 @@ fn padded<'a>(spans: Vec<Span<'a>>) -> Line<'a> {
     Line::from(line)
 }
 
-fn confirm_dialog(frame: &mut Frame, area: Rect, question: String, glyphs: &Glyphs) {
+fn confirm_dialog(frame: &mut Frame, area: Rect, question: String, context: &Context<'_>) {
     let question_width = saturating_u16(Span::raw(&question).width());
     let width = (question_width + saturating_u16(PADDING * 2) + BORDERS).max(CONFIRM_MIN_WIDTH);
     let answers = Line::from(vec![
-        Span::styled(format!("[{}]", CONFIRM_KEYS[0]), theme::ACCENT),
-        Span::raw(" sí"),
+        Span::styled(
+            format!("[{}]", context.phrase(Phrase::ConfirmKey)),
+            theme::ACCENT,
+        ),
+        Span::raw(format!(" {}", context.phrase(Phrase::Yes))),
         Span::raw(ANSWERS_GAP),
         Span::styled(format!("[{}]", DECLINE_KEYS[0]), theme::ACCENT),
-        Span::raw(" no"),
+        Span::raw(format!(" {}", context.phrase(Phrase::No))),
     ])
     .centered();
     let rows = [
@@ -93,21 +96,24 @@ fn confirm_dialog(frame: &mut Frame, area: Rect, question: String, glyphs: &Glyp
         answers,
         Line::default(),
     ];
-    dialog(frame, area, width, CONFIRM_TITLE, rows, glyphs);
+    let title = context.phrase(Phrase::ConfirmTitle);
+    dialog(frame, area, width, title, rows, context.glyphs);
 }
 
 /// El campo muestra el final del texto si no entra; un error de validación aparece en
 /// la última fila y el diálogo sigue abierto.
-fn save_dialog(frame: &mut Frame, area: Rect, prompt: &Prompt, glyphs: &Glyphs) {
+fn save_dialog(frame: &mut Frame, area: Rect, prompt: &Prompt, context: &Context<'_>) {
+    let glyphs = context.glyphs;
     let width = SAVE_WIDTH.min(area.width);
     let inner = usize::from(width.saturating_sub(BORDERS));
-    let fixed = PADDING * 2 + Span::raw(NAME_LABEL).width() + Span::raw(FIELD_CLOSE).width();
+    let label = format!("{}{FIELD_OPEN}", context.phrase(Phrase::NameLabel));
+    let fixed = PADDING * 2 + Span::raw(&label).width() + Span::raw(FIELD_CLOSE).width();
     let field_width = inner.saturating_sub(fixed);
     let typed = format!("{}{}", prompt.input, glyphs.input_cursor);
     let shown = fit_start(&typed, field_width, glyphs.ellipsis);
     let padding = " ".repeat(field_width.saturating_sub(Span::raw(&shown).width()));
     let field = padded(vec![
-        Span::styled(NAME_LABEL, theme::MUTED),
+        Span::styled(label, theme::MUTED),
         Span::raw(shown),
         Span::raw(padding),
         Span::styled(FIELD_CLOSE, theme::MUTED),
@@ -115,7 +121,10 @@ fn save_dialog(frame: &mut Frame, area: Rect, prompt: &Prompt, glyphs: &Glyphs) 
     let error = match &prompt.error {
         Some(error) => padded(vec![
             Span::styled(glyphs.message_error, theme::ERROR),
-            Span::styled(format!(" {error}"), theme::ERROR),
+            Span::styled(
+                format!(" {}", context.message(Message::Input(error))),
+                theme::ERROR,
+            ),
         ]),
         None => Line::default(),
     };
@@ -123,8 +132,12 @@ fn save_dialog(frame: &mut Frame, area: Rect, prompt: &Prompt, glyphs: &Glyphs) 
         Line::default(),
         field,
         Line::default(),
-        padded(vec![Span::styled(SAVE_KEYS, theme::MUTED)]),
+        padded(vec![Span::styled(
+            context.phrase(Phrase::SaveKeys),
+            theme::MUTED,
+        )]),
         error,
     ];
-    dialog(frame, area, width, SAVE_TITLE, rows, glyphs);
+    let title = context.phrase(Phrase::SaveQueueTitle);
+    dialog(frame, area, width, title, rows, glyphs);
 }

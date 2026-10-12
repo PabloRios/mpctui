@@ -9,11 +9,12 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::Block;
 
 use super::chrome::{Context, block_title, end_title, titled_block};
-use super::format::{countdown, format_duration, songs_count};
+use super::format::{countdown, format_duration};
 use super::gauges::{MeterCell, meter, meter_line};
 use super::theme;
 use super::widgets::{millis, spread};
-use crate::tui::action::{key_label, view_action};
+use crate::i18n::{Message, Phrase};
+use crate::tui::action::view_action;
 use crate::tui::state::{AppState, ConnectionState, ViewKind};
 
 const APPLICATION_NAME: &str = "mpctui";
@@ -53,10 +54,8 @@ fn name_line(state: &AppState, context: &Context<'_>) -> Line<'static> {
         let elapsed = format_duration(context.now.saturating_duration_since(started));
         spans.push(Span::raw(" "));
         spans.push(Span::styled(glyphs.border.horizontal_top, theme::BORDER));
-        spans.push(Span::styled(
-            format!(" {spinner} actualizando biblioteca {elapsed}"),
-            theme::INFO,
-        ));
+        let updating = context.message(Message::UpdatingLibrary { elapsed: &elapsed });
+        spans.push(Span::styled(format!(" {spinner} {updating}"), theme::INFO));
     }
     Line::from(spans)
 }
@@ -122,7 +121,8 @@ fn disconnected_line(state: &AppState, context: &Context<'_>, detail: Detail) ->
     let glyphs = context.glyphs;
     let mut text = format!("{} ", glyphs.disconnected);
     if detail.status_word {
-        text.push_str("sin conexión, ");
+        text.push_str(context.phrase(Phrase::Disconnected));
+        text.push_str(", ");
     }
     let mut extra = Vec::new();
     let attempt = match state.connection {
@@ -133,7 +133,10 @@ fn disconnected_line(state: &AppState, context: &Context<'_>, detail: Detail) ->
             delay,
         } => {
             let remaining = retry_at.saturating_duration_since(context.now);
-            text.push_str(&format!("reintento en {}", countdown(remaining)));
+            let countdown = countdown(remaining);
+            text.push_str(&context.message(Message::RetryIn {
+                countdown: &countdown,
+            }));
             if detail.meter {
                 extra.push(Span::raw(" "));
                 extra.extend(meter_line(&waited_meter(delay, remaining), glyphs).spans);
@@ -141,14 +144,17 @@ fn disconnected_line(state: &AppState, context: &Context<'_>, detail: Detail) ->
             attempt
         }
         ConnectionState::Connecting { attempt } => {
-            text.push_str(&format!("conectando {}", glyphs.spinner_frame(state.ticks)));
+            let connecting = context.phrase(Phrase::Connecting);
+            let spinner = glyphs.spinner_frame(state.ticks);
+            text.push_str(&format!("{connecting} {spinner}"));
             attempt
         }
     };
     let mut spans = vec![Span::styled(text, theme::ERROR)];
     spans.extend(extra);
     if detail.attempt && attempt >= FIRST_SHOWN_ATTEMPT {
-        spans.push(Span::styled(format!(" (intento {attempt})"), theme::ERROR));
+        let attempt = context.message(Message::Attempt(attempt));
+        spans.push(Span::styled(format!(" {attempt}"), theme::ERROR));
     }
     Line::from(spans)
 }
@@ -166,8 +172,9 @@ pub fn render_tabs(frame: &mut Frame, area: Rect, state: &AppState, context: &Co
         if index > 0 {
             tabs.push(Span::raw(" "));
         }
-        let key = key_label(view_action(view), context.glyphs).unwrap_or_default();
-        let label = format!("{key} {}", view_title(view, context.is_compact()));
+        let key = context.key(view_action(view));
+        let title = context.phrase(view_title(view, context.is_compact()));
+        let label = format!("{key} {title}");
         tabs.push(if view == state.view {
             Span::styled(format!("[{label}]"), theme::FOCUSED)
         } else {
@@ -175,7 +182,7 @@ pub fn render_tabs(frame: &mut Frame, area: Rect, state: &AppState, context: &Co
         });
     }
     let tabs = Line::from(tabs);
-    let summary = queue_summary(state);
+    let summary = queue_summary(state, context);
     let line = if tabs.width() + summary.width() < usize::from(area.width) {
         spread(tabs, summary, area.width, context.glyphs)
     } else {
@@ -187,8 +194,8 @@ pub fn render_tabs(frame: &mut Frame, area: Rect, state: &AppState, context: &Co
 }
 
 /// Sin duración si falta la de algún tema.
-fn queue_summary(state: &AppState) -> Line<'static> {
-    let mut text = format!("cola: {}", songs_count(state.queue.items().len()));
+fn queue_summary(state: &AppState, context: &Context<'_>) -> Line<'static> {
+    let mut text = context.message(Message::QueueSummary(state.queue.items().len()));
     if let Some(total) = state.queue.timeline().total {
         text.push_str(&format!("  {}", format_duration(total)));
     }
@@ -197,19 +204,19 @@ fn queue_summary(state: &AppState) -> Line<'static> {
 }
 
 /// En modo compacto, abreviado.
-pub fn view_title(view: ViewKind, abbreviated: bool) -> &'static str {
+pub fn view_title(view: ViewKind, abbreviated: bool) -> Phrase {
     match (view, abbreviated) {
-        (ViewKind::Queue, _) => "Cola",
-        (ViewKind::Library, false) => "Biblioteca",
-        (ViewKind::Library, true) => "Bibl.",
-        (ViewKind::Browse, false) => "Directorios",
-        (ViewKind::Browse, true) => "Dir.",
-        (ViewKind::Search, false) => "Búsqueda",
-        (ViewKind::Search, true) => "Búsq.",
-        (ViewKind::Playlists, false) => "Playlists",
-        (ViewKind::Playlists, true) => "Playl.",
-        (ViewKind::Visualizer, _) => "Visual",
-        (ViewKind::Lyrics, _) => "Letra",
+        (ViewKind::Queue, _) => Phrase::ViewQueue,
+        (ViewKind::Library, false) => Phrase::ViewLibrary,
+        (ViewKind::Library, true) => Phrase::ViewLibraryShort,
+        (ViewKind::Browse, false) => Phrase::ViewBrowse,
+        (ViewKind::Browse, true) => Phrase::ViewBrowseShort,
+        (ViewKind::Search, false) => Phrase::ViewSearch,
+        (ViewKind::Search, true) => Phrase::ViewSearchShort,
+        (ViewKind::Playlists, false) => Phrase::ViewPlaylists,
+        (ViewKind::Playlists, true) => Phrase::ViewPlaylistsShort,
+        (ViewKind::Visualizer, _) => Phrase::ViewVisualizer,
+        (ViewKind::Lyrics, _) => Phrase::ViewLyrics,
     }
 }
 
@@ -218,6 +225,7 @@ mod tests {
     use std::time::Instant;
 
     use super::*;
+    use crate::i18n::{English, Spanish};
     use crate::tui::appearance::ProgressBars;
     use crate::tui::glyphs::{ASCII, UNICODE};
     use crate::tui::views::layout::LayoutMode;
@@ -225,6 +233,7 @@ mod tests {
     fn context(mode: LayoutMode, now: Instant) -> Context<'static> {
         Context {
             glyphs: &ASCII,
+            texts: &Spanish,
             mode,
             width: 100,
             now,
@@ -285,6 +294,12 @@ mod tests {
         state.connection = ConnectionState::Connecting { attempt: 5 };
         let text = connection_line(&state, &full, 80).to_string();
         assert_eq!(text, "(x) sin conexión, conectando | (intento 5)");
+        let english = Context {
+            texts: &English,
+            ..full
+        };
+        let text = connection_line(&state, &english, 80).to_string();
+        assert_eq!(text, "(x) disconnected, connecting | (attempt 5)");
     }
 
     #[test]

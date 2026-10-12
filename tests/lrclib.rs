@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use mpctui::domain::{FetchedLyrics, TrackIdentity};
-use mpctui::repository::{Error, LrclibProvider, LyricsProvider};
+use mpctui::repository::{Error, HttpFailure, LrclibProvider, LyricsProvider};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpListener;
 
@@ -120,7 +120,7 @@ async fn server_errors_are_reported() {
     let (base_url, _) = fake_lrclib(|_| (500, "{}")).await;
     let mut provider = LrclibProvider::new(base_url).unwrap();
     match provider.fetch(&time()).await {
-        Err(Error::Http(message)) => assert!(message.contains("500"), "{message}"),
+        Err(Error::Http { failure, .. }) => assert_eq!(failure, HttpFailure::Status(500)),
         other => panic!("se esperaba un error HTTP, llegó {other:?}"),
     }
 }

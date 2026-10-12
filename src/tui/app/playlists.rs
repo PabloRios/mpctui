@@ -2,6 +2,7 @@
 
 use super::{App, Backend};
 use crate::domain::PlaylistName;
+use crate::i18n::Message;
 use crate::tui::action::Action;
 use crate::tui::list::SelectionPolicy;
 use crate::tui::prompt::{Confirmation, Prompt};
@@ -40,14 +41,14 @@ impl<B: Backend> App<B> {
     pub(super) async fn save_queue(&mut self, name: &PlaylistName) {
         let result = self.services.playlists.save_queue(name).await;
         if self.report(result).is_some() {
-            self.notify_info(format!("Cola guardada como «{name}»"));
+            self.notify_info(self.message(Message::QueueSaved(name.as_str())));
         }
     }
 
     pub(super) async fn remove_playlist(&mut self, name: &PlaylistName) {
         let result = self.services.playlists.remove(name).await;
         if self.report(result).is_some() {
-            self.notify_info(format!("Playlist «{name}» borrada"));
+            self.notify_info(self.message(Message::PlaylistDeleted(name.as_str())));
         }
     }
 
@@ -57,7 +58,7 @@ impl<B: Backend> App<B> {
         };
         let result = self.services.playlists.load(&name).await;
         if self.report(result).is_some() {
-            self.notify_info(format!("Playlist «{name}» agregada a la cola"));
+            self.notify_info(self.message(Message::PlaylistLoaded(name.as_str())));
         }
     }
 

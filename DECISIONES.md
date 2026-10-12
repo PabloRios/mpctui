@@ -17,6 +17,29 @@ están en `DESIGN.md` ni en `DESIGN_EXTRA.md`.
   - El equivalente ASCII. Los bloques `▁…█` tienen ancho ambiguo, igual que el espectro.
   - Qué pasa cuando un aviso ocupa la línea inferior.
 
+### Otras fuentes de letras sincronizadas
+
+- **Pedido:** sumar otra fuente de letras sincronizadas además de LRCLIB.
+- **Estado:** evaluado el 2026-10-12; se decidió seguir solo con LRCLIB (abierta, sin
+  clave y legal). Se retoma cuando el usuario lo pida.
+- **Candidatas y su problema:**
+  - **NetEase Cloud Music:** API no oficial, sin clave, muchas letras en LRC (fuerte en
+    música asiática). Es la mejor segunda opción si alguna vez hace falta.
+  - **Musixmatch:** el catálogo más grande, pero solo con la API interna de su app de
+    escritorio (token anónimo), contra sus términos. La API oficial gratuita no da
+    letras sincronizadas.
+  - **Megalobiz:** LRC de la comunidad, leyendo el HTML del sitio; frágil y de
+    catálogo chico.
+  - **QQ Music y Kugou:** APIs no oficiales, catálogo sobre todo chino; Kugou usa su
+    formato KRC.
+  - **Apple Music, Spotify y Deezer:** requieren cuenta o suscripción.
+  - **Genius:** solo letras sin sincronizar.
+- **A definir al retomarlo:**
+  - Cómo se agregaría: un valor en `LyricsSource`, una implementación de
+    `LyricsProvider`, su nombre en `LYRICS_SOURCE_NAMES` (`config.rs`) y en
+    `config.toml.dist`. No entraría en las fuentes por defecto.
+  - Cómo elegir el resultado correcto cuando el servicio devuelve nombres en otro idioma.
+
 ---
 
 ## Decisiones tomadas
@@ -171,3 +194,37 @@ están en `DESIGN.md` ni en `DESIGN_EXTRA.md`.
   sonaba (`Soulsavers - You Will Miss me when I Burn.lrc`), que es el comportamiento
   esperado de la caché.
 
+
+### I1 · Interfaz en inglés y español
+
+- **Catálogo tipado en el código, sin crates** (ni Fluent ni gettext): `Phrase` para los
+  textos fijos, `Message` para los que llevan datos y un `match` exhaustivo por idioma.
+  Con dos idiomas y unos 190 textos alcanza, y una traducción que falta no compila. Si
+  algún día hacen falta muchos idiomas o traductores externos, se migra a Fluent sin
+  cambiar `Catalog`.
+- **Inglés por defecto** (`language = "en"`); `es` lo cambia. Sin `auto` ni variable de
+  entorno: el pedido fue solo la opción del archivo.
+- **`src/i18n/` es un módulo de primer nivel** y no parte de `tui/`: también lo usa `main`
+  para explicar los errores de arranque (configuración y conexión).
+- **Los errores viajan tipados hasta la TUI.** `repository::Error` pasó a ser
+  `Clone + Eq` (`IoFailure` guarda el tipo y el texto del error de E/S) y `Http` lleva
+  `HttpFailure` en vez de un texto. `ServerEvent::Disconnected`, `LyricsOutcome::NotFound`
+  y `VisualState::Unavailable` llevan el `Error`; `Prompt::error` es un `InputError`. Así
+  el visualizador ya no arma "no existe" en el servicio.
+- **El `Display` de los errores queda en español para el log**, aunque repite lo que dice
+  el catálogo en español: el repositorio no puede depender de `i18n`.
+- **Lo que no se traduce:** el texto que viene del sistema operativo, de MPD (`ACK`), de
+  `reqwest` y el detalle de un `Error::Protocol` se muestran tal cual detrás del prefijo
+  traducido. Tampoco las unidades, LRCLIB ni `Enter`/`Tab`/`Ctrl+`.
+- **Un error de configuración se explica en el idioma del archivo** si se pudo leer
+  `language`; si el TOML no se puede parsear (o `language` es inválido), en inglés. El
+  error de un valor inválido de `glyphs` dentro del TOML viene de serde y queda en
+  español.
+- **La tecla para confirmar** que se muestra cambia con el idioma (`[y] yes` / `[s] sí`),
+  pero se aceptan las dos en cualquier idioma.
+- **Las flechas del juego ASCII** se nombran con palabras del idioma (`Down`/`Abajo`):
+  `Glyphs::arrow_keys` es `None` en ASCII.
+- **Pestañas cortas en inglés** (`Lib.`, `Dir.`, `Srch.`, `Playl.`) no más largas que las
+  españolas, para que el modo compacto entre igual.
+- **Los tests de pantalla siguen en español** (fijan `Spanish`) y hay tests propios del
+  inglés; el test de glifos ASCII recorre las pantallas en los dos idiomas.

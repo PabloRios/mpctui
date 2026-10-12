@@ -13,8 +13,8 @@ use crate::repository::mpd::{Address, DEFAULT_HOST, DEFAULT_PORT};
 const APPLICATION_NAME: &str = "mpctui";
 const CONFIG_FILE_NAME: &str = "config.toml";
 const HOST_VARIABLE: &str = "MPD_HOST";
-const PORT_VARIABLE: &str = "MPD_PORT";
-const GLYPHS_VARIABLE: &str = "MPCTUI_GLYPHS";
+pub const PORT_VARIABLE: &str = "MPD_PORT";
+pub const GLYPHS_VARIABLE: &str = "MPCTUI_GLYPHS";
 /// Variables de locale, en orden de prioridad.
 const LOCALE_VARIABLES: [&str; 3] = ["LC_ALL", "LC_CTYPE", "LANG"];
 const TERMINAL_VARIABLE: &str = "TERM";
@@ -34,6 +34,9 @@ const VISUALIZER_STYLE_NAMES: [(&str, VisualizerStyle); 6] = [
     ("vectorscope", VisualizerStyle::Vectorscope),
     ("meters", VisualizerStyle::Meters),
 ];
+/// Nombres de `language`: códigos ISO 639-1.
+const LANGUAGE_NAMES: [(&str, Language); 2] =
+    [("en", Language::English), ("es", Language::Spanish)];
 /// Nombres de `lyrics.sources`, en inglés como los de `glyphs`.
 const LYRICS_SOURCE_NAMES: [(&str, LyricsSource); 4] = [
     ("cache", LyricsSource::Cache),
@@ -66,9 +69,19 @@ impl GlyphSetting {
 }
 
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
-#[error("glyphs debe ser \"{auto}\", \"{unicode}\" o \"{ascii}\", no {0:?}",
-    auto = GlyphSetting::AUTO, unicode = GlyphSetting::UNICODE, ascii = GlyphSetting::ASCII)]
-pub struct InvalidGlyphSetting(String);
+#[error("glyphs debe ser {choices}, no {0:?}", choices = glyph_choices())]
+pub struct InvalidGlyphSetting(pub String);
+
+/// `"auto", "unicode", "ascii"`, para los mensajes de error.
+pub fn glyph_choices() -> String {
+    [
+        GlyphSetting::AUTO,
+        GlyphSetting::UNICODE,
+        GlyphSetting::ASCII,
+    ]
+    .map(|name| format!("{name:?}"))
+    .join(", ")
+}
 
 impl FromStr for GlyphSetting {
     type Err = InvalidGlyphSetting;
@@ -98,6 +111,14 @@ pub enum GlyphMode {
     Ascii,
 }
 
+/// Idioma de la interfaz.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Language {
+    #[default]
+    English,
+    Spanish,
+}
+
 /// Contenido del archivo de configuración; todos los campos son opcionales.
 #[derive(Debug, Default, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
@@ -106,6 +127,8 @@ pub struct FileConfig {
     pub port: Option<u16>,
     pub password: Option<String>,
     pub glyphs: Option<GlyphSetting>,
+    /// Idioma de la interfaz: `en` o `es`.
+    pub language: Option<String>,
     /// Barra de progreso del álbum en el panel; oculta por defecto.
     pub album_progress: Option<bool>,
     /// Barra de progreso de la cola en el panel; oculta por defecto.
@@ -158,6 +181,7 @@ pub struct Settings {
     pub address: Address,
     pub password: Option<Password>,
     pub glyph_mode: GlyphMode,
+    pub language: Language,
     pub album_progress: bool,
     pub queue_progress: bool,
     pub visualizer_fifo: PathBuf,
@@ -193,6 +217,8 @@ pub enum ConfigError {
     InvalidPassword(InputError),
     #[error("{GLYPHS_VARIABLE} inválida: {0}")]
     InvalidGlyphs(InvalidGlyphSetting),
+    #[error("language debe ser {choices}, no {0:?}", choices = language_choices())]
+    InvalidLanguage(String),
     #[error("visualizer_fifo no puede estar vacío")]
     EmptyVisualizerFifo,
     #[error("visualizer_format inválido: {0}")]
@@ -223,8 +249,18 @@ pub fn config_path() -> Option<PathBuf> {
     project_directories().map(|directories| directories.config_dir().join(CONFIG_FILE_NAME))
 }
 
+/// Un error de configuración y el idioma en el que explicarlo: el configurado si se
+/// pudo leer, si no el idioma por defecto. Su `Display` es el del error (para el log y
+/// los ejemplos); `main` lo explica con el catálogo del idioma.
+#[derive(Debug, thiserror::Error)]
+#[error("{error}")]
+pub struct ConfigFailure {
+    pub language: Language,
+    pub error: ConfigError,
+}
+
 /// Lee archivo y entorno y los valida.
-pub fn load() -> Result<Settings, ConfigError> {
+pub fn load() -> Result<Settings, ConfigFailure> {
     let environment = Environment {
         host: env::var(HOST_VARIABLE).ok(),
         port: env::var(PORT_VARIABLE).ok(),
@@ -235,7 +271,16 @@ pub fn load() -> Result<Settings, ConfigError> {
         },
         home: BaseDirs::new().map(|directories| directories.home_dir().to_path_buf()),
     };
-    resolve(read_file_config()?, environment)
+    let file = read_file_config().map_err(|error| ConfigFailure {
+        language: Language::default(),
+        error,
+    })?;
+    let language = file
+        .language
+        .as_deref()
+        .and_then(|name| language(name).ok())
+        .unwrap_or_default();
+    resolve(file, environment).map_err(|error| ConfigFailure { language, error })
 }
 
 /// Precedencia: valores por defecto < archivo < entorno.
@@ -263,6 +308,10 @@ pub fn resolve(file: FileConfig, environment: Environment) -> Result<Settings, C
         Some(value) => value.parse().map_err(ConfigError::InvalidGlyphs)?,
         None => file.glyphs.unwrap_or_default(),
     };
+    let language = match file.language {
+        Some(name) => language(&name)?,
+        None => Language::default(),
+    };
     let visualizer_fifo = file
         .visualizer_fifo
         .unwrap_or_else(|| DEFAULT_VISUALIZER_FIFO.to_owned());
@@ -284,6 +333,7 @@ pub fn resolve(file: FileConfig, environment: Environment) -> Result<Settings, C
         address: Address::new(host, port),
         password,
         glyph_mode: resolve_glyph_mode(glyph_setting, &environment.terminal),
+        language,
         album_progress: file.album_progress.unwrap_or_default(),
         queue_progress: file.queue_progress.unwrap_or_default(),
         visualizer_fifo: PathBuf::from(visualizer_fifo),
@@ -337,10 +387,7 @@ fn lyrics_sources(
 ) -> Result<Vec<LyricsSource>, ConfigError> {
     let mut sources = Vec::new();
     for name in names {
-        let source = LYRICS_SOURCE_NAMES
-            .iter()
-            .find(|(candidate, _)| candidate == name)
-            .map(|(_, source)| *source)
+        let source = named(&LYRICS_SOURCE_NAMES, name)
             .ok_or_else(|| ConfigError::UnknownLyricsSource(name.clone()))?;
         if sources.contains(&source) {
             return Err(ConfigError::RepeatedLyricsSource(name.clone()));
@@ -371,21 +418,40 @@ fn expand_home(
     }
 }
 
-/// `"cache", "song_folder", …`, para el mensaje de error.
-fn lyrics_source_choices() -> String {
-    LYRICS_SOURCE_NAMES
+/// El valor que tiene ese nombre en una tabla de nombres.
+fn named<T: Copy>(names: &[(&str, T)], name: &str) -> Option<T> {
+    names
+        .iter()
+        .find(|(candidate, _)| *candidate == name)
+        .map(|(_, value)| *value)
+}
+
+/// `"a", "b", …`: los nombres de una tabla, para los mensajes de error.
+fn choices<T>(names: &[(&str, T)]) -> String {
+    names
         .iter()
         .map(|(name, _)| format!("{name:?}"))
         .collect::<Vec<_>>()
         .join(", ")
 }
 
+/// `"cache", "song_folder", …`.
+pub fn lyrics_source_choices() -> String {
+    choices(&LYRICS_SOURCE_NAMES)
+}
+
+/// `"en", "es"`.
+pub fn language_choices() -> String {
+    choices(&LANGUAGE_NAMES)
+}
+
+fn language(name: &str) -> Result<Language, ConfigError> {
+    named(&LANGUAGE_NAMES, name).ok_or_else(|| ConfigError::InvalidLanguage(name.to_owned()))
+}
+
 /// La forma por su nombre; una estéreo con un FIFO de un canal no se puede mostrar.
 fn visualizer_style(name: &str, format: PcmFormat) -> Result<VisualizerStyle, ConfigError> {
-    let style = VISUALIZER_STYLE_NAMES
-        .iter()
-        .find(|(candidate, _)| *candidate == name)
-        .map(|(_, style)| *style)
+    let style = named(&VISUALIZER_STYLE_NAMES, name)
         .ok_or_else(|| ConfigError::InvalidVisualizerStyle(name.to_owned()))?;
     if !style.is_available(format.channels()) {
         return Err(ConfigError::StereoStyleWithMonoFifo(name.to_owned()));
@@ -393,13 +459,9 @@ fn visualizer_style(name: &str, format: PcmFormat) -> Result<VisualizerStyle, Co
     Ok(style)
 }
 
-/// `"bars", "mirror", …`, para el mensaje de error.
-fn visualizer_style_choices() -> String {
-    VISUALIZER_STYLE_NAMES
-        .iter()
-        .map(|(name, _)| format!("{name:?}"))
-        .collect::<Vec<_>>()
-        .join(", ")
+/// `"bars", "mirror", …`.
+pub fn visualizer_style_choices() -> String {
+    choices(&VISUALIZER_STYLE_NAMES)
 }
 
 /// `auto` elige Unicode salvo que el locale no sea UTF-8 o la terminal no tenga los
@@ -730,6 +792,7 @@ mod tests {
         let defaults = resolve(FileConfig::default(), environment(None, None)).unwrap();
         assert_eq!(dist.address, defaults.address);
         assert_eq!(dist.glyph_mode, defaults.glyph_mode);
+        assert_eq!(dist.language, defaults.language);
         assert_eq!(
             (dist.album_progress, dist.queue_progress),
             (defaults.album_progress, defaults.queue_progress)
@@ -757,6 +820,20 @@ mod tests {
             settings.lyrics.music_directory,
             Some(PathBuf::from("/home/prueba/Music"))
         );
+    }
+
+    #[test]
+    fn the_language_is_english_unless_configured() {
+        let defaults = resolve(FileConfig::default(), environment(None, None)).unwrap();
+        assert_eq!(defaults.language, Language::English);
+        let file: FileConfig = toml::from_str("language = \"es\"").unwrap();
+        let spanish = resolve(file, environment(None, None)).unwrap();
+        assert_eq!(spanish.language, Language::Spanish);
+        let file: FileConfig = toml::from_str("language = \"fr\"").unwrap();
+        assert!(matches!(
+            resolve(file, environment(None, None)),
+            Err(ConfigError::InvalidLanguage(name)) if name == "fr"
+        ));
     }
 
     #[test]

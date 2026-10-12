@@ -8,6 +8,7 @@ use ratatui::text::Span;
 
 use super::columns::nearest_band;
 use crate::domain::{VisualRequest, VisualizerStyle, WATERFALL_COLUMNS_PER_SECOND, band_centers};
+use crate::i18n::{Catalog, Message, Phrase};
 use crate::tui::views::chrome::Context;
 use crate::tui::views::format::{frequency_tick, saturating_u16};
 use crate::tui::views::theme;
@@ -21,7 +22,6 @@ const AXIS_FREQUENCIES: [u32; 5] = [16_000, 4_000, 1_000, 250, 63];
 /// Segundos del eje de tiempo: `-1 s`, `-3 s`, `-5 s`…
 const FIRST_TIME_LABEL: u32 = 1;
 const TIME_LABEL_STEP: u32 = 2;
-const NOW_LABEL: &str = "ahora";
 /// Separación mínima entre etiquetas de tiempo.
 const TIME_LABEL_GAP: u16 = 1;
 
@@ -50,9 +50,12 @@ pub fn request(area: Rect, context: &Context<'_>) -> VisualRequest {
 }
 
 /// `14 bandas  últimos 9 s`.
-pub fn details(request: VisualRequest) -> String {
+pub fn details(request: VisualRequest, texts: &dyn Catalog) -> String {
     let seconds = request.columns / WATERFALL_COLUMNS_PER_SECOND as usize;
-    format!("{} bandas  últimos {seconds} s", request.rows)
+    texts.message(&Message::WaterfallDetail {
+        bands: request.rows,
+        seconds,
+    })
 }
 
 pub fn render(frame: &mut Frame, area: Rect, columns: &[Vec<f32>], context: &Context<'_>) {
@@ -77,7 +80,7 @@ pub fn render(frame: &mut Frame, area: Rect, columns: &[Vec<f32>], context: &Con
     }
     let bands = columns.last().map_or(usize::from(data.height), Vec::len);
     draw_frequency_labels(frame, area, data, bands);
-    draw_time_axis(frame, data);
+    draw_time_axis(frame, data, context.phrase(Phrase::Now));
 }
 
 /// Sombreado de un nivel: 0 es vacío y el último, el más intenso.
@@ -116,14 +119,14 @@ fn draw_frequency_labels(frame: &mut Frame, area: Rect, data: Rect, bands: usize
 }
 
 /// `-9 s … -1 s ahora`: cada etiqueta termina en la columna de ese instante.
-fn draw_time_axis(frame: &mut Frame, data: Rect) {
+fn draw_time_axis(frame: &mut Frame, data: Rect, now_label: &str) {
     let y = data.bottom();
-    let now_width = saturating_u16(Span::raw(NOW_LABEL).width());
+    let now_width = saturating_u16(Span::raw(now_label).width());
     let Some(now_x) = data.right().checked_sub(now_width).filter(|x| *x >= data.x) else {
         return;
     };
     let buffer = frame.buffer_mut();
-    buffer.set_string(now_x, y, NOW_LABEL, theme::MUTED);
+    buffer.set_string(now_x, y, now_label, theme::MUTED);
     let mut free_until = now_x.saturating_sub(TIME_LABEL_GAP);
     let column_width = WATERFALL_COLUMNS_PER_SECOND;
     for seconds in (FIRST_TIME_LABEL..).step_by(TIME_LABEL_STEP as usize) {
@@ -152,6 +155,7 @@ fn draw_time_axis(frame: &mut Frame, data: Rect) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::i18n::{English, Spanish};
     use crate::tui::glyphs::{ASCII, UNICODE};
 
     #[test]
@@ -170,6 +174,7 @@ mod tests {
             columns: 90,
             rows: 14,
         };
-        assert_eq!(details(request), "14 bandas  últimos 9 s");
+        assert_eq!(details(request, &Spanish), "14 bandas  últimos 9 s");
+        assert_eq!(details(request, &English), "14 bands  last 9 s");
     }
 }

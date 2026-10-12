@@ -6,6 +6,7 @@ use ratatui::style::Style;
 
 use super::columns::{BarLayout, BarShape, fill_glyph, sub_cells, zone_style};
 use crate::domain::{BandFrame, SPECTRUM_MAX_HZ, SPECTRUM_MIN_HZ, VisualRequest, VisualizerStyle};
+use crate::i18n::{Catalog, Message};
 use crate::tui::glyphs::Glyphs;
 use crate::tui::views::chrome::Context;
 use crate::tui::views::format::{frequency, saturating_u16};
@@ -24,13 +25,12 @@ pub fn request(area: Rect, context: &Context<'_>) -> VisualRequest {
 }
 
 /// `32 bandas  40 Hz - 16 kHz`.
-pub fn details(bands: &BandFrame) -> String {
-    format!(
-        "{} bandas  {} - {}",
-        bands.levels.len(),
-        frequency(SPECTRUM_MIN_HZ),
-        frequency(SPECTRUM_MAX_HZ)
-    )
+pub fn details(bands: &BandFrame, texts: &dyn Catalog) -> String {
+    texts.message(&Message::BarsDetail {
+        bands: bands.levels.len(),
+        low: &frequency(SPECTRUM_MIN_HZ),
+        high: &frequency(SPECTRUM_MAX_HZ),
+    })
 }
 
 /// En modo compacto, sin eje.

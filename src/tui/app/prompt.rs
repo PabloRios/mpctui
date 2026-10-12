@@ -4,6 +4,7 @@ use crossterm::event::KeyEvent;
 
 use super::{App, Backend};
 use crate::domain::PlaylistName;
+use crate::i18n::Phrase;
 use crate::tui::prompt::{Confirmation, Prompt, PromptKind, PromptOutcome};
 
 impl<B: Backend> App<B> {
@@ -30,7 +31,7 @@ impl<B: Backend> App<B> {
             PromptKind::SavePlaylist => match PlaylistName::new(&prompt.input) {
                 Ok(name) => self.save_queue(&name).await,
                 Err(error) => {
-                    prompt.error = Some(error.to_string());
+                    prompt.error = Some(error);
                     self.state.prompt = Some(prompt);
                 }
             },
@@ -44,7 +45,7 @@ impl<B: Backend> App<B> {
     async fn clear_queue(&mut self) {
         let result = self.services.queue.clear().await;
         if self.report(result).is_some() {
-            self.notify_info("Cola vaciada".into());
+            self.notify_info(self.phrase(Phrase::QueueCleared));
         }
     }
 }

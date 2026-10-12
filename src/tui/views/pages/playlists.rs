@@ -6,11 +6,12 @@ use ratatui::text::{Line, Span};
 
 use super::{GroupedLook, draw_grouped, draw_line, draw_list};
 use crate::domain::PlaylistName;
-use crate::tui::action::{Action, key_label};
+use crate::i18n::{Catalog, Message, Phrase};
+use crate::tui::action::Action;
 use crate::tui::glyphs::Glyphs;
 use crate::tui::state::{AppState, GroupedSongs};
 use crate::tui::views::chrome::{self, Context};
-use crate::tui::views::format::{format_duration, songs_count};
+use crate::tui::views::format::format_duration;
 use crate::tui::views::theme;
 use crate::tui::views::widgets::{ItemRows, RowSource, SongColumns, centered_message, panel_title};
 
@@ -23,8 +24,8 @@ const BADGE_GAP: &str = " ";
 pub fn render(frame: &mut Frame, area: Rect, state: &mut AppState, context: &Context<'_>) {
     let playlists = &mut state.playlists;
     if playlists.names.items().is_empty() {
-        let save = key_label(Action::SaveQueue, context.glyphs).unwrap_or_default();
-        let text = format!("No hay playlists guardadas. {save} guarda la cola como playlist.");
+        let key = context.key(Action::SaveQueue);
+        let text = context.message(Message::NoPlaylists { key: &key });
         return centered_message(frame, area, Line::styled(text, theme::MUTED));
     }
     let [titles_area, rule_area, lists_area] = Layout::vertical([
@@ -39,7 +40,11 @@ pub fn render(frame: &mut Frame, area: Rect, state: &mut AppState, context: &Con
             .areas(area);
     chrome::rule(frame.buffer_mut(), rule_area, context.glyphs, None);
     let names_title = panel_title(
-        format!("Playlists ({})", playlists.names.items().len()),
+        format!(
+            "{} ({})",
+            context.phrase(Phrase::ViewPlaylists),
+            playlists.names.items().len()
+        ),
         true,
     );
     draw_line(
@@ -47,7 +52,11 @@ pub fn render(frame: &mut Frame, area: Rect, state: &mut AppState, context: &Con
         column_row(names_column, titles_area),
         &Line::from(names_title),
     );
-    let preview_title = preview_title(playlists.names.selected(), &playlists.preview);
+    let preview_title = preview_title(
+        playlists.names.selected(),
+        &playlists.preview,
+        context.texts,
+    );
     draw_line(frame, column_row(songs_column, titles_area), &preview_title);
 
     let glyphs = context.glyphs;
@@ -92,11 +101,16 @@ fn column_row(column: Rect, band: Rect) -> Rect {
 }
 
 /// `domingo: 5 temas  25:12`.
-fn preview_title(name: Option<&PlaylistName>, preview: &GroupedSongs) -> Line<'static> {
+fn preview_title(
+    name: Option<&PlaylistName>,
+    preview: &GroupedSongs,
+    texts: &dyn Catalog,
+) -> Line<'static> {
     let Some(name) = name else {
         return Line::default();
     };
-    let mut text = format!(" {name}: {}", songs_count(preview.items().len()));
+    let songs = texts.message(&Message::SongCount(preview.items().len()));
+    let mut text = format!(" {name}: {songs}");
     if let Some(total) = preview.timeline().total {
         text.push_str(&format!("  {}", format_duration(total)));
     }

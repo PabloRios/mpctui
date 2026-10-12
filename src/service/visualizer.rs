@@ -3,7 +3,6 @@
 //! la TUI va más lenta. Corre solo mientras se la necesita: al soltar
 //! `RunningVisualizer` se cancela.
 
-use std::io;
 use std::time::Duration;
 
 use tokio::sync::watch;
@@ -22,8 +21,8 @@ const READ_BUFFER_BYTES: usize = 16 * 1024;
 #[derive(Debug, Clone, PartialEq)]
 pub enum VisualState {
     Frame(VisualFrame),
-    /// No se puede abrir la fuente; el motivo es para el usuario (`no existe`).
-    Unavailable(String),
+    /// No se puede abrir la fuente; la TUI explica el motivo.
+    Unavailable(Error),
 }
 
 /// Antes del primer cuadro: nada que dibujar.
@@ -79,7 +78,7 @@ impl<S: PcmSource + Send> Visualizer<S> {
                     Err(error) => {
                         unavailable = true;
                         retry_at = Some(Instant::now() + self.backoff.next_delay());
-                        if !self.publish(VisualState::Unavailable(describe(&error))) {
+                        if !self.publish(VisualState::Unavailable(error)) {
                             return;
                         }
                     }
@@ -106,18 +105,6 @@ async fn sleep_until(deadline: Option<Instant>) {
     match deadline {
         Some(deadline) => tokio::time::sleep_until(deadline).await,
         None => std::future::pending().await,
-    }
-}
-
-/// Motivo legible de que la fuente no se pueda leer.
-fn describe(error: &Error) -> String {
-    match error {
-        Error::Io(io_error) => match io_error.kind() {
-            io::ErrorKind::NotFound => "no existe".to_owned(),
-            io::ErrorKind::PermissionDenied => "sin permiso de lectura".to_owned(),
-            _ => io_error.to_string(),
-        },
-        other => other.to_string(),
     }
 }
 
@@ -207,6 +194,7 @@ impl Drop for RunningVisualizer {
 #[cfg(test)]
 mod tests {
     use std::collections::VecDeque;
+    use std::io;
 
     use super::*;
     use crate::domain::{VisualContent, VisualizerStyle};
@@ -289,12 +277,12 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn a_missing_source_is_explained_and_retried() {
-        let missing = io::Error::from(io::ErrorKind::NotFound);
+        let missing = Error::from(io::Error::from(io::ErrorKind::NotFound));
         let chunk = sine_pcm(1_000.0, 0.5, 1_024);
-        let mut running = launcher(vec![Err(missing.into()), Ok(chunk)]).launch(BARS);
+        let mut running = launcher(vec![Err(missing.clone()), Ok(chunk)]).launch(BARS);
         assert_eq!(
             running.next_state().await,
-            Some(VisualState::Unavailable("no existe".into()))
+            Some(VisualState::Unavailable(missing))
         );
         frame_where(&mut running, |frame| frame.signal).await;
     }

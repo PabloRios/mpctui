@@ -2,6 +2,7 @@
 
 use super::{App, Backend};
 use crate::domain::Song;
+use crate::i18n::Message;
 use crate::tui::action::Action;
 use crate::tui::state::ViewKind;
 
@@ -55,14 +56,11 @@ impl<B: Backend> App<B> {
         }
         let result = self.services.queue.add_songs(&songs).await;
         if self.report(result).is_some() {
-            self.notify_info(added_message(&songs));
+            let added = match songs.as_slice() {
+                [song] => Message::AddedToQueue(song.display_title()),
+                many => Message::SongsAdded(many.len()),
+            };
+            self.notify_info(self.message(added));
         }
-    }
-}
-
-fn added_message(songs: &[Song]) -> String {
-    match songs {
-        [song] => format!("Agregado a la cola: {}", song.display_title()),
-        many => format!("Agregados a la cola: {} temas", many.len()),
     }
 }

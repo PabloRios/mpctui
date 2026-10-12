@@ -31,6 +31,7 @@ use self::layout::{COMPACT_MIN_HEIGHT, COMPACT_MIN_WIDTH, LayoutMode, layout_mod
 use super::appearance::Appearance;
 use super::glyphs::Glyphs;
 use super::state::AppState;
+use crate::i18n::{Catalog, Message, Phrase};
 
 const FOOTER_ROWS: u16 = 1;
 const TABS_ROWS: u16 = 1;
@@ -42,10 +43,11 @@ pub fn render(frame: &mut Frame, state: &mut AppState, appearance: Appearance, n
     let area = frame.area();
     let mode = layout_mode(area.width, area.height);
     if mode == LayoutMode::TooSmall {
-        return render_too_small(frame, area, glyphs);
+        return render_too_small(frame, area, glyphs, appearance.texts);
     }
     let context = Context {
         glyphs,
+        texts: appearance.texts,
         mode,
         width: area.width,
         now,
@@ -73,19 +75,22 @@ pub fn render(frame: &mut Frame, state: &mut AppState, appearance: Appearance, n
     footer::render(frame, footer_area, state, &context);
     dialogs::render(frame, area, state, &context);
     if state.help_visible {
-        help::render(frame, area, glyphs);
+        help::render(frame, area, &context);
     }
 }
 
 /// Aviso con el mínimo y el tamaño actual.
-fn render_too_small(frame: &mut Frame, area: Rect, glyphs: &Glyphs) {
+fn render_too_small(frame: &mut Frame, area: Rect, glyphs: &Glyphs, texts: &dyn Catalog) {
+    let size = texts.message(&Message::TerminalSize {
+        minimum_width: COMPACT_MIN_WIDTH,
+        minimum_height: COMPACT_MIN_HEIGHT,
+        width: area.width,
+        height: area.height,
+    });
     let lines = vec![
         Line::default(),
-        Line::from("  La terminal es muy chica."),
-        Line::from(format!(
-            "  Mínimo: {COMPACT_MIN_WIDTH} x {COMPACT_MIN_HEIGHT}. Actual: {} x {}.",
-            area.width, area.height
-        )),
+        Line::from(format!("  {}", texts.phrase(Phrase::TerminalTooSmall))),
+        Line::from(format!("  {size}")),
     ];
     let block = titled_block(Line::from(APPLICATION_NAME), glyphs);
     frame.render_widget(Paragraph::new(lines).block(block), area);
@@ -93,6 +98,7 @@ fn render_too_small(frame: &mut Frame, area: Rect, glyphs: &Glyphs) {
 
 #[cfg(test)]
 mod tests {
+    use std::io;
     use std::time::Duration;
 
     use ratatui::Terminal;
@@ -105,6 +111,8 @@ mod tests {
         PlaylistName, SampleFormat, SampleRange, ScopePoint, SearchText, Song, Status,
         VisualContent, VisualFrame, VisualizerStyle, Volume,
     };
+    use crate::i18n::{English, Spanish};
+    use crate::repository::Error;
     use crate::service::{PlaybackClock, PlayerSnapshot, VisualState};
     use crate::tui::appearance::ProgressBars;
     use crate::tui::glyphs::{ASCII, UNICODE};
@@ -349,11 +357,23 @@ mod tests {
     fn render_with_bars(
         state: &mut AppState,
         glyphs: &'static Glyphs,
+        size: (u16, u16),
+        progress_bars: ProgressBars,
+    ) -> Buffer {
+        render_in(state, glyphs, size, progress_bars, &Spanish)
+    }
+
+    /// Los tests de pantalla usan el español salvo que digan otro idioma.
+    fn render_in(
+        state: &mut AppState,
+        glyphs: &'static Glyphs,
         (width, height): (u16, u16),
         progress_bars: ProgressBars,
+        texts: &'static dyn Catalog,
     ) -> Buffer {
         let appearance = Appearance {
             glyphs,
+            texts,
             progress_bars,
             visualizer_style: VisualizerStyle::default(),
         };
@@ -380,7 +400,7 @@ mod tests {
     }
 
     /// Todas las pantallas: cada vista, con cada superposición y en cada tamaño.
-    fn every_screen(glyphs: &'static Glyphs) -> Vec<Buffer> {
+    fn every_screen(glyphs: &'static Glyphs, texts: &'static dyn Catalog) -> Vec<Buffer> {
         let mut screens = Vec::new();
         for (view, style) in every_view() {
             for overlay in overlays() {
@@ -390,7 +410,7 @@ mod tests {
                     state.visual.style = style;
                     state.visual.state = sample_frame(style);
                     overlay(&mut state);
-                    screens.push(render_to_buffer(&mut state, glyphs, size));
+                    screens.push(render_in(&mut state, glyphs, size, ALL_BARS, texts));
                 }
             }
         }
@@ -403,8 +423,12 @@ mod tests {
 
     #[test]
     fn ascii_screens_have_no_unicode_glyphs() {
-        for screen in every_screen(&ASCII) {
-            let text = screen_text(&screen);
+        let screens = [
+            every_screen(&ASCII, &Spanish),
+            every_screen(&ASCII, &English),
+        ];
+        for screen in screens.iter().flatten() {
+            let text = screen_text(screen);
             let forbidden = text.chars().find(|character| {
                 FORBIDDEN_IN_ASCII
                     .iter()
@@ -422,7 +446,43 @@ mod tests {
             assert!(text.contains(glyph), "falta {glyph:?}");
         }
         assert!(text.contains(UNICODE.border.top_left));
-        assert_eq!(every_screen(&UNICODE).len(), every_screen(&ASCII).len());
+        assert_eq!(
+            every_screen(&UNICODE, &Spanish).len(),
+            every_screen(&ASCII, &Spanish).len()
+        );
+    }
+
+    #[test]
+    fn english_screens_speak_english() {
+        let mut state = sample_state();
+        let screen = screen_lines(&render_in(
+            &mut state, &UNICODE, SIZES[0], ALL_BARS, &English,
+        ));
+        assert_contains(
+            &screen,
+            &[
+                "[1 Queue]",
+                "2 Library",
+                "60 songs",
+                "random",
+                "? help",
+                "pos ",
+            ],
+        );
+        assert!(
+            !screen.contains("Cola") && !screen.contains("aleatorio"),
+            "{screen}"
+        );
+        state.help_visible = true;
+        let help = screen_lines(&render_in(&mut state, &ASCII, SIZES[0], ALL_BARS, &English));
+        assert_contains(
+            &help,
+            &["Help", "Navigation", "Quit", "j Down", "any key closes"],
+        );
+        state.help_visible = false;
+        state.prompt = Some(Prompt::confirm(Confirmation::ClearQueue));
+        let dialog = screen_lines(&render_in(&mut state, &ASCII, SIZES[0], ALL_BARS, &English));
+        assert_contains(&dialog, &["Clear the queue?", "[y] yes", "[n] no"]);
     }
 
     #[test]
@@ -718,7 +778,8 @@ mod tests {
 
     #[test]
     fn visual_view_explains_a_missing_fifo() {
-        let missing = VisualState::Unavailable("no existe".into());
+        let missing =
+            VisualState::Unavailable(Error::from(io::Error::from(io::ErrorKind::NotFound)));
         let screen = visual_screen(&ASCII, SIZES[0], VisualizerStyle::Bars, missing);
         assert_contains(
             &screen,
@@ -840,11 +901,11 @@ mod tests {
         );
         let failed = LyricsStatus::NotFound {
             untitled: false,
-            problem: Some("se cortó".into()),
+            problem: Some(Error::Closed),
         };
         assert_contains(
             &lyrics_screen(&ASCII, SIZES[0], failed),
-            &["Último error: se cortó"],
+            &["Último error: la conexión con MPD se cerró"],
         );
     }
 

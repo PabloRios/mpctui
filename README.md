@@ -26,6 +26,7 @@ host = "localhost"        # o la ruta a un socket unix, p. ej. "/run/mpd/socket"
 port = 6600
 password = "secreto"
 glyphs = "auto"           # "auto" (defecto) | "unicode" | "ascii"
+language = "en"           # idioma de la interfaz: "en" (defecto, inglés) | "es" (español)
 album_progress = false    # barra de progreso del álbum en el panel (oculta por defecto)
 queue_progress = false    # barra de progreso de la cola en el panel (oculta por defecto)
 visualizer_fifo = "/tmp/mpd.fifo"   # salida fifo de MPD que lee el visualizador
@@ -47,7 +48,7 @@ music_directory = "~/Music"                            # raíz de la biblioteca;
 | `MPD_PORT` | `6600` | Puerto TCP |
 | `MPCTUI_GLYPHS` | `ascii` | Fuerza el juego de glifos (`auto`, `unicode` o `ascii`) |
 
-Si la configuración es inválida (puerto no numérico, host vacío, campo desconocido en el TOML, contraseña con saltos de línea, `glyphs` distinto de `auto`/`unicode`/`ascii`, `album_progress` o `queue_progress` que no sean `true`/`false`, `visualizer_fifo` vacío, `visualizer_format` que no sea de 16 bits, 1 o 2 canales y entre 8000 y 192000 Hz, `visualizer_style` desconocido, `mirror`/`vectorscope` con un FIFO de un canal, una fuente de letras desconocida o repetida, `lyrics.sources` vacía con las letras activadas, o `song_folder` sin `music_directory`), mpctui no arranca y explica el motivo. Que el FIFO no exista no es un error de configuración: la vista Visual explica cómo crearlo.
+Si la configuración es inválida (puerto no numérico, host vacío, campo desconocido en el TOML, contraseña con saltos de línea, `glyphs` distinto de `auto`/`unicode`/`ascii`, `language` distinto de `en`/`es`, `album_progress` o `queue_progress` que no sean `true`/`false`, `visualizer_fifo` vacío, `visualizer_format` que no sea de 16 bits, 1 o 2 canales y entre 8000 y 192000 Hz, `visualizer_style` desconocido, `mirror`/`vectorscope` con un FIFO de un canal, una fuente de letras desconocida o repetida, `lyrics.sources` vacía con las letras activadas, o `song_folder` sin `music_directory`), mpctui no arranca y explica el motivo en el idioma configurado (si el TOML no se puede leer, en inglés). Que el FIFO no exista no es un error de configuración: la vista Visual explica cómo crearlo.
 
 ### Glifos: Unicode o ASCII
 

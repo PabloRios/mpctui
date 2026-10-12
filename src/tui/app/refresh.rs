@@ -4,6 +4,7 @@ use std::time::Instant;
 
 use super::{App, Backend};
 use crate::domain::{Status, Subsystem};
+use crate::i18n::Message;
 use crate::service::{PlaybackClock, UpdateTransition, update_transition};
 use crate::tui::list::SelectionPolicy;
 use crate::tui::state::ViewKind;
@@ -102,7 +103,7 @@ impl<B: Backend> App<B> {
             return;
         };
         let elapsed = format_duration(now.saturating_duration_since(started));
-        self.notify_info(format!("Biblioteca actualizada ({elapsed})"));
+        self.notify_info(self.message(Message::LibraryUpdated { elapsed: &elapsed }));
     }
 
     async fn refresh_queue(&mut self) {

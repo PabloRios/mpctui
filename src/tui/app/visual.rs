@@ -2,6 +2,7 @@
 //! forma y la resolución que pidió el último dibujado. `6` entra o cambia de forma.
 
 use super::{App, Backend};
+use crate::i18n::Message;
 use crate::service::{RunningVisualizer, VisualState};
 use crate::tui::action::{Action, key_label};
 use crate::tui::state::ViewKind;
@@ -16,9 +17,11 @@ impl<B: Backend> App<B> {
         }
         let visual = &mut self.state.visual;
         visual.style = visual.style.next(visual.channels);
-        let key = key_label(Action::ShowVisualizer, self.appearance.glyphs).unwrap_or_default();
-        let name = visualizer_style_name(visual.style);
-        self.notify_info(format!("Visualizador: {name} ({key}: siguiente forma)"));
+        let texts = self.appearance.texts;
+        let key =
+            key_label(Action::ShowVisualizer, self.appearance.glyphs, texts).unwrap_or_default();
+        let style = texts.phrase(visualizer_style_name(visual.style));
+        self.notify_info(self.message(Message::VisualizerChanged { style, key: &key }));
     }
 
     /// Se llama después de cada dibujado: lanza o cancela el visualizador según la

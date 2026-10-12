@@ -26,6 +26,9 @@ port = 6600
 
 # --- Apariencia ----------------------------------------------------------------
 
+# Idioma de la interfaz y de los mensajes de error: "en" (inglés) o "es" (español).
+language = "en"
+
 # Juego de glifos: "auto", "unicode" o "ascii".
 # "auto" usa ASCII si el locale no es UTF-8 o si TERM es "linux" o "dumb".
 # MPCTUI_GLYPHS lo reemplaza.

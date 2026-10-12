@@ -1,9 +1,13 @@
 //! Acciones de la biblioteca en columnas Artista → Álbum → Tema.
 
 use super::{App, Backend};
+use crate::i18n::Message;
 use crate::tui::action::{Action, Navigation};
 use crate::tui::list::SelectionPolicy;
 use crate::tui::state::LibraryColumn;
+
+/// Entre el artista y el álbum en el aviso de lo agregado.
+const ARTIST_ALBUM_SEPARATOR: &str = " — ";
 
 impl<B: Backend> App<B> {
     pub(super) async fn library_action(&mut self, action: Action) {
@@ -95,7 +99,7 @@ impl<B: Backend> App<B> {
         };
         let result = self.services.queue.add_artist(&artist).await;
         if self.report(result).is_some() {
-            self.notify_info(format!("Agregado a la cola: {artist}"));
+            self.notify_info(self.message(Message::AddedToQueue(&artist)));
         }
     }
 
@@ -105,7 +109,8 @@ impl<B: Backend> App<B> {
         };
         let result = self.services.queue.add_album(&artist, &album).await;
         if self.report(result).is_some() {
-            self.notify_info(format!("Agregado a la cola: {artist} — {album}"));
+            let added = format!("{artist}{ARTIST_ALBUM_SEPARATOR}{album}");
+            self.notify_info(self.message(Message::AddedToQueue(&added)));
         }
     }
 }

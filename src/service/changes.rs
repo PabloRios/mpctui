@@ -8,7 +8,7 @@ use tokio::time::Instant;
 
 use super::backoff::Backoff;
 use crate::domain::Subsystem;
-use crate::repository::ChangesRepository;
+use crate::repository::{ChangesRepository, Error};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ServerEvent {
@@ -19,7 +19,7 @@ pub enum ServerEvent {
         attempt: u32,
         retry_at: Instant,
         delay: Duration,
-        reason: String,
+        reason: Error,
     },
     /// Se está intentando reconectar.
     Connecting {
@@ -49,7 +49,7 @@ impl<R: ChangesRepository + Send> ChangeWatcher<R> {
         loop {
             let listening = match self.repository.wait_for_changes().await {
                 Ok(changed) => self.publish(ServerEvent::Changed(changed)),
-                Err(error) => self.reconnect(error.to_string()).await,
+                Err(error) => self.reconnect(error).await,
             };
             if !listening {
                 return;
@@ -59,7 +59,7 @@ impl<R: ChangesRepository + Send> ChangeWatcher<R> {
 
     /// Reintenta con espera creciente hasta que el servidor responda. Devuelve `false`
     /// si nadie escucha los eventos.
-    async fn reconnect(&mut self, first_reason: String) -> bool {
+    async fn reconnect(&mut self, first_reason: Error) -> bool {
         let mut reason = first_reason;
         let mut attempt: u32 = 1;
         loop {
@@ -83,7 +83,7 @@ impl<R: ChangesRepository + Send> ChangeWatcher<R> {
                     self.backoff.reset();
                     return self.publish(ServerEvent::Connected);
                 }
-                Err(error) => reason = error.to_string(),
+                Err(error) => reason = error,
             }
             attempt = attempt.saturating_add(1);
         }
@@ -102,7 +102,7 @@ mod tests {
     use tokio::sync::mpsc;
 
     use super::*;
-    use crate::repository::{Error, Result};
+    use crate::repository::Result;
 
     /// Devuelve las respuestas del guion y después espera para siempre.
     #[derive(Default)]

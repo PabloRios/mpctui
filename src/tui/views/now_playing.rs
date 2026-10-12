@@ -21,7 +21,8 @@ use super::layout::LayoutMode;
 use super::theme;
 use super::widgets::{millis, spread, state_glyph};
 use crate::domain::{AlbumRun, MAX_VOLUME, PlayState, SingleMode, Song, Status, Timeline};
-use crate::tui::action::{Action, key_label};
+use crate::i18n::{Catalog, Phrase};
+use crate::tui::action::Action;
 use crate::tui::appearance::ProgressBars;
 use crate::tui::glyphs::Glyphs;
 use crate::tui::state::AppState;
@@ -39,13 +40,7 @@ const VOLUME_GAP: &str = "    ";
 const MODE_GAP: &str = "  ";
 /// Peso de un tema en el modo por cantidad (cuando falta alguna duración).
 const COUNT_MODE_WEIGHT: u64 = 1_000;
-const LIVE_LABEL: &str = " en vivo ";
-const NOTHING_PLAYING: &str = "sin reproducción";
-const VOLUME_UNAVAILABLE: &str = "n/d";
 const ARTIST_ALBUM_SEPARATOR: &str = " - ";
-const SONG_LABEL: &str = "tema";
-const ALBUM_LABEL: &str = "álbum";
-const QUEUE_LABEL: &str = "cola";
 
 pub fn rows(mode: LayoutMode, bars: ProgressBars) -> u16 {
     match mode {
@@ -61,20 +56,20 @@ pub fn render_rule(buffer: &mut Buffer, row: Rect, state: &AppState, context: &C
     if context.is_compact() {
         return chrome::rule(buffer, row, glyphs, None);
     }
-    let title = title(state, glyphs);
+    let title = title(state, context);
     let used = block_title(title.clone(), glyphs).width()
         + MIN_GAP
         + end_title(Line::default(), glyphs).width();
     chrome::rule(buffer, row, glyphs, Some(title));
     let available = usize::from(row.width).saturating_sub(used);
-    if let Some(audio) = audio_format(state, available) {
+    if let Some(audio) = audio_format(state, available, context.texts) {
         chrome::rule_end_title(buffer, row, glyphs, Line::styled(audio, theme::MUTED));
     }
 }
 
 /// Formato de audio del tema actual en `width` columnas. Detenido, nada: MPD no
 /// informa `audio` ni `bitrate`.
-fn audio_format(state: &AppState, width: usize) -> Option<String> {
+fn audio_format(state: &AppState, width: usize, texts: &dyn Catalog) -> Option<String> {
     let status = &state.player.status;
     if status.state == PlayState::Stop {
         return None;
@@ -83,33 +78,35 @@ fn audio_format(state: &AppState, width: usize) -> Option<String> {
         state.player.current_song.as_ref(),
         status.audio.as_ref(),
         status.bitrate,
+        texts,
     );
     fit_parts_from_left(&parts, width)
 }
 
 /// Título del bloque: `▶ reproduciendo`, `⏸ en pausa`, `■ detenido`.
-fn title(state: &AppState, glyphs: &Glyphs) -> Line<'static> {
+fn title(state: &AppState, context: &Context<'_>) -> Line<'static> {
     let play_state = state.player.status.state;
-    let word = match play_state {
-        PlayState::Play => "reproduciendo",
-        PlayState::Pause => "en pausa",
-        PlayState::Stop => "detenido",
-    };
+    let word = context.phrase(match play_state {
+        PlayState::Play => Phrase::Playing,
+        PlayState::Pause => Phrase::Paused,
+        PlayState::Stop => Phrase::Stopped,
+    });
     let style = if play_state == PlayState::Play {
         theme::ACCENT
     } else {
         theme::BOLD
     };
-    Line::styled(format!("{} {word}", state_glyph(play_state, glyphs)), style)
+    let glyph = state_glyph(play_state, context.glyphs);
+    Line::styled(format!("{glyph} {word}"), style)
 }
 
 pub fn render(frame: &mut Frame, area: Rect, state: &AppState, context: &Context<'_>) {
     let area = area.inner(Margin::new(SIDE_PADDING, 0));
     let playback = Playback::from_state(state, context);
     let lines = if context.is_compact() {
-        compact_lines(&playback, area.width, context.glyphs)
+        compact_lines(&playback, area.width, context)
     } else {
-        full_lines(&playback, area.width, context.progress_bars, context.glyphs)
+        full_lines(&playback, area.width, context)
     };
     let rows = Layout::vertical(vec![Constraint::Length(1); lines.len()]).split(area);
     for (line, row) in lines.into_iter().zip(rows.iter()) {
@@ -196,7 +193,7 @@ const EMPTY_BAR: BarInput = BarInput {
     position: None,
 };
 
-fn song_bar(playback: &Playback<'_>) -> BarRow {
+fn song_bar(playback: &Playback<'_>, texts: &dyn Catalog) -> BarRow {
     let right = format!(
         "{} / {}",
         playback.elapsed_text(Some(playback.elapsed)),
@@ -216,7 +213,7 @@ fn song_bar(playback: &Playback<'_>) -> BarRow {
         None => BarContent::Unknown,
     };
     BarRow {
-        label: SONG_LABEL,
+        label: texts.phrase(Phrase::SongLabel),
         content,
         right,
     }
@@ -230,26 +227,28 @@ fn current_album(playback: &Playback<'_>) -> Option<(usize, AlbumRun)> {
 }
 
 /// `tema 4/10`.
-fn song_number(index: usize, run: AlbumRun) -> String {
+fn song_number(index: usize, run: AlbumRun, texts: &dyn Catalog) -> String {
     format!(
-        "{SONG_LABEL} {}/{}",
+        "{} {}/{}",
+        texts.phrase(Phrase::SongLabel),
         index - run.first_index + 1,
         run.song_count
     )
 }
 
 /// Un segmento por tema del álbum en curso. Si falta alguna duración, por cantidad.
-fn album_bar(playback: &Playback<'_>) -> BarRow {
+fn album_bar(playback: &Playback<'_>, texts: &dyn Catalog) -> BarRow {
+    let label = texts.phrase(Phrase::AlbumLabel);
     let Some((index, run)) = current_album(playback) else {
         return BarRow {
-            label: ALBUM_LABEL,
+            label,
             content: BarContent::Segments(EMPTY_BAR, ALBUM_BAR),
             right: String::new(),
         };
     };
     let in_album = index - run.first_index;
     let songs = &playback.queue[run.indices()];
-    let number = song_number(index, run);
+    let number = song_number(index, run, texts);
     let (input, right) = match run.duration {
         Some(total) => {
             let weights: Vec<u64> = songs
@@ -276,26 +275,28 @@ fn album_bar(playback: &Playback<'_>) -> BarRow {
         }
     };
     BarRow {
-        label: ALBUM_LABEL,
+        label,
         content: BarContent::Segments(input, ALBUM_BAR),
         right,
     }
 }
 
 /// Un segmento por álbum de la cola, con ventana alrededor del actual.
-fn queue_bar(playback: &Playback<'_>) -> BarRow {
+fn queue_bar(playback: &Playback<'_>, texts: &dyn Catalog) -> BarRow {
+    let label = texts.phrase(Phrase::QueueLabel);
     let timeline = playback.timeline;
     let current = playback
         .index
         .and_then(|index| Some((index, timeline.run_of(index)?)));
     let Some((index, run)) = current else {
         return BarRow {
-            label: QUEUE_LABEL,
+            label,
             content: BarContent::Segments(EMPTY_BAR, QUEUE_BAR),
             right: String::new(),
         };
     };
-    let number = format!("{ALBUM_LABEL} {}/{}", run + 1, timeline.runs.len());
+    let album = texts.phrase(Phrase::AlbumLabel);
+    let number = format!("{album} {}/{}", run + 1, timeline.runs.len());
     let offset = timeline.song_offsets[index];
     let (input, right) = match (timeline.total, offset) {
         (Some(total), Some(offset)) => {
@@ -331,14 +332,15 @@ fn queue_bar(playback: &Playback<'_>) -> BarRow {
         }
     };
     BarRow {
-        label: QUEUE_LABEL,
+        label,
         content: BarContent::Segments(input, QUEUE_BAR),
         right,
     }
 }
 
-/// Barra en `width` columnas, contando sus extremos. Muy angosta, no se dibuja.
-fn draw_bar(content: &BarContent, width: usize, glyphs: &Glyphs) -> Line<'static> {
+/// Barra en `width` columnas, contando sus extremos. Muy angosta, no se dibuja. La de un
+/// stream lleva `live` en el medio.
+fn draw_bar(content: &BarContent, width: usize, glyphs: &Glyphs, live: &str) -> Line<'static> {
     let ends = Span::raw(glyphs.bar_open).width() + Span::raw(glyphs.bar_close).width();
     let inner = width.saturating_sub(ends);
     if inner < BAR_MIN_WIDTH {
@@ -349,12 +351,12 @@ fn draw_bar(content: &BarContent, width: usize, glyphs: &Glyphs) -> Line<'static
             let more_width = Span::raw(glyphs.bar_more).width();
             bar_line(&segmented_bar(input, inner, *policy, more_width), glyphs)
         }
-        BarContent::Unknown => unknown_bar_line(inner, LIVE_LABEL, glyphs),
+        BarContent::Unknown => unknown_bar_line(inner, &format!(" {live} "), glyphs),
     }
 }
 
 /// Las barras empiezan en la misma columna y tienen el mismo ancho.
-fn bar_lines(rows: Vec<BarRow>, width: u16, glyphs: &Glyphs) -> Vec<Line<'static>> {
+fn bar_lines(rows: Vec<BarRow>, width: u16, glyphs: &Glyphs, live: &str) -> Vec<Line<'static>> {
     let label_width = rows
         .iter()
         .map(|row| Span::raw(row.label).width())
@@ -371,7 +373,7 @@ fn bar_lines(rows: Vec<BarRow>, width: u16, glyphs: &Glyphs) -> Vec<Line<'static
         .map(|row| {
             let label = format!("{:<label_width$}", row.label);
             let mut spans = vec![Span::styled(label, theme::MUTED)];
-            spans.extend(draw_bar(&row.content, bar_width, glyphs).spans);
+            spans.extend(draw_bar(&row.content, bar_width, glyphs, live).spans);
             let right = format!("{:>right_width$}", row.right);
             spread(Line::from(spans), Line::from(right), width, glyphs)
         })
@@ -379,31 +381,31 @@ fn bar_lines(rows: Vec<BarRow>, width: u16, glyphs: &Glyphs) -> Vec<Line<'static
         .collect()
 }
 
-fn full_lines(
-    playback: &Playback<'_>,
-    width: u16,
-    bars: ProgressBars,
-    glyphs: &Glyphs,
-) -> Vec<Line<'static>> {
-    let mut lines = vec![song_line(playback, width, glyphs)];
-    let mut rows = vec![song_bar(playback)];
+fn full_lines(playback: &Playback<'_>, width: u16, context: &Context<'_>) -> Vec<Line<'static>> {
+    let texts = context.texts;
+    let bars = context.progress_bars;
+    let mut lines = vec![song_line(playback, width, context)];
+    let mut rows = vec![song_bar(playback, texts)];
     if bars.album {
-        rows.push(album_bar(playback));
+        rows.push(album_bar(playback, texts));
     }
     if bars.queue {
-        rows.push(queue_bar(playback));
+        rows.push(queue_bar(playback, texts));
     }
-    lines.extend(bar_lines(rows, width, glyphs));
-    lines.push(controls_line(playback, width, glyphs));
+    let live = context.phrase(Phrase::Live);
+    lines.extend(bar_lines(rows, width, context.glyphs, live));
+    lines.push(controls_line(playback, width, context));
     lines
 }
 
 /// `♪ título` a la izquierda y `artista - álbum (año)` a la derecha. Si no entra, se
 /// trunca primero el álbum, después el artista y por último el título.
-fn song_line(playback: &Playback<'_>, width: u16, glyphs: &Glyphs) -> Line<'static> {
+fn song_line(playback: &Playback<'_>, width: u16, context: &Context<'_>) -> Line<'static> {
+    let glyphs = context.glyphs;
     let prefix = format!("{} ", glyphs.now_playing);
     let Some(song) = playback.song else {
-        return Line::styled(format!("{prefix}{NOTHING_PLAYING}"), theme::MUTED);
+        let nothing = context.phrase(Phrase::NothingPlaying);
+        return Line::styled(format!("{prefix}{nothing}"), theme::MUTED);
     };
     let title = song.display_title().to_owned();
     let artist = song
@@ -466,7 +468,8 @@ struct Mode {
     active: bool,
 }
 
-fn modes(status: &Status, glyphs: &Glyphs) -> [Mode; 4] {
+fn modes(status: &Status, context: &Context<'_>) -> [Mode; 4] {
+    let glyphs = context.glyphs;
     let flag = |active: bool| {
         if active {
             glyphs.flag_on
@@ -482,25 +485,25 @@ fn modes(status: &Status, glyphs: &Glyphs) -> [Mode; 4] {
     [
         Mode {
             action: Action::ToggleRandom,
-            label: "aleatorio",
+            label: context.phrase(Phrase::ModeRandom),
             flag: flag(status.random),
             active: status.random,
         },
         Mode {
             action: Action::ToggleRepeat,
-            label: "repetir",
+            label: context.phrase(Phrase::ModeRepeat),
             flag: flag(status.repeat),
             active: status.repeat,
         },
         Mode {
             action: Action::CycleSingle,
-            label: "single",
+            label: context.phrase(Phrase::ModeSingle),
             flag: single,
             active: status.single != SingleMode::Off,
         },
         Mode {
             action: Action::ToggleConsume,
-            label: "consumir",
+            label: context.phrase(Phrase::ModeConsume),
             flag: flag(status.consume),
             active: status.consume,
         },
@@ -508,8 +511,9 @@ fn modes(status: &Status, glyphs: &Glyphs) -> [Mode; 4] {
 }
 
 /// `z ● aleatorio` (o `z[x] aleatorio`); compacto, `z●` (o `z[x]`).
-fn mode_spans(mode: &Mode, glyphs: &Glyphs, compact: bool) -> Vec<Span<'static>> {
-    let key = key_label(mode.action, glyphs).unwrap_or_default();
+fn mode_spans(mode: &Mode, context: &Context<'_>, compact: bool) -> Vec<Span<'static>> {
+    let glyphs = context.glyphs;
+    let key = context.key(mode.action);
     let style = if mode.active {
         theme::MODE_ON
     } else {
@@ -530,21 +534,21 @@ fn mode_spans(mode: &Mode, glyphs: &Glyphs, compact: bool) -> Vec<Span<'static>>
     spans
 }
 
-fn modes_spans(status: &Status, glyphs: &Glyphs, compact: bool) -> Vec<Span<'static>> {
+fn modes_spans(status: &Status, context: &Context<'_>, compact: bool) -> Vec<Span<'static>> {
     let gap = if compact { " " } else { MODE_GAP };
     let mut spans = Vec::new();
-    for (index, mode) in modes(status, glyphs).iter().enumerate() {
+    for (index, mode) in modes(status, context).iter().enumerate() {
         if index > 0 {
             spans.push(Span::raw(gap));
         }
-        spans.extend(mode_spans(mode, glyphs, compact));
+        spans.extend(mode_spans(mode, context, compact));
     }
     spans
 }
 
-fn volume_percent(status: &Status) -> String {
+fn volume_percent(status: &Status, texts: &dyn Catalog) -> String {
     status.volume.map_or_else(
-        || VOLUME_UNAVAILABLE.to_owned(),
+        || texts.phrase(Phrase::VolumeUnavailable).to_owned(),
         |volume| format!("{}%", volume.value()),
     )
 }
@@ -558,21 +562,32 @@ fn queue_position(playback: &Playback<'_>) -> String {
 }
 
 /// `vol ■■■■■■■□□□  70%     z ● aleatorio ...     pos 304/1229`.
-fn controls_line(playback: &Playback<'_>, width: u16, glyphs: &Glyphs) -> Line<'static> {
+fn controls_line(playback: &Playback<'_>, width: u16, context: &Context<'_>) -> Line<'static> {
+    let glyphs = context.glyphs;
     let status = playback.status;
     let level = status.volume.map_or(0, |volume| u64::from(volume.value()));
     let maximum = u64::from(MAX_VOLUME);
-    let mut left = vec![Span::styled("vol ", theme::MUTED)];
+    let volume_label = context.phrase(Phrase::VolumeLabel);
+    let mut left = vec![Span::styled(format!("{volume_label} "), theme::MUTED)];
     left.extend(meter_line(&meter(level, maximum, VOLUME_CELLS), glyphs).spans);
-    left.push(Span::raw(format!("  {:>4}", volume_percent(status))));
+    left.push(Span::raw(format!(
+        "  {:>4}",
+        volume_percent(status, context.texts)
+    )));
     left.push(Span::raw(VOLUME_GAP));
-    left.extend(modes_spans(status, glyphs, false));
-    let right = Line::styled(format!("pos {}", queue_position(playback)), theme::MUTED);
+    left.extend(modes_spans(status, context, false));
+    let position_label = context.phrase(Phrase::PositionLabel);
+    let right = Line::styled(
+        format!("{position_label} {}", queue_position(playback)),
+        theme::MUTED,
+    );
     owned(spread(Line::from(left), right, width, glyphs))
 }
 
 /// Compacto: barra del tema; tema y números; modos con letras.
-fn compact_lines(playback: &Playback<'_>, width: u16, glyphs: &Glyphs) -> Vec<Line<'static>> {
+fn compact_lines(playback: &Playback<'_>, width: u16, context: &Context<'_>) -> Vec<Line<'static>> {
+    let glyphs = context.glyphs;
+    let texts = context.texts;
     let state = format!("{} ", state_glyph(playback.status.state, glyphs));
     let times = format!(
         " {}/{}",
@@ -582,7 +597,8 @@ fn compact_lines(playback: &Playback<'_>, width: u16, glyphs: &Glyphs) -> Vec<Li
     let bar_width =
         usize::from(width).saturating_sub(Span::raw(&state).width() + Span::raw(&times).width());
     let mut bar = vec![Span::styled(state, theme::ACCENT)];
-    bar.extend(draw_bar(&song_bar(playback).content, bar_width, glyphs).spans);
+    let live = context.phrase(Phrase::Live);
+    bar.extend(draw_bar(&song_bar(playback, texts).content, bar_width, glyphs, live).spans);
     bar.push(Span::raw(times));
 
     let song = match playback.song {
@@ -599,14 +615,19 @@ fn compact_lines(playback: &Playback<'_>, width: u16, glyphs: &Glyphs) -> Vec<Li
                 song.display_title()
             )
         }
-        None => format!("{} {NOTHING_PLAYING}", glyphs.now_playing),
+        None => format!(
+            "{} {}",
+            glyphs.now_playing,
+            context.phrase(Phrase::NothingPlaying)
+        ),
     };
     let album_number = current_album(playback)
-        .map(|(index, run)| song_number(index, run))
+        .map(|(index, run)| song_number(index, run, texts))
         .unwrap_or_default();
     let numbers = format!(
-        "vol {}  {album_number}  {}",
-        volume_percent(playback.status),
+        "{} {}  {album_number}  {}",
+        context.phrase(Phrase::VolumeLabel),
+        volume_percent(playback.status, texts),
         queue_position(playback)
     );
     let details = spread(
@@ -618,7 +639,7 @@ fn compact_lines(playback: &Playback<'_>, width: u16, glyphs: &Glyphs) -> Vec<Li
     vec![
         Line::from(bar),
         owned(details),
-        Line::from(modes_spans(playback.status, glyphs, true)),
+        Line::from(modes_spans(playback.status, context, true)),
     ]
 }
 
@@ -636,6 +657,7 @@ fn owned(line: Line<'_>) -> Line<'static> {
 mod tests {
     use super::*;
     use crate::domain::{AudioFormat, SampleFormat};
+    use crate::i18n::Spanish;
 
     #[test]
     fn shrinking_follows_priority() {
@@ -663,15 +685,15 @@ mod tests {
             ..Song::default()
         });
         let full = "FLAC  44.1 kHz  16 bit  estéreo  1411 kbps";
-        assert_eq!(audio_format(&state, 60).as_deref(), Some(full));
+        assert_eq!(audio_format(&state, 60, &Spanish).as_deref(), Some(full));
         assert_eq!(
-            audio_format(&state, 40).as_deref(),
+            audio_format(&state, 40, &Spanish).as_deref(),
             Some("44.1 kHz  16 bit  estéreo  1411 kbps")
         );
         state.player.status.state = PlayState::Pause;
-        assert_eq!(audio_format(&state, 60).as_deref(), Some(full));
+        assert_eq!(audio_format(&state, 60, &Spanish).as_deref(), Some(full));
         state.player.status.state = PlayState::Stop;
-        assert_eq!(audio_format(&state, 60), None);
+        assert_eq!(audio_format(&state, 60, &Spanish), None);
     }
 
     #[test]
@@ -690,7 +712,7 @@ mod tests {
     fn bars_share_start_and_width() {
         let rows = [
             BarRow {
-                label: SONG_LABEL,
+                label: "tema",
                 content: BarContent::Segments(
                     BarInput {
                         weights: vec![100],
@@ -701,7 +723,7 @@ mod tests {
                 right: "1:00 / 2:00".into(),
             },
             BarRow {
-                label: ALBUM_LABEL,
+                label: "álbum",
                 content: BarContent::Segments(
                     BarInput {
                         weights: vec![1, 1],
@@ -712,12 +734,12 @@ mod tests {
                 right: "tema 2/2   3:00 / 4:00".into(),
             },
             BarRow {
-                label: QUEUE_LABEL,
+                label: "cola",
                 content: BarContent::Unknown,
                 right: String::new(),
             },
         ];
-        let lines = bar_lines(rows.into(), 60, &crate::tui::glyphs::ASCII);
+        let lines = bar_lines(rows.into(), 60, &crate::tui::glyphs::ASCII, "en vivo");
         let texts: Vec<String> = lines.iter().map(ToString::to_string).collect();
         let column_of = |text: &str, wanted: char| text.chars().position(|found| found == wanted);
         for text in &texts {

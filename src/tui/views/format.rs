@@ -9,18 +9,15 @@ use unicode_width::UnicodeWidthChar;
 
 use super::theme;
 use crate::domain::{AudioFormat, STEREO_CHANNELS, SampleFormat, Song, Tag, VisualizerStyle};
+use crate::i18n::{Catalog, Message, Phrase};
 
 const SECONDS_PER_MINUTE: u64 = 60;
 const SECONDS_PER_HOUR: u64 = 60 * SECONDS_PER_MINUTE;
 const MILLIS_PER_SECOND: u128 = 1_000;
 /// Texto para un dato que falta.
 pub const MISSING: &str = "—";
-/// Texto para un tag vacío en las listas de la biblioteca.
-pub const UNNAMED: &str = "(sin nombre)";
 /// Tiempo que no se conoce (detenido o stream).
 pub const TIME_UNKNOWN: &str = "--:--";
-/// Título del tramo de temas sin álbum.
-pub const NO_ALBUM: &str = "[sin álbum]";
 /// Cifras del año al principio de `Date`.
 const YEAR_DIGITS: usize = 4;
 /// Separación entre las partes del formato de audio.
@@ -32,9 +29,6 @@ const HERTZ_PER_KILOHERTZ: u32 = 1_000;
 /// Cifras de la parte decimal de los kHz (`44.1`, `22.05`).
 const KILOHERTZ_DECIMALS: usize = 3;
 const MONO_CHANNELS: u8 = 1;
-/// Separador decimal de los textos en español (`1,5 s`).
-const DECIMAL_COMMA: &str = ",";
-const DECIMAL_POINT: &str = ".";
 
 /// `m:ss`, o `h:mm:ss` si dura una hora o más.
 pub fn format_duration(duration: Duration) -> String {
@@ -65,16 +59,6 @@ pub fn duration_or_unknown(duration: Option<Duration>) -> String {
     duration.map_or_else(|| TIME_UNKNOWN.to_owned(), format_duration)
 }
 
-/// `1 tema` / `10 temas`.
-pub fn songs_count(count: usize) -> String {
-    plural(count, "tema", "temas")
-}
-
-pub fn plural(count: usize, singular: &str, plural: &str) -> String {
-    let noun = if count == 1 { singular } else { plural };
-    format!("{count} {noun}")
-}
-
 /// El año, si `Date` empieza con cuatro dígitos; si no, nada (es un tag libre).
 pub fn year(date: Option<&str>) -> Option<&str> {
     let year = date?.get(..YEAR_DIGITS)?;
@@ -84,9 +68,9 @@ pub fn year(date: Option<&str>) -> Option<&str> {
 }
 
 /// `Artista - Álbum (año)`, o `[sin álbum]`.
-pub fn album_title(song: &Song) -> String {
+pub fn album_title(song: &Song, texts: &dyn Catalog) -> String {
     let Some(album) = song.album.as_deref() else {
-        return NO_ALBUM.to_owned();
+        return texts.phrase(Phrase::NoAlbum).to_owned();
     };
     let mut title = match song.album_owner() {
         Some(artist) => format!("{artist} - {album}"),
@@ -98,13 +82,13 @@ pub fn album_title(song: &Song) -> String {
     title
 }
 
-pub fn tag_label(tag: Tag) -> &'static str {
+pub fn tag_label(tag: Tag) -> Phrase {
     match tag {
-        Tag::Any => "Todo",
-        Tag::Artist => "Artista",
-        Tag::AlbumArtist => "Artista del álbum",
-        Tag::Album => "Álbum",
-        Tag::Title => "Título",
+        Tag::Any => Phrase::TagAny,
+        Tag::Artist => Phrase::TagArtist,
+        Tag::AlbumArtist => Phrase::TagAlbumArtist,
+        Tag::Album => Phrase::TagAlbum,
+        Tag::Title => Phrase::TagTitle,
     }
 }
 
@@ -112,8 +96,12 @@ pub fn or_missing(value: Option<&str>) -> &str {
     value.unwrap_or(MISSING)
 }
 
-pub fn or_unnamed(value: &str) -> &str {
-    if value.is_empty() { UNNAMED } else { value }
+pub fn or_unnamed<'a>(value: &'a str, texts: &dyn Catalog) -> &'a str {
+    if value.is_empty() {
+        texts.phrase(Phrase::Unnamed)
+    } else {
+        value
+    }
 }
 
 /// Códec según la extensión del archivo, en mayúsculas (`FLAC`). Sin extensión o en
@@ -157,38 +145,32 @@ pub fn frequency_tick(hertz: u32) -> String {
 }
 
 /// Nombre de cada forma del visualizador.
-pub fn visualizer_style_name(style: VisualizerStyle) -> &'static str {
+pub fn visualizer_style_name(style: VisualizerStyle) -> Phrase {
     match style {
-        VisualizerStyle::Bars => "Barras",
-        VisualizerStyle::Mirror => "Espejo estéreo",
-        VisualizerStyle::Wave => "Onda",
-        VisualizerStyle::Waterfall => "Cascada",
-        VisualizerStyle::Vectorscope => "Vectorscopio",
-        VisualizerStyle::Meters => "Medidores",
+        VisualizerStyle::Bars => Phrase::StyleBars,
+        VisualizerStyle::Mirror => Phrase::StyleMirror,
+        VisualizerStyle::Wave => Phrase::StyleWave,
+        VisualizerStyle::Waterfall => Phrase::StyleWaterfall,
+        VisualizerStyle::Vectorscope => Phrase::StyleVectorscope,
+        VisualizerStyle::Meters => Phrase::StyleMeters,
     }
 }
 
-/// Segundos con un decimal y coma: `1,5 s`.
-pub fn seconds_with_decimal(duration: Duration) -> String {
-    let seconds = format!("{:.1}", duration.as_secs_f32()).replace(DECIMAL_POINT, DECIMAL_COMMA);
-    format!("{seconds} s")
-}
-
 /// `mono`, `estéreo` o `n canales`.
-pub fn channels(count: u8) -> String {
+pub fn channels(count: u8, texts: &dyn Catalog) -> String {
     match count {
-        MONO_CHANNELS => "mono".to_owned(),
-        STEREO_CHANNELS => "estéreo".to_owned(),
-        _ => format!("{count} canales"),
+        MONO_CHANNELS => texts.phrase(Phrase::Mono).to_owned(),
+        STEREO_CHANNELS => texts.phrase(Phrase::Stereo).to_owned(),
+        _ => texts.message(&Message::ChannelCount(count)),
     }
 }
 
 /// Frecuencia y profundidad; en DSD, solo la tasa (`DSD64`).
-fn sample_parts(audio: &AudioFormat) -> Vec<String> {
+fn sample_parts(audio: &AudioFormat, texts: &dyn Catalog) -> Vec<String> {
     let rate = audio.sample_rate.map(sample_rate);
     let depth = match audio.format {
         SampleFormat::Integer { bits } => Some(format!("{bits} bit")),
-        SampleFormat::Float => Some("flotante".to_owned()),
+        SampleFormat::Float => Some(texts.phrase(Phrase::FloatSamples).to_owned()),
         SampleFormat::Dsd { rate } => return vec![format!("DSD{rate}")],
     };
     rate.into_iter().chain(depth).collect()
@@ -199,11 +181,12 @@ pub fn audio_parts(
     song: Option<&Song>,
     audio: Option<&AudioFormat>,
     bitrate: Option<u32>,
+    texts: &dyn Catalog,
 ) -> Vec<String> {
     let mut parts: Vec<String> = song.and_then(codec).into_iter().collect();
     if let Some(audio) = audio {
-        parts.extend(sample_parts(audio));
-        parts.push(channels(audio.channels));
+        parts.extend(sample_parts(audio, texts));
+        parts.push(channels(audio.channels, texts));
     }
     parts.extend(bitrate.map(|kbps| format!("{kbps} kbps")));
     parts
@@ -361,6 +344,7 @@ mod tests {
 
     use ratatui::style::{Color, Style};
 
+    use crate::i18n::{English, Spanish};
     use crate::tui::glyphs::{ASCII, UNICODE};
 
     fn fitted(text: &str, width: usize, ellipsis: &'static str) -> String {
@@ -386,15 +370,14 @@ mod tests {
     #[test]
     fn empty_values_have_placeholders() {
         assert_eq!(or_missing(None), MISSING);
-        assert_eq!(or_unnamed(""), UNNAMED);
-        assert_eq!(or_unnamed("Rock"), "Rock");
+        assert_eq!(or_unnamed("", &Spanish), "(sin nombre)");
+        assert_eq!(or_unnamed("", &English), "(unnamed)");
+        assert_eq!(or_unnamed("Rock", &English), "Rock");
     }
 
     #[test]
     fn unknown_times_and_plurals() {
         assert_eq!(duration_or_unknown(None), TIME_UNKNOWN);
-        assert_eq!(songs_count(1), "1 tema");
-        assert_eq!(songs_count(10), "10 temas");
     }
 
     #[test]
@@ -414,12 +397,13 @@ mod tests {
             date: Some("1983".into()),
             ..Song::default()
         };
-        assert_eq!(album_title(&song), "Uno - Éxitos (1983)");
+        assert_eq!(album_title(&song, &Spanish), "Uno - Éxitos (1983)");
         song.album_artist = Some("Varios".into());
         song.date = None;
-        assert_eq!(album_title(&song), "Varios - Éxitos");
+        assert_eq!(album_title(&song, &Spanish), "Varios - Éxitos");
         song.album = None;
-        assert_eq!(album_title(&song), NO_ALBUM);
+        assert_eq!(album_title(&song, &Spanish), "[sin álbum]");
+        assert_eq!(album_title(&song, &English), "[no album]");
     }
 
     #[test]
@@ -491,18 +475,20 @@ mod tests {
         assert_eq!(sample_rate(48_000), "48 kHz");
         assert_eq!(sample_rate(96_000), "96 kHz");
         assert_eq!(sample_rate(22_050), "22.05 kHz");
-        assert_eq!(channels(1), "mono");
+        assert_eq!(channels(1, &Spanish), "mono");
         assert_eq!(frequency(40.0), "40 Hz");
         assert_eq!(frequency(16_000.0), "16 kHz");
         assert_eq!(frequency_tick(63), "63");
         assert_eq!(frequency_tick(16_000), "16k");
-        assert_eq!(channels(6), "6 canales");
+        assert_eq!(channels(6, &Spanish), "6 canales");
+        assert_eq!(channels(2, &English), "stereo");
+        assert_eq!(channels(6, &English), "6 channels");
     }
 
     #[test]
     fn audio_parts_follow_the_table() {
         let joined = |file: &str, audio: Option<AudioFormat>, bitrate| {
-            audio_parts(Some(&song_file(file)), audio.as_ref(), bitrate).join("  ")
+            audio_parts(Some(&song_file(file)), audio.as_ref(), bitrate, &Spanish).join("  ")
         };
         let integer = |bits| SampleFormat::Integer { bits };
         let cases = [
@@ -543,7 +529,7 @@ mod tests {
         for (got, expected) in cases {
             assert_eq!(got, expected);
         }
-        assert!(audio_parts(None, None, None).is_empty());
+        assert!(audio_parts(None, None, None, &English).is_empty());
     }
 
     #[test]

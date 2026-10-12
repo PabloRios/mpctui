@@ -46,6 +46,15 @@ pub struct CellPlot {
     pub density: &'static [&'static str],
 }
 
+/// Flechas del teclado, para nombrarlas en la ayuda.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ArrowKeys {
+    pub up: &'static str,
+    pub down: &'static str,
+    pub left: &'static str,
+    pub right: &'static str,
+}
+
 /// Un glifo por rol. Ver la tabla 2.1 de `DESIGN.md`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Glyphs {
@@ -104,11 +113,9 @@ pub struct Glyphs {
     pub message_error: &'static str,
     /// Cursor al final del texto que se está escribiendo.
     pub input_cursor: &'static str,
-    /// Nombres de las flechas del teclado en la ayuda.
-    pub key_up: &'static str,
-    pub key_down: &'static str,
-    pub key_left: &'static str,
-    pub key_right: &'static str,
+    /// Flechas del teclado en la ayuda. Sin ellas (ASCII), se nombran con palabras
+    /// del idioma.
+    pub arrow_keys: Option<ArrowKeys>,
     pub border: border::Set<'static>,
     pub junction: Junctions,
 }
@@ -161,10 +168,12 @@ pub const UNICODE: Glyphs = Glyphs {
     message_info: "·",
     message_error: "✖",
     input_cursor: "_",
-    key_up: "↑",
-    key_down: "↓",
-    key_left: "←",
-    key_right: "→",
+    arrow_keys: Some(ArrowKeys {
+        up: "↑",
+        down: "↓",
+        left: "←",
+        right: "→",
+    }),
     border: border::PLAIN,
     junction: Junctions {
         tee_right: "├",
@@ -231,10 +240,7 @@ pub const ASCII: Glyphs = Glyphs {
     message_info: "(i)",
     message_error: "(x)",
     input_cursor: "_",
-    key_up: "Arriba",
-    key_down: "Abajo",
-    key_left: "Izq",
-    key_right: "Der",
+    arrow_keys: None,
     border: border::Set {
         top_left: ASCII_CORNER,
         top_right: ASCII_CORNER,
@@ -312,10 +318,6 @@ mod tests {
             glyphs.message_info,
             glyphs.message_error,
             glyphs.input_cursor,
-            glyphs.key_up,
-            glyphs.key_down,
-            glyphs.key_left,
-            glyphs.key_right,
             border.top_left,
             border.top_right,
             border.bottom_left,
@@ -339,6 +341,9 @@ mod tests {
             glyphs.meter_eighths,
         ] {
             symbols.extend(set);
+        }
+        if let Some(arrows) = glyphs.arrow_keys {
+            symbols.extend([arrows.up, arrows.down, arrows.left, arrows.right]);
         }
         if let Plot::Cells(cells) = glyphs.plot {
             symbols.extend(cells.levels);

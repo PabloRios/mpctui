@@ -2,9 +2,9 @@
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
-use crate::domain::PlaylistName;
+use crate::domain::{InputError, PlaylistName};
 
-/// Teclas que confirman (español e inglés).
+/// Teclas que confirman (español e inglés: valen en los dos idiomas).
 pub const CONFIRM_KEYS: [char; 4] = ['s', 'S', 'y', 'Y'];
 pub const DECLINE_KEYS: [char; 2] = ['n', 'N'];
 
@@ -35,7 +35,7 @@ pub struct Prompt {
     pub kind: PromptKind,
     pub input: String,
     /// Por qué no se aceptó la última entrada; el diálogo sigue abierto.
-    pub error: Option<String>,
+    pub error: Option<InputError>,
 }
 
 impl Prompt {
@@ -105,6 +105,7 @@ mod tests {
     use crossterm::event::KeyModifiers;
 
     use super::*;
+    use crate::i18n::{Catalog, English, Phrase, Spanish};
 
     fn press(prompt: &mut Prompt, code: KeyCode) -> PromptOutcome {
         prompt.handle_key(KeyEvent::new(code, KeyModifiers::NONE))
@@ -129,9 +130,19 @@ mod tests {
     }
 
     #[test]
+    fn the_shown_confirm_key_is_accepted_in_every_language() {
+        let texts: [&dyn Catalog; 2] = [&English, &Spanish];
+        for texts in texts {
+            let shown = texts.phrase(Phrase::ConfirmKey);
+            let key = shown.chars().next().unwrap();
+            assert!(CONFIRM_KEYS.contains(&key), "{shown}");
+        }
+    }
+
+    #[test]
     fn editing_clears_the_previous_error() {
         let mut prompt = Prompt::text(PromptKind::SavePlaylist, "a/b".into());
-        prompt.error = Some("inválido".into());
+        prompt.error = Some(InputError::PathSeparatorInName);
         press(&mut prompt, KeyCode::Backspace);
         assert_eq!(prompt.error, None);
     }

@@ -11,6 +11,7 @@ use ratatui::text::{Line, Span};
 
 use super::{draw_line, text_row};
 use crate::domain::{Lyrics, LyricsSource};
+use crate::i18n::{Message, Phrase};
 use crate::service::PlaybackClock;
 use crate::tui::glyphs::Glyphs;
 use crate::tui::state::{AppState, LyricsStatus};
@@ -20,14 +21,10 @@ use crate::tui::views::theme;
 use crate::tui::views::widgets::{centered_message, spread};
 
 const TITLE_ROWS: u16 = 1;
-const TITLE: &str = "Letra";
 /// Entre el título del tema y el artista.
 const TITLE_SEPARATOR: &str = " — ";
 const DETAIL_SEPARATOR: &str = " · ";
-const NO_SONG: &str = "Sin tema en reproducción";
-const SEARCHING: &str = "buscando letra";
-const INSTRUMENTAL: &str = "Instrumental";
-const UNTITLED_HINT: &str = "Al tema le faltan el artista o el título en los tags.";
+const LRCLIB_NAME: &str = "LRCLIB";
 /// Entre el cursor de la línea actual y su texto.
 const CURSOR_GAP: &str = " ";
 
@@ -36,26 +33,30 @@ pub fn render(frame: &mut Frame, area: Rect, state: &mut AppState, context: &Con
     let [title, body] =
         Layout::vertical([Constraint::Length(title_rows), Constraint::Fill(1)]).areas(area);
     if !title.is_empty() {
-        draw_title(frame, text_row(title), state, context.glyphs);
+        draw_title(frame, text_row(title), state, context);
     }
     let body = text_row(body);
     let glyphs = context.glyphs;
     match &state.lyrics.status {
-        LyricsStatus::NoSong => message(frame, body, NO_SONG),
-        LyricsStatus::Instrumental => message(frame, body, INSTRUMENTAL),
+        LyricsStatus::NoSong => message(frame, body, context.phrase(Phrase::NoSong)),
+        LyricsStatus::Instrumental => message(frame, body, context.phrase(Phrase::Instrumental)),
         LyricsStatus::Searching => {
             let spinner = glyphs.spinner_frame(state.ticks);
-            message(frame, body, &format!("{SEARCHING} {spinner}"));
+            let searching = context.phrase(Phrase::SearchingLyrics);
+            message(frame, body, &format!("{searching} {spinner}"));
         }
         LyricsStatus::NotFound { untitled, problem } => {
             let detail = if *untitled {
-                Some(UNTITLED_HINT.to_owned())
+                Some(context.phrase(Phrase::UntitledHint).to_owned())
             } else {
-                problem
-                    .as_ref()
-                    .map(|problem| format!("Último error: {problem}"))
+                problem.as_ref().map(|problem| {
+                    let label = context.phrase(Phrase::LastError);
+                    format!("{label}: {}", context.message(Message::Failure(problem)))
+                })
             };
-            draw_not_found(frame, body, &song_title(state), detail);
+            let title = song_title(state);
+            let not_found = context.message(Message::LyricsNotFound { title: &title });
+            draw_not_found(frame, body, not_found, detail);
         }
         LyricsStatus::Found(lyrics) if lyrics.is_synced() => {
             draw_synced(frame, body, lyrics, &state.clock, context.now, glyphs);
@@ -69,20 +70,22 @@ pub fn render(frame: &mut Frame, area: Rect, state: &mut AppState, context: &Con
 }
 
 /// `Letra: Time — Pink Floyd` y, a la derecha, `sincronizada · caché`.
-fn draw_title(frame: &mut Frame, area: Rect, state: &AppState, glyphs: &Glyphs) {
-    let mut left = TITLE.to_owned();
+fn draw_title(frame: &mut Frame, area: Rect, state: &AppState, context: &Context<'_>) {
+    let title = context.phrase(Phrase::ViewLyrics);
+    let mut left = title.to_owned();
     if let Some(song) = &state.player.current_song {
         let artist = or_missing(song.artist.as_deref().or(song.album_artist.as_deref()));
-        left = format!("{TITLE}: {}{TITLE_SEPARATOR}{artist}", song.display_title());
+        left = format!("{title}: {}{TITLE_SEPARATOR}{artist}", song.display_title());
     }
     let details = match &state.lyrics.status {
         LyricsStatus::Found(lyrics) => {
-            let timing = if lyrics.is_synced() {
-                "sincronizada"
+            let timing = context.phrase(if lyrics.is_synced() {
+                Phrase::Synced
             } else {
-                "texto"
-            };
-            format!("{timing}{DETAIL_SEPARATOR}{}", source_name(lyrics.source))
+                Phrase::PlainText
+            });
+            let source = source_name(lyrics.source, context);
+            format!("{timing}{DETAIL_SEPARATOR}{source}")
         }
         _ => String::new(),
     };
@@ -90,17 +93,18 @@ fn draw_title(frame: &mut Frame, area: Rect, state: &AppState, glyphs: &Glyphs) 
         Line::styled(left, theme::BOLD),
         Line::styled(details, theme::MUTED),
         area.width,
-        glyphs,
+        context.glyphs,
     );
     draw_line(frame, area, &line);
 }
 
-fn source_name(source: LyricsSource) -> &'static str {
+/// LRCLIB es un nombre propio: no se traduce.
+fn source_name(source: LyricsSource, context: &Context<'_>) -> &'static str {
     match source {
-        LyricsSource::Cache => "caché",
-        LyricsSource::SongFolder => "carpeta del tema",
-        LyricsSource::Tags => "etiquetas",
-        LyricsSource::Lrclib => "LRCLIB",
+        LyricsSource::Cache => context.phrase(Phrase::SourceCache),
+        LyricsSource::SongFolder => context.phrase(Phrase::SourceSongFolder),
+        LyricsSource::Tags => context.phrase(Phrase::SourceTags),
+        LyricsSource::Lrclib => LRCLIB_NAME,
     }
 }
 
@@ -118,15 +122,12 @@ fn message(frame: &mut Frame, area: Rect, text: &str) {
 }
 
 /// `No se encontró la letra para «Time»` y, debajo, el motivo si se sabe.
-fn draw_not_found(frame: &mut Frame, area: Rect, title: &str, detail: Option<String>) {
+fn draw_not_found(frame: &mut Frame, area: Rect, not_found: String, detail: Option<String>) {
     if area.is_empty() {
         return;
     }
     let middle = area.y + area.height / 2;
-    let rows = [
-        Some(format!("No se encontró la letra para «{title}»")),
-        detail,
-    ];
+    let rows = [Some(not_found), detail];
     for (offset, text) in rows.into_iter().enumerate() {
         let y = middle + saturating_u16(offset);
         if let Some(text) = text

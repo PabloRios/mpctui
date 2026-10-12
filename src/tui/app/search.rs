@@ -2,6 +2,7 @@
 
 use super::{App, Backend};
 use crate::domain::SearchText;
+use crate::i18n::Message;
 use crate::tui::action::Action;
 use crate::tui::list::SelectionPolicy;
 use crate::tui::prompt::{Prompt, PromptKind};
@@ -42,12 +43,12 @@ impl<B: Backend> App<B> {
     pub(super) async fn submit_search(&mut self, input: &str) {
         let text = match SearchText::new(input) {
             Ok(text) => text,
-            Err(error) => return self.notify_error(error.to_string()),
+            Err(error) => return self.notify_error(self.message(Message::Input(&error))),
         };
         let field = self.state.search.field;
         let result = self.services.library.search(field, &text).await;
         if let Some(songs) = self.report(result) {
-            self.notify_info(format!("{} resultados", songs.len()));
+            self.notify_info(self.message(Message::ResultsFound(songs.len())));
             self.state
                 .search
                 .results

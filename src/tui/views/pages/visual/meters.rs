@@ -11,9 +11,10 @@ use super::correlation::correlation_line;
 use crate::domain::{
     ChannelLevel, METER_FLOOR_DB, METER_PEAK_HOLD, RMS_WINDOW, VisualRequest, VisualizerStyle,
 };
+use crate::i18n::{Catalog, Message, Phrase};
 use crate::tui::glyphs::Glyphs;
 use crate::tui::views::chrome::Context;
-use crate::tui::views::format::{MISSING, saturating_u16, seconds_with_decimal};
+use crate::tui::views::format::{MISSING, saturating_u16};
 use crate::tui::views::theme;
 
 /// Letra del canal y comienzo de la barra.
@@ -45,8 +46,8 @@ pub fn request() -> VisualRequest {
     }
 }
 
-pub fn details() -> String {
-    "RMS y pico por canal".to_owned()
+pub fn details(texts: &dyn Catalog) -> String {
+    texts.phrase(Phrase::MetersDetail).to_owned()
 }
 
 /// Dónde va cada cosa a lo ancho.
@@ -108,7 +109,8 @@ pub fn render(
         }
         buffer.set_string(area.x + LABEL_INDENT, y, *label, theme::BOLD);
         let numbers_x = layout.bar_x + layout.scale_width + 2;
-        buffer.set_string(numbers_x, y, numbers(*channel), theme::PLAIN);
+        let numbers = numbers(*channel, context.texts);
+        buffer.set_string(numbers_x, y, numbers, theme::PLAIN);
         y += bar_rows + GAP_ROWS;
     }
     if compact {
@@ -128,11 +130,11 @@ pub fn render(
             Row::ScaleLabels => draw_scale_labels(buffer, layout, y),
             Row::Correlation(value) => {
                 let available = area.right().saturating_sub(layout.bar_x);
-                let line = correlation_line(value, available, glyphs);
+                let line = correlation_line(value, available, glyphs, context.texts);
                 buffer.set_line(layout.bar_x, y, &line, available);
             }
             Row::Legend => {
-                let legend = legend(glyphs);
+                let legend = legend(glyphs, context.texts);
                 buffer.set_string(layout.bar_x, y, legend, theme::MUTED);
             }
             Row::Gap => {}
@@ -190,10 +192,11 @@ fn zone_style(decibels: f32) -> Style {
 }
 
 /// `  -9.4 dB  pico   -3.1`; en el piso, `—`.
-fn numbers(level: ChannelLevel) -> String {
+fn numbers(level: ChannelLevel, texts: &dyn Catalog) -> String {
     format!(
-        "{:>6} dB  pico {:>6}",
+        "{:>6} dB  {} {:>6}",
         decibels_text(level.rms),
+        texts.phrase(Phrase::Peak),
         decibels_text(level.peak)
     )
 }
@@ -238,18 +241,18 @@ fn draw_scale_labels(buffer: &mut Buffer, layout: MeterLayout, y: u16) {
 }
 
 /// `barra = RMS (300 ms)   │ = pico retenido 1,5 s`.
-fn legend(glyphs: &Glyphs) -> String {
-    format!(
-        "barra = RMS ({} ms)   {} = pico retenido {}",
-        RMS_WINDOW.as_millis(),
-        glyphs.meter_peak,
-        seconds_with_decimal(METER_PEAK_HOLD)
-    )
+fn legend(glyphs: &Glyphs, texts: &dyn Catalog) -> String {
+    texts.message(&Message::MetersLegend {
+        window: RMS_WINDOW,
+        peak_glyph: glyphs.meter_peak,
+        hold: METER_PEAK_HOLD,
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::i18n::{English, Spanish};
     use crate::tui::glyphs::UNICODE;
 
     #[test]
@@ -267,8 +270,12 @@ mod tests {
             rms: -9.43,
             peak: -3.1,
         };
-        assert_eq!(numbers(level), "  -9.4 dB  pico   -3.1");
-        assert_eq!(numbers(ChannelLevel::SILENT), "     — dB  pico      —");
+        assert_eq!(numbers(level, &Spanish), "  -9.4 dB  pico   -3.1");
+        assert_eq!(
+            numbers(ChannelLevel::SILENT, &Spanish),
+            "     — dB  pico      —"
+        );
+        assert_eq!(numbers(level, &English), "  -9.4 dB  peak   -3.1");
     }
 
     #[test]
@@ -281,8 +288,12 @@ mod tests {
     #[test]
     fn the_legend_explains_the_bar_and_the_peak() {
         assert_eq!(
-            legend(&UNICODE),
+            legend(&UNICODE, &Spanish),
             "barra = RMS (300 ms)   │ = pico retenido 1,5 s"
+        );
+        assert_eq!(
+            legend(&UNICODE, &English),
+            "bar = RMS (300 ms)   │ = held peak 1.5 s"
         );
     }
 }

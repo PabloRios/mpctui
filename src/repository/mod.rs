@@ -7,7 +7,7 @@ mod lyrics_files;
 pub mod mpd;
 mod traits;
 
-pub use error::{Ack, Error, Result};
+pub use error::{Ack, Error, HttpFailure, IoFailure, Result};
 pub use fifo::FifoPcmSource;
 pub use lrclib::{LRCLIB_URL, LrclibProvider};
 pub use lyrics_files::LocalLyricsFiles;

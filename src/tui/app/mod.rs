@@ -25,8 +25,9 @@ use super::appearance::Appearance;
 use super::prompt::{Confirmation, Prompt, PromptKind};
 use super::state::{AppState, ConnectionState, Notice, NoticeLevel, ViewKind};
 use super::views;
+use crate::i18n::{Message, Phrase};
 use crate::repository::{
-    LibraryRepository, OptionsRepository, PcmSource, PlayerRepository, PlaylistRepository,
+    Error, LibraryRepository, OptionsRepository, PcmSource, PlayerRepository, PlaylistRepository,
     QueueRepository, Result,
 };
 use crate::service::{
@@ -36,7 +37,6 @@ use crate::service::{
 
 /// Cada cuánto se redibuja el progreso y la cuenta regresiva de la reconexión.
 const TICK_INTERVAL: Duration = Duration::from_secs(1);
-const CONNECTION_RECOVERED: &str = "Conexión recuperada";
 const FIRST_ATTEMPT: u32 = 1;
 /// Ticks entre relecturas del estado mientras suena. Se cuenta en ticks y no por
 /// tiempo desde la última lectura, para que la demora de cada tick no la corra.
@@ -176,15 +176,15 @@ impl<B: Backend> App<B> {
             ServerEvent::Connected => {
                 self.state.connection = ConnectionState::Connected;
                 self.resynchronize().await;
-                self.notify_info(CONNECTION_RECOVERED.into());
+                self.notify_info(self.phrase(Phrase::ConnectionRecovered));
             }
         }
     }
 
     /// El primer corte se avisa en la línea inferior; los reintentos fallidos, solo en
     /// el log (el encabezado ya muestra la cuenta regresiva).
-    fn report_disconnection(&mut self, attempt: u32, reason: String) {
-        let text = format!("Sin conexión con MPD: {reason}");
+    fn report_disconnection(&mut self, attempt: u32, reason: Error) {
+        let text = self.message(Message::ConnectionLost(&reason));
         if attempt == FIRST_ATTEMPT {
             self.notify_error(text);
         } else {
@@ -207,7 +207,7 @@ impl<B: Backend> App<B> {
         match action {
             Action::Quit => self.state.running = false,
             Action::ShowView(ViewKind::Lyrics) if !self.state.lyrics_enabled => {
-                self.notify_info(lyrics::DISABLED_NOTICE.into());
+                self.notify_info(self.phrase(Phrase::LyricsDisabled));
             }
             Action::ShowView(view) => self.show_view(view).await,
             Action::ShowVisualizer => self.show_visualizer().await,
@@ -250,10 +250,19 @@ impl<B: Backend> App<B> {
         match result {
             Ok(value) => Some(value),
             Err(error) => {
-                self.notify_error(error.to_string());
+                self.notify_error(self.message(Message::Failure(&error)));
                 None
             }
         }
+    }
+
+    /// Un texto fijo en el idioma configurado, listo para un aviso.
+    fn phrase(&self, phrase: Phrase) -> String {
+        self.appearance.texts.phrase(phrase).to_owned()
+    }
+
+    fn message(&self, message: Message<'_>) -> String {
+        self.appearance.texts.message(&message)
     }
 
     fn notify_info(&mut self, text: String) {

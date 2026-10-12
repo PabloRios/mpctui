@@ -7,11 +7,13 @@ use std::time::Duration;
 
 use serde::Deserialize;
 
-use super::error::{Error, Result};
+use super::error::{Error, HttpFailure, Result};
 use super::traits::LyricsProvider;
 use crate::domain::{FetchedLyrics, TrackIdentity};
 
 pub const LRCLIB_URL: &str = "https://lrclib.net";
+/// Nombre del servicio en los errores.
+const SERVICE_NAME: &str = "LRCLIB";
 const GET_PATH: &str = "/api/get";
 const SEARCH_PATH: &str = "/api/search";
 /// LRCLIB pide que cada cliente se identifique.
@@ -173,21 +175,27 @@ fn checked(response: reqwest::Response) -> Result<reqwest::Response> {
     if status.is_success() {
         Ok(response)
     } else {
-        Err(Error::Http(format!("LRCLIB respondió {status}")))
+        Err(Error::Http {
+            service: SERVICE_NAME,
+            failure: HttpFailure::Status(status.as_u16()),
+        })
     }
 }
 
 fn http_error(error: reqwest::Error) -> Error {
-    let reason = if error.is_timeout() {
-        "no respondió a tiempo".to_owned()
+    let failure = if error.is_timeout() {
+        HttpFailure::Timeout
     } else if error.is_connect() {
-        "no se pudo conectar".to_owned()
+        HttpFailure::Connect
     } else if error.is_decode() {
-        "respuesta inválida".to_owned()
+        HttpFailure::InvalidResponse
     } else {
-        error.to_string()
+        HttpFailure::Other(error.to_string())
     };
-    Error::Http(format!("LRCLIB: {reason}"))
+    Error::Http {
+        service: SERVICE_NAME,
+        failure,
+    }
 }
 
 #[cfg(test)]

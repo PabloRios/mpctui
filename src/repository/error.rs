@@ -1,4 +1,4 @@
-use std::fmt;
+use std::{fmt, io};
 
 /// Error devuelto por MPD en una línea `ACK [code@index] {command} message`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -18,10 +18,49 @@ impl fmt::Display for Ack {
     }
 }
 
-#[derive(Debug, thiserror::Error)]
+/// Un error de E/S reducido a lo que se usa: su tipo y el texto del sistema. A
+/// diferencia de `io::Error`, se puede clonar y comparar, así el error viaja tal cual
+/// hasta la TUI, que elige las palabras.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IoFailure {
+    kind: io::ErrorKind,
+    message: String,
+}
+
+impl IoFailure {
+    pub fn kind(&self) -> io::ErrorKind {
+        self.kind
+    }
+}
+
+impl fmt::Display for IoFailure {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(&self.message)
+    }
+}
+
+/// Por qué falló un pedido a un servicio web.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum HttpFailure {
+    #[error("no respondió a tiempo")]
+    Timeout,
+    #[error("no se pudo conectar")]
+    Connect,
+    #[error("respuesta inválida")]
+    InvalidResponse,
+    /// Respondió con un código que no es de éxito.
+    #[error("respondió {0}")]
+    Status(u16),
+    #[error("{0}")]
+    Other(String),
+}
+
+/// El `Display` es el texto del log; lo que ve el usuario lo arma la TUI con el
+/// catálogo del idioma (`i18n`).
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum Error {
     #[error("error de E/S: {0}")]
-    Io(#[from] std::io::Error),
+    Io(IoFailure),
     #[error("MPD: {0}")]
     Ack(Ack),
     #[error("respuesta inválida de MPD: {0}")]
@@ -29,8 +68,20 @@ pub enum Error {
     #[error("la conexión con MPD se cerró")]
     Closed,
     /// Un servicio web (LRCLIB) no respondió o respondió algo inesperado.
-    #[error("{0}")]
-    Http(String),
+    #[error("{service}: {failure}")]
+    Http {
+        service: &'static str,
+        failure: HttpFailure,
+    },
+}
+
+impl From<io::Error> for Error {
+    fn from(error: io::Error) -> Self {
+        Error::Io(IoFailure {
+            kind: error.kind(),
+            message: error.to_string(),
+        })
+    }
 }
 
 impl Error {

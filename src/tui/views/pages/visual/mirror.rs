@@ -6,6 +6,7 @@ use ratatui::layout::Rect;
 
 use super::columns::{BarLayout, BarShape, fill_glyph, zone_style};
 use crate::domain::{BandFrame, VisualRequest, VisualizerStyle};
+use crate::i18n::{Catalog, Message};
 use crate::tui::views::chrome::Context;
 use crate::tui::views::format::saturating_u16;
 use crate::tui::views::theme;
@@ -42,11 +43,10 @@ pub fn request(area: Rect, context: &Context<'_>) -> VisualRequest {
 }
 
 /// `31 bandas por canal  L arriba, R abajo`.
-pub fn details(left: &BandFrame) -> String {
-    format!(
-        "{} bandas por canal  {LEFT_LABEL} arriba, {RIGHT_LABEL} abajo",
-        left.levels.len()
-    )
+pub fn details(left: &BandFrame, texts: &dyn Catalog) -> String {
+    texts.message(&Message::MirrorDetail {
+        bands: left.levels.len(),
+    })
 }
 
 pub fn render(

@@ -2,6 +2,7 @@
 
 use super::{App, Backend};
 use crate::domain::Entry;
+use crate::i18n::Message;
 use crate::tui::action::Action;
 use crate::tui::list::SelectionPolicy;
 
@@ -68,7 +69,7 @@ impl<B: Backend> App<B> {
         };
         let result = self.services.queue.add_uri(&path).await;
         if self.report(result).is_some() {
-            self.notify_info(format!("Agregado a la cola: {path}"));
+            self.notify_info(self.message(Message::AddedToQueue(&path)));
         }
     }
 }

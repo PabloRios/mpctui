@@ -12,6 +12,8 @@ use ratatui::widgets::Block;
 use super::format::saturating_u16;
 use super::layout::{ALBUM_COLUMN_MIN_WIDTH, LayoutMode};
 use super::theme;
+use crate::i18n::{Catalog, Message, Phrase};
+use crate::tui::action::{Action, key_label};
 use crate::tui::appearance::ProgressBars;
 use crate::tui::glyphs::Glyphs;
 
@@ -19,6 +21,7 @@ use crate::tui::glyphs::Glyphs;
 #[derive(Debug, Clone, Copy)]
 pub struct Context<'a> {
     pub glyphs: &'a Glyphs,
+    pub texts: &'a dyn Catalog,
     pub mode: LayoutMode,
     /// Ancho total de la terminal.
     pub width: u16,
@@ -34,6 +37,19 @@ impl Context<'_> {
     /// Las tablas de temas pierden la columna Álbum en terminales angostas.
     pub fn shows_album(&self) -> bool {
         self.width >= ALBUM_COLUMN_MIN_WIDTH
+    }
+
+    pub fn phrase(&self, phrase: Phrase) -> &'static str {
+        self.texts.phrase(phrase)
+    }
+
+    pub fn message(&self, message: Message<'_>) -> String {
+        self.texts.message(&message)
+    }
+
+    /// La tecla principal de una acción, para sugerirla en pantalla.
+    pub fn key(&self, action: Action) -> String {
+        key_label(action, self.glyphs, self.texts).unwrap_or_default()
     }
 }
 

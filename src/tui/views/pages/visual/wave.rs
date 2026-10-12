@@ -8,6 +8,7 @@ use ratatui::layout::Rect;
 
 use super::canvas::{DotCanvas, dots_per_cell};
 use crate::domain::{SampleRange, VisualRequest, VisualizerStyle};
+use crate::i18n::{Catalog, Message};
 use crate::tui::views::chrome::Context;
 use crate::tui::views::theme;
 
@@ -41,9 +42,8 @@ pub fn request(area: Rect, context: &Context<'_>) -> VisualRequest {
 }
 
 /// `23 ms  sincronizado` o `23 ms  libre`.
-pub fn details(synced: bool, span: Duration) -> String {
-    let sync = if synced { "sincronizado" } else { "libre" };
-    format!("{} ms  {sync}", span.as_millis())
+pub fn details(synced: bool, span: Duration, texts: &dyn Catalog) -> String {
+    texts.message(&Message::WaveDetail { span, synced })
 }
 
 pub fn render(frame: &mut Frame, area: Rect, columns: &[SampleRange], context: &Context<'_>) {
@@ -79,6 +79,7 @@ fn dot_row(value: f32, rows: usize) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::i18n::{English, Spanish};
 
     #[test]
     fn values_map_from_top_to_bottom() {
@@ -91,7 +92,8 @@ mod tests {
     #[test]
     fn details_say_whether_the_wave_is_synced() {
         let span = Duration::from_millis(23);
-        assert_eq!(details(true, span), "23 ms  sincronizado");
-        assert_eq!(details(false, span), "23 ms  libre");
+        assert_eq!(details(true, span, &Spanish), "23 ms  sincronizado");
+        assert_eq!(details(false, span, &Spanish), "23 ms  libre");
+        assert_eq!(details(true, span, &English), "23 ms  synced");
     }
 }

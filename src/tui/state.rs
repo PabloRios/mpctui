@@ -11,6 +11,7 @@ use crate::domain::{
     Entry, Lyrics, LyricsQuery, PATH_SEPARATOR, PlaylistName, STEREO_CHANNELS, SearchText, Song,
     Tag, Timeline, VisualRequest, VisualizerStyle, timeline,
 };
+use crate::repository::Error;
 use crate::service::{LIBRARY_ROOT, PlaybackClock, PlayerSnapshot, VisualState};
 
 /// Cuánto reemplaza un aviso a los atajos de la línea inferior.
@@ -342,7 +343,7 @@ pub enum LyricsStatus {
     /// `untitled`: al tema le faltan artista o título, así que no se buscó en la caché.
     NotFound {
         untitled: bool,
-        problem: Option<String>,
+        problem: Option<Error>,
     },
 }
 

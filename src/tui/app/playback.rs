@@ -1,6 +1,7 @@
 //! Controles de reproducción, válidos en cualquier vista.
 
 use super::{App, Backend};
+use crate::i18n::Phrase;
 use crate::tui::action::Action;
 
 const VOLUME_STEP: i16 = 5;
@@ -31,7 +32,7 @@ impl<B: Backend> App<B> {
     /// Sin mixer no hay volumen que cambiar: se avisa en vez de llamar al servidor.
     async fn change_volume(&mut self, delta: i16) {
         let Some(volume) = self.state.player.status.volume else {
-            return self.notify_error("El servidor no tiene control de volumen".into());
+            return self.notify_error(self.phrase(Phrase::NoVolumeControl));
         };
         let result = self.services.playback.change_volume(volume, delta).await;
         self.report(result);

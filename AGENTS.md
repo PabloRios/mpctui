@@ -10,7 +10,7 @@ Base de conocimiento para cualquier agente o persona que trabaje en este reposit
 - **Stack:** Rust edition 2024, `tokio` (async), `ratatui` + `crossterm` (TUI), `thiserror`/`anyhow` (errores), `serde` + `toml` (config), `directories`, `tracing` (log a archivo: la terminal es de la TUI), `rustfft` (visualizador), `reqwest` con rustls (LRCLIB).
 - **Cliente de MPD propio:** no se usa ningún crate de MPD; el protocolo de texto está implementado en `src/repository/mpd/`.
 - **MVP:** cola + controles, biblioteca (Artista → Álbum → Tema y por directorios), búsqueda, playlists guardadas.
-- **Estado:** MVP completo, más los extras de `DESIGN_EXTRA.md` (formato de audio, actualización de la base, cuenta regresiva de reconexión y visualizador con seis formas). El detalle por fases está en `PLAN.md`; la guía de uso, en `README.md`; las decisiones e ideas pendientes, en `DECISIONES.md`.
+- **Estado:** MVP completo, más los extras de `DESIGN_EXTRA.md` (formato de audio, actualización de la base, cuenta regresiva de reconexión y visualizador con seis formas), letras y la interfaz en inglés (por defecto) y español. El detalle por fases está en `PLAN.md`; la guía de uso, en `README.md`; las decisiones e ideas pendientes, en `DECISIONES.md`.
 
 ---
 
@@ -59,11 +59,19 @@ Todo diseño respeta SOLID. En este proyecto eso significa:
 ```
 domain  ←  repository  ←  service  ←  tui
                  ↑ factory (composition root) arma todo
+i18n (textos del usuario) ← tui, main
 ```
+
+- **`src/i18n/` (textos del usuario):** es el **único lugar con palabras de la interfaz**, como `glyphs.rs` lo es de los glifos.
+  - `Phrase` son los textos fijos y `Message` los que llevan datos (cantidades con plural, nombres, errores). `English` y `Spanish` implementan el trait `Catalog` con un `match` exhaustivo: si falta una traducción, no compila.
+  - `catalog(Language)` elige el catálogo; la factory lo inyecta en `Appearance` y las vistas lo piden con `context.phrase(...)`, `context.message(...)` y `context.key(action)`. `App` arma los avisos con `self.phrase`/`self.message`.
+  - Las capas internas **no producen texto para el usuario**: devuelven datos o errores tipados (`repository::Error`, `InputError`, `ConfigError`) y el catálogo los explica (`Message::Failure`, `Message::Input`, `Message::Config`). El `Display` de `thiserror` queda en español para el log.
+  - Un texto nuevo de la interfaz se agrega como variante de `Phrase` o `Message` y en los dos catálogos; nunca como literal en una vista.
+  - No se traducen: el protocolo de MPD (`vocabulary.rs`), las claves del TOML y las variables de entorno, las unidades (`kHz`, `dB`, `ms`), los nombres propios (LRCLIB) ni las teclas que se escriben igual (`Enter`, `Tab`, `Ctrl+`).
 
 - **`src/domain/`:** modelos compartidos (`Song`, `Status`, `AudioFormat`, `PlayState`, `SingleMode`, `Entry`, `Subsystem`, `Tag`, `TagFilter`), entradas validadas, la línea de tiempo (`timeline()`: tramos consecutivos del mismo álbum y offsets de cada tema) las bandas del espectro (`band_edges`/`band_centers` logarítmicos de 40 Hz a 16 kHz) y el visualizador (`visual.rs`: `VisualizerStyle` y su ciclo, `VisualRequest`, `VisualFrame` con un `VisualContent` por forma). No depende de ninguna otra capa ni conoce MPD.
 - **`src/repository/`:**
-  - `traits.rs` define los contratos y `error.rs` el error de acceso a datos.
+  - `traits.rs` define los contratos y `error.rs` el error de acceso a datos. Es `Clone + Eq` (el de E/S se guarda como `IoFailure`, con su tipo y su texto) para que viaje tal cual hasta la TUI en eventos y resultados.
   - `lrclib.rs`: `LrclibProvider` implementa `LyricsProvider` sobre `reqwest` (rustls, User-Agent `mpctui/<versión>`, 10 s de espera). `/api/get` exige álbum y duración; sin ellos, o sin coincidencia, `/api/search` y se elige por duración (±2 s), prefiriendo letras sincronizadas. La URL base se inyecta (los tests usan un servidor HTTP local). Los errores de red son `Error::Http`.
   - `lyrics_files.rs`: `LocalLyricsFiles` implementa `LyricsFiles` (caché `Artista - Título.lrc|txt` y archivo junto al tema). Sanea los nombres y no sale de la biblioteca (`..`, rutas absolutas, streams).
   - `fifo.rs`: `FifoPcmSource` implementa `PcmSource` sobre la salida fifo de MPD. Abre en modo no bloqueante en la primera lectura y, tras un fin de archivo (`Ok(0)`), vuelve a abrir en la siguiente. **No** va en `mpd/`: no es el protocolo de MPD.
@@ -102,6 +110,7 @@ domain  ←  repository  ←  service  ←  tui
 - **`src/config.rs` (borde de entrada):**
   - `resolve(FileConfig, Environment) -> Settings` es pura y testeable.
   - Precedencia: defecto < `~/.config/mpctui/config.toml` < `MPD_HOST`/`MPD_PORT`/`MPCTUI_GLYPHS`. `MPD_HOST` admite `contraseña@host`.
+  - `language` (`en` por defecto, `es`) elige el catálogo de textos. `load()` devuelve `ConfigFailure { language, error }` para que `main` explique el error en el idioma configurado (en inglés si el TOML no se pudo leer).
   - `glyphs = "auto"` se resuelve con `resolve_glyph_mode` (pura): ASCII si el locale no es UTF-8 o `TERM` es `linux`/`dumb`.
   - `visualizer_fifo` (`/tmp/mpd.fifo`), `visualizer_format` (`44100:16:2`, validado como `PcmFormat`) y `visualizer_style` (`bars` por defecto; una forma estéreo con FIFO mono es error). Vacío o inválido no arranca; un FIFO inexistente no es error de configuración (la vista lo explica). La forma inicial viaja en `Appearance`.
   - `album_progress` / `queue_progress` (bool, `false` por defecto) muestran las barras opcionales del panel. La factory los convierte en `tui::appearance::ProgressBars` dentro de `Appearance` (junto con los glifos), que se inyecta en `App`; la TUI no conoce `Settings`.
@@ -221,7 +230,9 @@ Checklist antes de dar un cambio por terminado:
 
 ## 8. Convenciones
 
-- **Idioma:** comentarios, docs, mensajes de error y textos de UI en **español**. Los identificadores van en inglés.
+- **Idioma:**
+  - Comentarios, docs y mensajes del log (el `Display` de los errores) en **español**. Los identificadores van en inglés.
+  - Los textos de la interfaz, incluidos los errores que ve el usuario, salen del catálogo de `src/i18n/`, en inglés (por defecto) y español. Los tests de pantalla usan el español salvo que digan otro idioma.
 - **Errores:**
   - `repository::Error` para acceso a datos.
   - `domain::InputError` para entradas inválidas.
