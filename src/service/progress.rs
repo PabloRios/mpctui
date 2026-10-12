@@ -27,6 +27,11 @@ impl PlaybackClock {
         self.duration
     }
 
+    /// Avanza solo (el tema está sonando).
+    pub fn is_running(&self) -> bool {
+        self.playing
+    }
+
     pub fn elapsed_at(&self, now: Instant) -> Duration {
         let elapsed = if self.playing {
             self.elapsed + now.saturating_duration_since(self.synced_at)

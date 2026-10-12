@@ -7,10 +7,10 @@ use tokio::sync::mpsc;
 use crate::config::{GlyphMode, Settings};
 use crate::domain::Password;
 use crate::repository::mpd::{Address, MpdClient, MpdConnector, ReconnectingTransport};
-use crate::repository::{FifoPcmSource, Result};
+use crate::repository::{FifoPcmSource, LocalLyricsFiles, Result};
 use crate::service::{
-    Backoff, ChangeWatcher, LibraryService, PlaybackService, PlaylistService, QueueService,
-    VisualizerLauncher,
+    Backoff, ChangeWatcher, LibraryService, LyricsLookup, LyricsService, PlaybackService,
+    PlaylistService, QueueService, VisualizerLauncher,
 };
 use crate::tui::appearance::{Appearance, ProgressBars};
 use crate::tui::glyphs::{self, Glyphs};
@@ -54,6 +54,7 @@ pub async fn build_app(settings: &Settings) -> Result<App<MpdBackend>> {
         library: LibraryService::new(connect().await?),
         playlists: PlaylistService::new(connect().await?),
         visualizer: visualizer_launcher(settings),
+        lyrics: lyrics_lookup(settings).await?,
     };
     let (sender, receiver) = mpsc::unbounded_channel();
     let backoff = Backoff::new(WATCHER_FIRST_RETRY, WATCHER_MAXIMUM_RETRY);
@@ -69,6 +70,19 @@ pub async fn build_app(settings: &Settings) -> Result<App<MpdBackend>> {
     };
     let server = settings.address.to_string();
     Ok(App::new(services, receiver, appearance, server))
+}
+
+/// Con las letras activadas, su búsqueda corre en su propia tarea y con su propia
+/// conexión (para `readcomments`).
+async fn lyrics_lookup(settings: &Settings) -> Result<Option<LyricsLookup>> {
+    let lyrics = &settings.lyrics;
+    if !lyrics.enabled {
+        return Ok(None);
+    }
+    let files = LocalLyricsFiles::new(lyrics.directory.clone(), lyrics.music_directory.clone());
+    let embedded = connect_mpd(&settings.address, settings.password.as_ref()).await?;
+    let service = LyricsService::new(embedded, files, lyrics.sources.clone());
+    Ok(Some(LyricsLookup::spawn(service)))
 }
 
 /// El visualizador abre el FIFO recién cuando se lo lanza.

@@ -119,3 +119,30 @@ están en `DESIGN.md` ni en `DESIGN_EXTRA.md`.
 - **Espejo en modo compacto:** sin letras `L`/`R` ni etiquetas; queda la línea del eje.
 - **`spectrum_smoke`:** lee 3 s con Barras y otros 3 s con Medidores, porque el servicio
   solo calcula la forma activa.
+
+### L1 · Letras locales
+
+- **Letra embebida solo en FLAC/Ogg:** contra el MPD real (0.23), `readcomments` de un MP3
+  devuelve solo frames `TXXX`; la letra `USLT` no aparece. Los comentarios Vorbis sí, con
+  la clave tal como está en el archivo (`LYRICS`, `Lyrics`…).
+- **Valores multilínea en el protocolo:** MPD imprime el valor de `readcomments` sin
+  escapar. Una línea que no es un par con clave válida para MPD (letras, `_` y `-`, como
+  su `IsValidName`) se toma como continuación del valor anterior; sin par previo sigue
+  siendo `Error::Protocol`. Límite conocido: una línea de la letra con forma
+  `Palabra: texto` se lee como otro comentario y se pierde de la letra.
+- **Búsqueda sin cancelar:** una búsqueda empezada no se interrumpe al cambiar de tema
+  (cortar un comando de MPD a la mitad desfasaría la conexión). El buscador atiende solo
+  el último pedido y la app descarta resultados de un tema que ya no suena.
+- **La caché usa el tag `Title`,** no el nombre del archivo: un tema sin artista o título
+  no se busca en la caché (la vista lo explica), pero sí junto al archivo y en los tags.
+- **Sin directorio del usuario:** si no se puede saber y no se configuró
+  `lyrics.directory`, mpctui no arranca (`UnknownHomeDirectory`), igual que con cualquier
+  otro valor de configuración inválido.
+- **`[offset:…]` positivo adelanta la letra,** como dice el formato LRC. Un metadato
+  desconocido entre corchetes con `:` se descarta; un `[Estribillo]` sin `:` queda como
+  texto.
+- **La línea actual usa `CURRENT_LYRIC` (= `ACCENT`)** y el cursor `▸`; las cantadas van en
+  `MUTED`. Antes de la primera marca, la primera línea espera en el medio sin resaltar.
+- **`7` con las letras desactivadas** avisa `Letras desactivadas (lyrics.enabled = false)`
+  en lugar de no hacer nada.
+

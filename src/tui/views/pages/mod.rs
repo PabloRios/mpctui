@@ -3,6 +3,7 @@
 
 mod browse;
 mod library;
+mod lyrics;
 mod playlists;
 mod queue;
 mod search;
@@ -28,6 +29,7 @@ pub fn render(frame: &mut Frame, area: Rect, state: &mut AppState, context: &Con
         ViewKind::Search => search::render(frame, area, state, context),
         ViewKind::Playlists => playlists::render(frame, area, state, context),
         ViewKind::Visualizer => visual::render(frame, area, state, context),
+        ViewKind::Lyrics => lyrics::render(frame, area, state, context),
     }
 }
 

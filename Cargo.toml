@@ -12,7 +12,7 @@ ratatui = "0.30.2"
 rustfft = "6.4.1"
 serde = { version = "1.0.229", features = ["derive"] }
 thiserror = "2.0.21"
-tokio = { version = "1.53.2", features = ["rt-multi-thread", "net", "io-util", "sync", "time", "macros"] }
+tokio = { version = "1.53.2", features = ["rt-multi-thread", "net", "io-util", "sync", "time", "macros", "fs"] }
 toml = "1.1.8"
 tracing = "0.1.44"
 tracing-appender = "0.2.5"

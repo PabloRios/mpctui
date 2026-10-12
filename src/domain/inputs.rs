@@ -191,7 +191,7 @@ impl fmt::Debug for Password {
 }
 
 /// Recorta espacios y exige texto no vacío de una sola línea.
-fn validate_single_line(raw: &str) -> Result<&str, InputError> {
+pub(crate) fn validate_single_line(raw: &str) -> Result<&str, InputError> {
     let text = raw.trim();
     if text.is_empty() {
         return Err(InputError::EmptyText);

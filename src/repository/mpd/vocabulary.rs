@@ -35,6 +35,7 @@ pub enum Verb {
     Load,
     Save,
     Remove,
+    ReadComments,
 }
 
 impl Verb {
@@ -70,6 +71,7 @@ impl Verb {
             Verb::Load => "load",
             Verb::Save => "save",
             Verb::Remove => "rm",
+            Verb::ReadComments => "readcomments",
         }
     }
 }
@@ -101,6 +103,9 @@ pub mod keys {
     pub const BITRATE: &str = "bitrate";
     pub const UPDATING_DB: &str = "updating_db";
     pub const CHANGED: &str = "changed";
+    /// Comentarios con la letra embebida (Vorbis/FLAC); se comparan sin distinguir
+    /// mayúsculas porque `readcomments` devuelve la clave tal como está en el archivo.
+    pub const LYRICS_COMMENTS: [&str; 2] = ["LYRICS", "UNSYNCEDLYRICS"];
     /// Pseudo-tag de filtros que coincide con cualquier tag.
     pub const ANY: &str = "any";
 }

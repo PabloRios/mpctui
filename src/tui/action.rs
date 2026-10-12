@@ -117,6 +117,11 @@ pub const BINDINGS: &[Binding] = &[
         Action::ShowVisualizer,
         "Visualizador / otra forma",
     ),
+    plain(
+        &[KeyCode::Char('7')],
+        Action::ShowView(ViewKind::Lyrics),
+        GO_TO_VIEW,
+    ),
     plain(&[KeyCode::Tab], Action::NextView, "Vista siguiente"),
     plain(&[KeyCode::BackTab], Action::PreviousView, "Vista anterior"),
     plain(
@@ -480,7 +485,7 @@ mod tests {
             .iter()
             .find(|entry| entry.description == GO_TO_VIEW)
             .unwrap();
-        assert_eq!(views.keys, "1 2 3 4 5");
+        assert_eq!(views.keys, "1 2 3 4 5 7");
         let quit = entries
             .iter()
             .find(|entry| entry.description == "Salir")

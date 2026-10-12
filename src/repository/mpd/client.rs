@@ -5,14 +5,14 @@ use super::parse::{
 };
 use super::protocol::{Command, FilterOperator, Pair, filter_expression};
 use super::transport::Transport;
-use super::vocabulary::{Verb, flag, single_mode_argument, tag_name};
+use super::vocabulary::{Verb, flag, keys, single_mode_argument, tag_name};
 use crate::domain::{
     Entry, PlaylistName, SearchText, SingleMode, Song, Status, Subsystem, Tag, TagFilter, Volume,
 };
 use crate::repository::error::Result;
 use crate::repository::traits::{
-    ChangesRepository, LibraryRepository, OptionsRepository, PlayerRepository, PlaylistRepository,
-    QueueRepository,
+    ChangesRepository, EmbeddedLyricsRepository, LibraryRepository, OptionsRepository,
+    PlayerRepository, PlaylistRepository, QueueRepository,
 };
 
 pub struct MpdClient<T> {
@@ -196,5 +196,21 @@ impl<T: Transport + Send> ChangesRepository for MpdClient<T> {
 
     async fn ping(&mut self) -> Result<()> {
         self.run(Command::new(Verb::Ping)).await
+    }
+}
+
+impl<T: Transport + Send> EmbeddedLyricsRepository for MpdClient<T> {
+    async fn embedded_lyrics(&mut self, uri: &str) -> Result<Option<String>> {
+        let comments = self
+            .fetch(Command::new(Verb::ReadComments).arg(uri))
+            .await?;
+        Ok(comments
+            .into_iter()
+            .find(|(key, _)| {
+                keys::LYRICS_COMMENTS
+                    .iter()
+                    .any(|lyrics| key.eq_ignore_ascii_case(lyrics))
+            })
+            .map(|(_, value)| value))
     }
 }

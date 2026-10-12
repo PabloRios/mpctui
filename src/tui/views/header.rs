@@ -162,7 +162,7 @@ fn waited_meter(delay: Duration, remaining: Duration) -> Vec<MeterCell> {
 /// Pestañas (la activa entre corchetes) y, si entra, `cola: 1229 temas  65:04:13`.
 pub fn render_tabs(frame: &mut Frame, area: Rect, state: &AppState, context: &Context<'_>) {
     let mut tabs = vec![Span::raw(" ")];
-    for (index, view) in ViewKind::ALL.into_iter().enumerate() {
+    for (index, view) in state.views().into_iter().enumerate() {
         if index > 0 {
             tabs.push(Span::raw(" "));
         }
@@ -209,6 +209,7 @@ pub fn view_title(view: ViewKind, abbreviated: bool) -> &'static str {
         (ViewKind::Playlists, false) => "Playlists",
         (ViewKind::Playlists, true) => "Playl.",
         (ViewKind::Visualizer, _) => "Visual",
+        (ViewKind::Lyrics, _) => "Letra",
     }
 }
 

@@ -8,8 +8,8 @@ use super::action::Navigation;
 use super::list::{SelectableList, SelectionPolicy};
 use super::prompt::Prompt;
 use crate::domain::{
-    Entry, PATH_SEPARATOR, PlaylistName, STEREO_CHANNELS, SearchText, Song, Tag, Timeline,
-    VisualRequest, VisualizerStyle, timeline,
+    Entry, Lyrics, LyricsQuery, PATH_SEPARATOR, PlaylistName, STEREO_CHANNELS, SearchText, Song,
+    Tag, Timeline, VisualRequest, VisualizerStyle, timeline,
 };
 use crate::service::{LIBRARY_ROOT, PlaybackClock, PlayerSnapshot, VisualState};
 
@@ -25,32 +25,19 @@ pub enum ViewKind {
     Search,
     Playlists,
     Visualizer,
+    Lyrics,
 }
 
 impl ViewKind {
-    pub const ALL: [ViewKind; 6] = [
+    pub const ALL: [ViewKind; 7] = [
         ViewKind::Queue,
         ViewKind::Library,
         ViewKind::Browse,
         ViewKind::Search,
         ViewKind::Playlists,
         ViewKind::Visualizer,
+        ViewKind::Lyrics,
     ];
-
-    pub fn index(self) -> usize {
-        Self::ALL
-            .iter()
-            .position(|view| *view == self)
-            .unwrap_or_default()
-    }
-
-    pub fn next(self) -> Self {
-        Self::ALL[(self.index() + 1) % Self::ALL.len()]
-    }
-
-    pub fn previous(self) -> Self {
-        Self::ALL[(self.index() + Self::ALL.len() - 1) % Self::ALL.len()]
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -300,6 +287,9 @@ pub struct AppState {
     pub search: SearchView,
     pub playlists: PlaylistsView,
     pub visual: VisualView,
+    pub lyrics: LyricsView,
+    /// Con las letras desactivadas, la vista no aparece ni entra en el ciclo de `Tab`.
+    pub lyrics_enabled: bool,
 }
 
 impl AppState {
@@ -310,6 +300,57 @@ impl AppState {
             ..Self::default()
         }
     }
+
+    /// Las vistas que se muestran, en el orden de las pestañas.
+    pub fn views(&self) -> Vec<ViewKind> {
+        ViewKind::ALL
+            .into_iter()
+            .filter(|view| *view != ViewKind::Lyrics || self.lyrics_enabled)
+            .collect()
+    }
+
+    pub fn next_view(&self) -> ViewKind {
+        self.view_at_offset(1)
+    }
+
+    pub fn previous_view(&self) -> ViewKind {
+        self.view_at_offset(-1)
+    }
+
+    /// La vista a `offset` pestañas de la activa, dando la vuelta.
+    fn view_at_offset(&self, offset: isize) -> ViewKind {
+        let views = self.views();
+        let count = views.len() as isize;
+        let current = views
+            .iter()
+            .position(|view| *view == self.view)
+            .unwrap_or_default() as isize;
+        views[(current + offset).rem_euclid(count) as usize]
+    }
+}
+
+/// Qué muestra la vista Letra.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub enum LyricsStatus {
+    /// No suena ni hay tema elegido.
+    #[default]
+    NoSong,
+    Searching,
+    Found(Lyrics),
+    /// `untitled`: al tema le faltan artista o título, así que no se buscó en la caché.
+    NotFound {
+        untitled: bool,
+        problem: Option<String>,
+    },
+}
+
+#[derive(Debug, Default)]
+pub struct LyricsView {
+    /// El último tema pedido; si el actual es otro, hay que buscar de nuevo.
+    pub query: Option<LyricsQuery>,
+    pub status: LyricsStatus,
+    /// Primera línea visible de una letra sin sincronizar.
+    pub scroll: usize,
 }
 
 #[cfg(test)]
@@ -318,10 +359,23 @@ mod tests {
 
     #[test]
     fn views_cycle_in_both_directions() {
-        assert_eq!(ViewKind::Queue.next(), ViewKind::Library);
-        assert_eq!(ViewKind::Playlists.next(), ViewKind::Visualizer);
-        assert_eq!(ViewKind::Visualizer.next(), ViewKind::Queue);
-        assert_eq!(ViewKind::Queue.previous(), ViewKind::Visualizer);
+        let mut state = AppState {
+            lyrics_enabled: true,
+            ..AppState::default()
+        };
+        assert_eq!(state.next_view(), ViewKind::Library);
+        assert_eq!(state.previous_view(), ViewKind::Lyrics);
+        state.view = ViewKind::Lyrics;
+        assert_eq!(state.next_view(), ViewKind::Queue);
+    }
+
+    #[test]
+    fn disabled_lyrics_leave_the_cycle() {
+        let mut state = AppState::default();
+        assert_eq!(state.views().len(), ViewKind::ALL.len() - 1);
+        assert_eq!(state.previous_view(), ViewKind::Visualizer);
+        state.view = ViewKind::Visualizer;
+        assert_eq!(state.next_view(), ViewKind::Queue);
     }
 
     #[test]

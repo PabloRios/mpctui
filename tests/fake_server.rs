@@ -9,8 +9,8 @@ use mpctui::domain::{
 use mpctui::factory::connect_mpd;
 use mpctui::repository::mpd::Address;
 use mpctui::repository::{
-    ChangesRepository, Error, LibraryRepository, PlayerRepository, PlaylistRepository,
-    QueueRepository,
+    ChangesRepository, EmbeddedLyricsRepository, Error, LibraryRepository, PlayerRepository,
+    PlaylistRepository, QueueRepository,
 };
 use mpctui::service::{UpdateTransition, update_transition};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -233,4 +233,24 @@ async fn reports_closed_connection() {
         client.status().await,
         Err(Error::Closed | Error::Io(_))
     ));
+}
+
+#[tokio::test]
+async fn reads_multiline_embedded_lyrics() {
+    let (address, server) = fake_server(vec![
+        (
+            r#"readcomments "Rock/time.flac""#,
+            "Artist: Pink Floyd\nlyrics: Ticking away\n\nVerso 2: otra línea\nTitle: Time\nOK\n",
+        ),
+        (r#"readcomments "Rock/otro.mp3""#, "TXXX: algo\nOK\n"),
+    ])
+    .await;
+    let mut client = connect_mpd(&address, None).await.unwrap();
+    let lyrics = client.embedded_lyrics("Rock/time.flac").await.unwrap();
+    assert_eq!(
+        lyrics.as_deref(),
+        Some("Ticking away\n\nVerso 2: otra línea")
+    );
+    assert_eq!(client.embedded_lyrics("Rock/otro.mp3").await.unwrap(), None);
+    server.await.unwrap();
 }

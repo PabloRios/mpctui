@@ -74,6 +74,10 @@ fn view_hints(view: ViewKind) -> &'static [(Action, &'static str)] {
             (Action::SaveQueue, "guardar cola"),
             (Action::ToggleHelp, "ayuda"),
         ],
+        ViewKind::Lyrics => &[
+            (Action::TogglePause, "pausa"),
+            (Action::ToggleHelp, "ayuda"),
+        ],
         ViewKind::Visualizer => &[
             (Action::ShowVisualizer, "siguiente forma"),
             (Action::TogglePause, "pausa"),

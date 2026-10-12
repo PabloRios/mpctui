@@ -5,7 +5,8 @@ use std::future::Future;
 
 use super::error::Result;
 use crate::domain::{
-    Entry, PlaylistName, SearchText, SingleMode, Song, Status, Subsystem, Tag, TagFilter, Volume,
+    Entry, PlaylistName, SearchText, SingleMode, Song, Status, Subsystem, Tag, TagFilter,
+    TrackIdentity, Volume,
 };
 
 pub trait PlayerRepository {
@@ -84,4 +85,21 @@ pub trait PcmSource {
     /// Lee lo que haya disponible en `destination`. `Ok(0)` es fin de archivo: el
     /// escritor cerró su lado; la próxima lectura vuelve a abrir la fuente.
     fn read(&mut self, destination: &mut [u8]) -> impl Future<Output = Result<usize>> + Send;
+}
+
+/// La letra embebida en los tags del archivo (`readcomments`).
+pub trait EmbeddedLyricsRepository {
+    fn embedded_lyrics(&mut self, uri: &str)
+    -> impl Future<Output = Result<Option<String>>> + Send;
+}
+
+/// Letras en archivos locales: `.lrc` primero y, si no, `.txt`.
+pub trait LyricsFiles {
+    /// La de la caché para ese tema.
+    fn cached(
+        &mut self,
+        track: &TrackIdentity,
+    ) -> impl Future<Output = Result<Option<String>>> + Send;
+    /// La que está junto al archivo del tema, con su mismo nombre.
+    fn beside_song(&mut self, uri: &str) -> impl Future<Output = Result<Option<String>>> + Send;
 }

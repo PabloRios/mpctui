@@ -3,6 +3,7 @@
 
 mod browse;
 mod library;
+mod lyrics;
 mod playback;
 mod playlists;
 mod prompt;
@@ -29,8 +30,8 @@ use crate::repository::{
     QueueRepository, Result,
 };
 use crate::service::{
-    LibraryService, PlaybackService, PlaylistService, QueueService, RunningVisualizer,
-    STATUS_POLL_INTERVAL, ServerEvent, VisualizerLauncher,
+    LibraryService, LyricsLookup, PlaybackService, PlaylistService, QueueService,
+    RunningVisualizer, STATUS_POLL_INTERVAL, ServerEvent, VisualizerLauncher,
 };
 
 /// Cada cuánto se redibuja el progreso y la cuenta regresiva de la reconexión.
@@ -58,6 +59,8 @@ pub struct Services<B: Backend> {
     pub library: LibraryService<B::Library>,
     pub playlists: PlaylistService<B::Playlists>,
     pub visualizer: VisualizerLauncher<B::Pcm>,
+    /// `None` con las letras desactivadas.
+    pub lyrics: Option<LyricsLookup>,
 }
 
 pub struct App<B: Backend> {
@@ -82,6 +85,7 @@ impl<B: Backend> App<B> {
         state.visual.format = format.to_string();
         state.visual.channels = format.channels();
         state.visual.style = appearance.visualizer_style;
+        state.lyrics_enabled = services.lyrics.is_some();
         Self {
             services,
             server_events,
@@ -107,6 +111,8 @@ impl<B: Backend> App<B> {
                 views::render(frame, &mut self.state, self.appearance, Instant::now());
             })?;
             self.sync_visualizer();
+            self.sync_lyrics();
+            let next_lyrics_line = self.next_lyrics_line();
             tokio::select! {
                 event = terminal_events.next() => match event {
                     Some(event) => self.handle_terminal_event(event?).await,
@@ -116,6 +122,10 @@ impl<B: Backend> App<B> {
                 Some(visual) = visual::next_state(&mut self.visualizer) => {
                     self.state.visual.state = visual;
                 }
+                Some(result) = lyrics::next_result(&mut self.services.lyrics) => {
+                    self.apply_lyrics(result);
+                }
+                () = lyrics::sleep_until(next_lyrics_line) => {}
                 _ = tick.tick() => self.handle_tick().await,
             }
         }
@@ -196,10 +206,13 @@ impl<B: Backend> App<B> {
     async fn perform(&mut self, action: Action) {
         match action {
             Action::Quit => self.state.running = false,
+            Action::ShowView(ViewKind::Lyrics) if !self.state.lyrics_enabled => {
+                self.notify_info(lyrics::DISABLED_NOTICE.into());
+            }
             Action::ShowView(view) => self.show_view(view).await,
             Action::ShowVisualizer => self.show_visualizer().await,
-            Action::NextView => self.show_view(self.state.view.next()).await,
-            Action::PreviousView => self.show_view(self.state.view.previous()).await,
+            Action::NextView => self.show_view(self.state.next_view()).await,
+            Action::PreviousView => self.show_view(self.state.previous_view()).await,
             Action::ToggleHelp => self.state.help_visible = !self.state.help_visible,
             Action::StartSearch => self.start_search().await,
             Action::ShowPlaying => self.show_playing().await,
@@ -227,6 +240,7 @@ impl<B: Backend> App<B> {
             ViewKind::Browse => self.browse_action(action).await,
             ViewKind::Search => self.search_action(action).await,
             ViewKind::Playlists => self.playlists_action(action).await,
+            ViewKind::Lyrics => self.lyrics_action(action),
             ViewKind::Visualizer => {}
         }
     }

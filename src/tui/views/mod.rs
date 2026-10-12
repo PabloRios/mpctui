@@ -101,16 +101,18 @@ mod tests {
 
     use super::*;
     use crate::domain::{
-        AudioFormat, BandFrame, ChannelLevel, Entry, PlayState, PlaylistName, SampleFormat,
-        SampleRange, ScopePoint, SearchText, Song, Status, VisualContent, VisualFrame,
-        VisualizerStyle, Volume,
+        AudioFormat, BandFrame, ChannelLevel, Entry, LyricLine, Lyrics, LyricsSource, PlayState,
+        PlaylistName, SampleFormat, SampleRange, ScopePoint, SearchText, Song, Status,
+        VisualContent, VisualFrame, VisualizerStyle, Volume,
     };
     use crate::service::{PlaybackClock, PlayerSnapshot, VisualState};
     use crate::tui::appearance::ProgressBars;
     use crate::tui::glyphs::{ASCII, UNICODE};
     use crate::tui::list::SelectionPolicy;
     use crate::tui::prompt::{Confirmation, Prompt, PromptKind};
-    use crate::tui::state::{ConnectionState, Notice, NoticeLevel, ViewKind, VisualView};
+    use crate::tui::state::{
+        ConnectionState, LyricsStatus, Notice, NoticeLevel, ViewKind, VisualView,
+    };
 
     /// Tamaños de la sección 7 de `DESIGN.md`: completo, compacto y demasiado chico.
     const SIZES: [(u16, u16); 3] = [(100, 30), (72, 16), (40, 10)];
@@ -218,6 +220,19 @@ mod tests {
         })
     }
 
+    /// Una línea cada 10 s; el tema de ejemplo va por los 133 s (línea 13).
+    fn sample_lyrics(synced: bool) -> Lyrics {
+        Lyrics {
+            lines: (0..30)
+                .map(|index| LyricLine {
+                    time: synced.then(|| Duration::from_secs(index * 10)),
+                    text: format!("Línea número {index} de la letra"),
+                })
+                .collect(),
+            source: LyricsSource::Cache,
+        }
+    }
+
     fn songs() -> Vec<Song> {
         (0..LONG_LIST).map(song).collect()
     }
@@ -283,6 +298,8 @@ mod tests {
             format: "44100:16:2".into(),
             ..VisualView::default()
         };
+        state.lyrics_enabled = true;
+        state.lyrics.status = LyricsStatus::Found(sample_lyrics(true));
         let names = vec![PlaylistName::new("domingo").unwrap()];
         state
             .playlists
@@ -754,6 +771,94 @@ mod tests {
         let compact = sample.visual.request.unwrap();
         assert_eq!(compact.columns, 72 - 4);
         assert!(compact.rows > 0);
+    }
+
+    fn lyrics_screen(glyphs: &'static Glyphs, size: (u16, u16), status: LyricsStatus) -> String {
+        let mut sample = sample_state();
+        sample.view = ViewKind::Lyrics;
+        sample.lyrics.status = status;
+        screen_lines(&render_to_buffer(&mut sample, glyphs, size))
+    }
+
+    #[test]
+    fn synced_lyrics_center_the_current_line() {
+        let screen = lyrics_screen(&UNICODE, SIZES[0], LyricsStatus::Found(sample_lyrics(true)));
+        assert_contains(
+            &screen,
+            &[
+                "[7 Letra]",
+                "Letra: Un tema con un nombre bastante largo 3 — Pink Floyd",
+                "sincronizada · caché",
+                "▸ Línea número 13 de la letra",
+                "Línea número 12 de la letra",
+            ],
+        );
+        let lines: Vec<&str> = screen.lines().collect();
+        let current = lines
+            .iter()
+            .position(|line| line.contains("número 13"))
+            .unwrap();
+        assert!(
+            lines[current - 1].contains("número 12") && lines[current + 1].contains("número 14")
+        );
+        assert!(!screen.contains("número 0 "));
+    }
+
+    #[test]
+    fn plain_lyrics_scroll_from_the_top() {
+        let mut sample = sample_state();
+        sample.view = ViewKind::Lyrics;
+        sample.lyrics.status = LyricsStatus::Found(sample_lyrics(false));
+        sample.lyrics.scroll = usize::MAX;
+        let screen = screen_lines(&render_to_buffer(&mut sample, &ASCII, SIZES[0]));
+        assert_contains(&screen, &["texto · caché", "Línea número 29 de la letra"]);
+        assert!(!screen.contains("> Línea"));
+        assert!(
+            sample.lyrics.scroll < 30,
+            "el desplazamiento se limita al dibujar"
+        );
+    }
+
+    #[test]
+    fn lyrics_states_are_explained() {
+        let searching = lyrics_screen(&ASCII, SIZES[0], LyricsStatus::Searching);
+        assert_contains(&searching, &["buscando letra |"]);
+        let none = lyrics_screen(&ASCII, SIZES[0], LyricsStatus::NoSong);
+        assert_contains(&none, &["Sin tema en reproducción"]);
+        let untitled = LyricsStatus::NotFound {
+            untitled: true,
+            problem: None,
+        };
+        assert_contains(
+            &lyrics_screen(&ASCII, SIZES[0], untitled),
+            &[
+                "No se encontró la letra para «Un tema con un nombre bastante largo 3»",
+                "faltan el artista o el título",
+            ],
+        );
+        let failed = LyricsStatus::NotFound {
+            untitled: false,
+            problem: Some("se cortó".into()),
+        };
+        assert_contains(
+            &lyrics_screen(&ASCII, SIZES[0], failed),
+            &["Último error: se cortó"],
+        );
+    }
+
+    #[test]
+    fn compact_lyrics_hide_the_title() {
+        let screen = lyrics_screen(&UNICODE, SIZES[1], LyricsStatus::Found(sample_lyrics(true)));
+        assert_contains(&screen, &["▸ Línea número 13"]);
+        assert!(!screen.contains("sincronizada"));
+    }
+
+    #[test]
+    fn disabled_lyrics_have_no_tab() {
+        let mut sample = sample_state();
+        sample.lyrics_enabled = false;
+        let screen = screen_lines(&render_to_buffer(&mut sample, &UNICODE, SIZES[0]));
+        assert!(screen.contains("6 Visual") && !screen.contains("7 Letra"));
     }
 
     #[test]

@@ -6,7 +6,9 @@ use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader
 use tokio::net::{TcpStream, UnixStream};
 
 use super::address::Address;
-use super::protocol::{Command, Pair, ResponseLine, check_greeting, parse_response_line};
+use super::protocol::{
+    Command, Pair, ResponseLine, check_greeting, continue_value, parse_response_line,
+};
 use super::reconnect::Connector;
 use super::vocabulary::Verb;
 use crate::domain::Password;
@@ -60,6 +62,7 @@ impl Connection {
                 ResponseLine::Ok => return Ok(pairs),
                 ResponseLine::Ack(ack) => return Err(Error::Ack(ack)),
                 ResponseLine::Pair(pair) => pairs.push(pair),
+                ResponseLine::Continuation(line) => continue_value(&mut pairs, &line)?,
             }
         }
     }

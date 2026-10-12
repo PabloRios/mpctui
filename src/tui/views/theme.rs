@@ -11,6 +11,8 @@ pub const ERROR: Style = Style::new().fg(Color::Red).add_modifier(Modifier::BOLD
 pub const INFO: Style = Style::new().fg(Color::Green);
 pub const SELECTED_ROW: Style = Style::new().add_modifier(Modifier::REVERSED);
 pub const CURRENT_SONG: Style = ACCENT;
+/// La línea de la letra que se está cantando.
+pub const CURRENT_LYRIC: Style = ACCENT;
 /// Pestaña o columna con foco.
 pub const FOCUSED: Style = Style::new()
     .add_modifier(Modifier::BOLD)

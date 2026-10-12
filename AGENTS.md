@@ -64,6 +64,7 @@ domain  ←  repository  ←  service  ←  tui
 - **`src/domain/`:** modelos compartidos (`Song`, `Status`, `AudioFormat`, `PlayState`, `SingleMode`, `Entry`, `Subsystem`, `Tag`, `TagFilter`), entradas validadas, la línea de tiempo (`timeline()`: tramos consecutivos del mismo álbum y offsets de cada tema) las bandas del espectro (`band_edges`/`band_centers` logarítmicos de 40 Hz a 16 kHz) y el visualizador (`visual.rs`: `VisualizerStyle` y su ciclo, `VisualRequest`, `VisualFrame` con un `VisualContent` por forma). No depende de ninguna otra capa ni conoce MPD.
 - **`src/repository/`:**
   - `traits.rs` define los contratos y `error.rs` el error de acceso a datos.
+  - `lyrics_files.rs`: `LocalLyricsFiles` implementa `LyricsFiles` (caché `Artista - Título.lrc|txt` y archivo junto al tema). Sanea los nombres y no sale de la biblioteca (`..`, rutas absolutas, streams).
   - `fifo.rs`: `FifoPcmSource` implementa `PcmSource` sobre la salida fifo de MPD. Abre en modo no bloqueante en la primera lectura y, tras un fin de archivo (`Ok(0)`), vuelve a abrir en la siguiente. **No** va en `mpd/`: no es el protocolo de MPD.
   - `mpd/` es la implementación:
     - `vocabulary.rs`: comandos, claves y mapeos dominio ↔ MPD. Es el único lugar con strings del protocolo.
@@ -79,6 +80,7 @@ domain  ←  repository  ←  service  ←  tui
   - `update_transition` (`database_update.rs`): decide si la actualización de la base empezó o terminó comparando dos `Status` sucesivos.
   - `visual/`: análisis en funciones puras. `pcm.rs` (`PcmDecoder` con cuadros partidos, `StereoWindow` de pares L/R), `bands.rs` (Hann, FFT con `rustfft`, bandas, dB, `Smoother`), `levels.rs` (RMS, pico, correlación), `peak.rs` (`HeldPeak`) y un módulo por forma. `Analysis` calcula solo la forma pedida y se reinicia al cambiar de forma; sin señal vacía la ventana, así todas las formas caen a cero.
   - `Visualizer` (`visualizer.rs`): tarea que lee la `PcmSource`, analiza a 20 FPS la forma del último `VisualRequest` y publica el último cuadro por `watch`. `VisualizerLauncher` la lanza con una fuente nueva; `RunningVisualizer` la cancela al soltarse (`Drop` → `abort`).
+  - `LyricsService` (`lyrics.rs`): prueba las fuentes de letras en el orden de la configuración (caché, carpeta del tema, tags y, en L2, LRCLIB); una fuente que falla no corta la búsqueda. `LyricsLookup` la corre en su propia tarea y atiende solo el último pedido; una búsqueda empezada no se interrumpe, para no dejar a medias un comando de MPD. `parse_lrc` (`lrc.rs`) es pura.
   - `PlaybackClock`: interpola el progreso.
   - Reciben entradas ya validadas y nunca tocan la terminal.
 - **`src/tui/`:**
@@ -151,6 +153,7 @@ domain  ←  repository  ←  service  ←  tui
 - **`idle`:** bloquea la conexión hasta que cambia un subsistema y responde `changed: <subsistema>`. Se mapean `database`, `stored_playlist`, `playlist` (→ `Subsystem::Queue`), `player`, `mixer`, `options` y `update`; el resto se ignora.
 - **`update` y `updating_db`:** `changed: update` llega cuando una actualización de la base **empieza o termina**; para saber cuál, se relee `status`, que trae `updating_db: <id>` solo mientras hay una en curso. MPD no informa progreso ni hora de inicio.
 - **`ping`:** responde `OK` sin efectos. Lo usa el vigilante para confirmar la reconexión.
+- **`readcomments <uri>`:** todos los comentarios del archivo, con la clave tal como está en él (comparar sin distinguir mayúsculas). MPD imprime el valor **sin escapar**: una letra embebida multilínea llega partida en varias líneas, incluso vacías. Por eso una línea que no es `OK`, `ACK` ni un par con clave válida para MPD (letras, `_` y `-`) es continuación del valor anterior (`ResponseLine::Continuation`). En MP3 solo expone frames `TXXX`, no `USLT`.
 - **Salida fifo:** MPD escribe PCM crudo, entrelazado, con signo y en el orden de bytes nativo, en el `format` de su `audio_output` fifo. Un FIFO abierto en no bloqueante sin escritor no despierta al lector hasta que alguien escribe; cuando el escritor cierra, la lectura devuelve 0 (fin de archivo).
 - **`connection_timeout`:** MPD cierra las conexiones sin actividad después de 60 s por defecto. Por eso las conexiones de comandos van envueltas en `ReconnectingTransport`. Durante `idle` no corre el timeout.
 - **Inyección de protocolo:** un salto de línea en un argumento cortaría el comando. Por eso todo texto del usuario pasa por `SearchText` o `PlaylistName`, que rechazan caracteres de control.
@@ -200,7 +203,7 @@ tmux capture-pane -t prueba -p        # pantalla
 tmux kill-session -t prueba
 ```
 
-Contra el MPD real solo se envían teclas de lectura: `1`–`6`, `Tab`, `j`/`k`, `g`/`G`, `h`/`l`, `/` + búsqueda, `o` y `?`. **Nunca** `Enter` en la cola, `p`, `s`, `<`, `>`, `+`, `-`, `f`, `b`, `z`, `r`, `y`, `R`, `a`, `A`, `d`, `c` ni `S`.
+Contra el MPD real solo se envían teclas de lectura: `1`–`7`, `Tab`, `j`/`k`, `g`/`G`, `h`/`l`, `/` + búsqueda, `o` y `?`. **Nunca** `Enter` en la cola, `p`, `s`, `<`, `>`, `+`, `-`, `f`, `b`, `z`, `r`, `y`, `R`, `a`, `A`, `d`, `c` ni `S`.
 
 Checklist antes de dar un cambio por terminado:
 

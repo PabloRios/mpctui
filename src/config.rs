@@ -1,13 +1,13 @@
 //! Configuración: archivo TOML + variables de entorno, validada al cargar (fail fast).
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::{env, fs, io};
 
-use directories::ProjectDirs;
+use directories::{BaseDirs, ProjectDirs};
 use serde::Deserialize;
 
-use crate::domain::{InputError, Password, PcmFormat, VisualizerStyle};
+use crate::domain::{InputError, LyricsSource, Password, PcmFormat, VisualizerStyle};
 use crate::repository::mpd::{Address, DEFAULT_HOST, DEFAULT_PORT};
 
 const APPLICATION_NAME: &str = "mpctui";
@@ -34,6 +34,17 @@ const VISUALIZER_STYLE_NAMES: [(&str, VisualizerStyle); 6] = [
     ("vectorscope", VisualizerStyle::Vectorscope),
     ("meters", VisualizerStyle::Meters),
 ];
+/// Nombres de `lyrics.sources`, en inglés como los de `glyphs`.
+const LYRICS_SOURCE_NAMES: [(&str, LyricsSource); 4] = [
+    ("cache", LyricsSource::Cache),
+    ("song_folder", LyricsSource::SongFolder),
+    ("tags", LyricsSource::Tags),
+    ("lrclib", LyricsSource::Lrclib),
+];
+/// Caché de letras dentro del directorio del usuario, la misma de ncmpcpp y ncmpc.
+const DEFAULT_LYRICS_DIRECTORY: &str = ".lyrics";
+/// Prefijo que se reemplaza por el directorio del usuario.
+const HOME_PREFIX: &str = "~/";
 /// Como en `mpc`: `MPD_HOST=contraseña@host`.
 const PASSWORD_SEPARATOR: char = '@';
 
@@ -105,6 +116,21 @@ pub struct FileConfig {
     pub visualizer_format: Option<String>,
     /// Forma con la que arranca el visualizador (`bars`, `mirror`, `wave`…).
     pub visualizer_style: Option<String>,
+    /// Tabla `[lyrics]`.
+    pub lyrics: Option<LyricsFileConfig>,
+}
+
+/// Tabla `[lyrics]` del archivo; todos los campos son opcionales.
+#[derive(Debug, Default, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct LyricsFileConfig {
+    pub enabled: Option<bool>,
+    /// Fuentes en orden de búsqueda: `cache`, `song_folder`, `tags`, `lrclib`.
+    pub sources: Option<Vec<String>>,
+    /// Caché de letras; por defecto `~/.lyrics`.
+    pub directory: Option<String>,
+    /// Raíz de la biblioteca de MPD, para buscar junto a cada tema.
+    pub music_directory: Option<String>,
 }
 
 /// Variables de entorno relevantes, leídas sin interpretar.
@@ -114,6 +140,8 @@ pub struct Environment {
     pub port: Option<String>,
     pub glyphs: Option<String>,
     pub terminal: TerminalEnvironment,
+    /// Directorio del usuario, para `~/` y la caché de letras por defecto.
+    pub home: Option<PathBuf>,
 }
 
 /// Lo que dice el entorno sobre la terminal, para resolver `glyphs = "auto"`.
@@ -135,6 +163,17 @@ pub struct Settings {
     pub visualizer_fifo: PathBuf,
     pub visualizer_format: PcmFormat,
     pub visualizer_style: VisualizerStyle,
+    pub lyrics: LyricsSettings,
+}
+
+/// Letras, ya validadas.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LyricsSettings {
+    pub enabled: bool,
+    /// En orden de búsqueda, sin repetidos y no vacía si están activadas.
+    pub sources: Vec<LyricsSource>,
+    pub directory: PathBuf,
+    pub music_directory: Option<PathBuf>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -162,6 +201,18 @@ pub enum ConfigError {
     InvalidVisualizerStyle(String),
     #[error("visualizer_style = {0:?} necesita dos canales y visualizer_format tiene uno")]
     StereoStyleWithMonoFifo(String),
+    #[error("lyrics.sources admite {choices}, no {0:?}", choices = lyrics_source_choices())]
+    UnknownLyricsSource(String),
+    #[error("lyrics.sources repite {0:?}")]
+    RepeatedLyricsSource(String),
+    #[error("lyrics.sources no puede estar vacía con las letras activadas")]
+    EmptyLyricsSources,
+    #[error("lyrics.sources incluye \"song_folder\" pero falta lyrics.music_directory")]
+    SongFolderWithoutMusicDirectory,
+    #[error("lyrics.{0} no puede estar vacío")]
+    EmptyLyricsPath(&'static str),
+    #[error("no se pudo saber el directorio del usuario para lyrics.{0}")]
+    UnknownHomeDirectory(&'static str),
 }
 
 pub(crate) fn project_directories() -> Option<ProjectDirs> {
@@ -182,6 +233,7 @@ pub fn load() -> Result<Settings, ConfigError> {
             locale: LOCALE_VARIABLES.map(|name| env::var(name).ok()),
             term: env::var(TERMINAL_VARIABLE).ok(),
         },
+        home: BaseDirs::new().map(|directories| directories.home_dir().to_path_buf()),
     };
     resolve(read_file_config()?, environment)
 }
@@ -227,6 +279,7 @@ pub fn resolve(file: FileConfig, environment: Environment) -> Result<Settings, C
         Some(name) => visualizer_style(&name, visualizer_format)?,
         None => VisualizerStyle::default(),
     };
+    let lyrics = resolve_lyrics(file.lyrics.unwrap_or_default(), environment.home.as_deref())?;
     Ok(Settings {
         address: Address::new(host, port),
         password,
@@ -236,7 +289,95 @@ pub fn resolve(file: FileConfig, environment: Environment) -> Result<Settings, C
         visualizer_fifo: PathBuf::from(visualizer_fifo),
         visualizer_format,
         visualizer_style,
+        lyrics,
     })
+}
+
+/// Valores por defecto: activadas, caché en `~/.lyrics` y todas las fuentes posibles
+/// (`song_folder` solo si se sabe dónde está la música).
+fn resolve_lyrics(
+    file: LyricsFileConfig,
+    home: Option<&Path>,
+) -> Result<LyricsSettings, ConfigError> {
+    const DIRECTORY: &str = "directory";
+    const MUSIC_DIRECTORY: &str = "music_directory";
+    let enabled = file.enabled.unwrap_or(true);
+    let directory = match file.directory {
+        Some(raw) => expand_home(&raw, home, DIRECTORY)?,
+        None => home
+            .map(|home| home.join(DEFAULT_LYRICS_DIRECTORY))
+            .ok_or(ConfigError::UnknownHomeDirectory(DIRECTORY))?,
+    };
+    let music_directory = file
+        .music_directory
+        .map(|raw| expand_home(&raw, home, MUSIC_DIRECTORY))
+        .transpose()?;
+    let sources = match file.sources {
+        Some(names) => lyrics_sources(&names, music_directory.is_some())?,
+        None => LyricsSource::ALL
+            .into_iter()
+            .filter(|source| *source != LyricsSource::SongFolder || music_directory.is_some())
+            .collect(),
+    };
+    if enabled && sources.is_empty() {
+        return Err(ConfigError::EmptyLyricsSources);
+    }
+    Ok(LyricsSettings {
+        enabled,
+        sources,
+        directory,
+        music_directory,
+    })
+}
+
+/// Las fuentes por su nombre, en el orden dado.
+fn lyrics_sources(
+    names: &[String],
+    has_music_directory: bool,
+) -> Result<Vec<LyricsSource>, ConfigError> {
+    let mut sources = Vec::new();
+    for name in names {
+        let source = LYRICS_SOURCE_NAMES
+            .iter()
+            .find(|(candidate, _)| candidate == name)
+            .map(|(_, source)| *source)
+            .ok_or_else(|| ConfigError::UnknownLyricsSource(name.clone()))?;
+        if sources.contains(&source) {
+            return Err(ConfigError::RepeatedLyricsSource(name.clone()));
+        }
+        if source == LyricsSource::SongFolder && !has_music_directory {
+            return Err(ConfigError::SongFolderWithoutMusicDirectory);
+        }
+        sources.push(source);
+    }
+    Ok(sources)
+}
+
+/// `~/algo` pasa a estar dentro del directorio del usuario; una ruta vacía es error.
+fn expand_home(
+    raw: &str,
+    home: Option<&Path>,
+    field: &'static str,
+) -> Result<PathBuf, ConfigError> {
+    let raw = raw.trim();
+    if raw.is_empty() {
+        return Err(ConfigError::EmptyLyricsPath(field));
+    }
+    match raw.strip_prefix(HOME_PREFIX) {
+        Some(relative) => home
+            .map(|home| home.join(relative))
+            .ok_or(ConfigError::UnknownHomeDirectory(field)),
+        None => Ok(PathBuf::from(raw)),
+    }
+}
+
+/// `"cache", "song_folder", …`, para el mensaje de error.
+fn lyrics_source_choices() -> String {
+    LYRICS_SOURCE_NAMES
+        .iter()
+        .map(|(name, _)| format!("{name:?}"))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 /// La forma por su nombre; una estéreo con un FIFO de un canal no se puede mostrar.
@@ -323,6 +464,7 @@ mod tests {
         Environment {
             host: host.map(str::to_owned),
             port: port.map(str::to_owned),
+            home: Some(PathBuf::from("/home/prueba")),
             ..Environment::default()
         }
     }
@@ -344,7 +486,7 @@ mod tests {
 
     #[test]
     fn defaults_when_nothing_is_configured() {
-        let settings = resolve(FileConfig::default(), Environment::default()).unwrap();
+        let settings = resolve(FileConfig::default(), environment(None, None)).unwrap();
         assert_eq!(settings.address, Address::new(DEFAULT_HOST, DEFAULT_PORT));
         assert!(settings.password.is_none());
     }
@@ -367,7 +509,7 @@ mod tests {
     fn file_values_apply_without_environment() {
         let file: FileConfig =
             toml::from_str("host = \"/run/mpd/socket\"\npassword = \"x\"").unwrap();
-        let settings = resolve(file, Environment::default()).unwrap();
+        let settings = resolve(file, environment(None, None)).unwrap();
         assert_eq!(settings.address, Address::Unix("/run/mpd/socket".into()));
         assert_eq!(settings.password.unwrap().as_str(), "x");
     }
@@ -387,7 +529,7 @@ mod tests {
             ..FileConfig::default()
         };
         assert!(matches!(
-            resolve(file, Environment::default()),
+            resolve(file, environment(None, None)),
             Err(ConfigError::InvalidPassword(_))
         ));
         assert!(toml::from_str::<FileConfig>("hots = \"x\"").is_err());
@@ -446,23 +588,23 @@ mod tests {
 
     #[test]
     fn album_and_queue_progress_are_hidden_by_default() {
-        let settings = resolve(FileConfig::default(), Environment::default()).unwrap();
+        let settings = resolve(FileConfig::default(), environment(None, None)).unwrap();
         assert!(!settings.album_progress && !settings.queue_progress);
         let file: FileConfig = toml::from_str("album_progress = true").unwrap();
-        let settings = resolve(file, Environment::default()).unwrap();
+        let settings = resolve(file, environment(None, None)).unwrap();
         assert!(settings.album_progress && !settings.queue_progress);
         assert!(toml::from_str::<FileConfig>("queue_progress = \"si\"").is_err());
     }
 
     #[test]
     fn visualizer_defaults_to_the_usual_fifo() {
-        let settings = resolve(FileConfig::default(), Environment::default()).unwrap();
+        let settings = resolve(FileConfig::default(), environment(None, None)).unwrap();
         assert_eq!(settings.visualizer_fifo, PathBuf::from("/tmp/mpd.fifo"));
         assert_eq!(settings.visualizer_format.sample_rate(), 44_100);
         let file: FileConfig =
             toml::from_str("visualizer_fifo = \"/run/a.fifo\"\nvisualizer_format = \"48000:16:1\"")
                 .unwrap();
-        let settings = resolve(file, Environment::default()).unwrap();
+        let settings = resolve(file, environment(None, None)).unwrap();
         assert_eq!(settings.visualizer_fifo, PathBuf::from("/run/a.fifo"));
         assert_eq!(settings.visualizer_format.channels(), 1);
     }
@@ -470,7 +612,7 @@ mod tests {
     #[test]
     fn invalid_visualizer_settings_fail_fast() {
         let resolve_toml =
-            |raw: &str| resolve(toml::from_str(raw).unwrap(), Environment::default());
+            |raw: &str| resolve(toml::from_str(raw).unwrap(), environment(None, None));
         assert!(matches!(
             resolve_toml("visualizer_fifo = \" \""),
             Err(ConfigError::EmptyVisualizerFifo)
@@ -485,17 +627,17 @@ mod tests {
 
     #[test]
     fn visualizer_style_defaults_to_bars() {
-        let settings = resolve(FileConfig::default(), Environment::default()).unwrap();
+        let settings = resolve(FileConfig::default(), environment(None, None)).unwrap();
         assert_eq!(settings.visualizer_style, VisualizerStyle::Bars);
         let file: FileConfig = toml::from_str("visualizer_style = \"waterfall\"").unwrap();
-        let settings = resolve(file, Environment::default()).unwrap();
+        let settings = resolve(file, environment(None, None)).unwrap();
         assert_eq!(settings.visualizer_style, VisualizerStyle::Waterfall);
     }
 
     #[test]
     fn invalid_visualizer_styles_fail_fast() {
         let resolve_toml =
-            |raw: &str| resolve(toml::from_str(raw).unwrap(), Environment::default());
+            |raw: &str| resolve(toml::from_str(raw).unwrap(), environment(None, None));
         let error = resolve_toml("visualizer_style = \"radial\"").unwrap_err();
         assert!(matches!(error, ConfigError::InvalidVisualizerStyle(_)));
         assert!(error.to_string().contains("\"meters\""), "{error}");
@@ -509,6 +651,74 @@ mod tests {
             mono_meters.unwrap().visualizer_style,
             VisualizerStyle::Meters
         );
+    }
+
+    /// Resuelve un TOML con el directorio del usuario en `/home/prueba`.
+    fn resolve_with_home(raw: &str) -> Result<Settings, ConfigError> {
+        resolve(toml::from_str(raw).unwrap(), environment(None, None))
+    }
+
+    #[test]
+    fn lyrics_default_to_every_available_source() {
+        let lyrics = resolve_with_home("").unwrap().lyrics;
+        assert!(lyrics.enabled);
+        assert_eq!(lyrics.directory, PathBuf::from("/home/prueba/.lyrics"));
+        assert_eq!(lyrics.music_directory, None);
+        assert_eq!(
+            lyrics.sources,
+            [
+                LyricsSource::Cache,
+                LyricsSource::Tags,
+                LyricsSource::Lrclib
+            ]
+        );
+        let with_music = resolve_with_home("[lyrics]\nmusic_directory = \"~/Music\"").unwrap();
+        assert_eq!(
+            with_music.lyrics.music_directory,
+            Some(PathBuf::from("/home/prueba/Music"))
+        );
+        assert_eq!(with_music.lyrics.sources, LyricsSource::ALL);
+    }
+
+    #[test]
+    fn lyrics_sources_keep_the_configured_order() {
+        let raw = "[lyrics]\nsources = [\"lrclib\", \"tags\"]\ndirectory = \"/tmp/letras\"";
+        let lyrics = resolve_with_home(raw).unwrap().lyrics;
+        assert_eq!(lyrics.sources, [LyricsSource::Lrclib, LyricsSource::Tags]);
+        assert_eq!(lyrics.directory, PathBuf::from("/tmp/letras"));
+        let disabled = resolve_with_home("[lyrics]\nenabled = false\nsources = []").unwrap();
+        assert!(!disabled.lyrics.enabled);
+    }
+
+    #[test]
+    fn invalid_lyrics_settings_fail_fast() {
+        let error = |raw: &str| resolve_with_home(raw).unwrap_err();
+        assert!(matches!(
+            error("[lyrics]\nsources = [\"genius\"]"),
+            ConfigError::UnknownLyricsSource(_)
+        ));
+        assert!(matches!(
+            error("[lyrics]\nsources = [\"tags\", \"tags\"]"),
+            ConfigError::RepeatedLyricsSource(_)
+        ));
+        assert!(matches!(
+            error("[lyrics]\nsources = []"),
+            ConfigError::EmptyLyricsSources
+        ));
+        assert!(matches!(
+            error("[lyrics]\nsources = [\"song_folder\"]"),
+            ConfigError::SongFolderWithoutMusicDirectory
+        ));
+        assert!(matches!(
+            error("[lyrics]\ndirectory = \" \""),
+            ConfigError::EmptyLyricsPath("directory")
+        ));
+        assert!(toml::from_str::<FileConfig>("[lyrics]\nactivado = true").is_err());
+        let without_home = resolve(FileConfig::default(), Environment::default());
+        assert!(matches!(
+            without_home,
+            Err(ConfigError::UnknownHomeDirectory("directory"))
+        ));
     }
 
     #[test]

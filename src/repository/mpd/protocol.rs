@@ -13,6 +13,10 @@ const OK_LINE: &str = "OK";
 const ACK_PREFIX: &str = "ACK [";
 const GREETING_PREFIX: &str = "OK MPD ";
 const PAIR_SEPARATOR: &str = ": ";
+/// Además de letras, lo único que MPD admite en una clave.
+const KEY_SYMBOLS: [char; 2] = ['_', '-'];
+/// Une las líneas de un valor partido.
+const LINE_BREAK: char = '\n';
 const QUOTE: char = '"';
 const ESCAPE: char = '\\';
 
@@ -117,6 +121,9 @@ pub enum ResponseLine {
     Ok,
     Ack(Ack),
     Pair(Pair),
+    /// Una línea que no es par: MPD imprime tal cual los valores con saltos de línea
+    /// (la letra embebida de `readcomments`), así que sigue el valor del par anterior.
+    Continuation(String),
 }
 
 pub fn parse_response_line(line: &str) -> Result<ResponseLine> {
@@ -128,9 +135,20 @@ pub fn parse_response_line(line: &str) -> Result<ResponseLine> {
             .map(ResponseLine::Ack)
             .ok_or_else(|| Error::Protocol(format!("ACK mal formado: {line:?}")));
     }
-    parse_pair(line)
-        .map(ResponseLine::Pair)
-        .ok_or_else(|| Error::Protocol(format!("línea inesperada: {line:?}")))
+    Ok(parse_pair(line).map_or_else(
+        || ResponseLine::Continuation(line.to_owned()),
+        ResponseLine::Pair,
+    ))
+}
+
+/// Agrega la línea al valor del último par; sin par previo, la respuesta está rota.
+pub fn continue_value(pairs: &mut [Pair], line: &str) -> Result<()> {
+    let (_, value) = pairs
+        .last_mut()
+        .ok_or_else(|| Error::Protocol(format!("línea inesperada: {line:?}")))?;
+    value.push(LINE_BREAK);
+    value.push_str(line);
+    Ok(())
 }
 
 /// Parsea `ACK [50@0] {play} No such song`.
@@ -146,9 +164,14 @@ fn parse_ack(line: &str) -> Option<Ack> {
     })
 }
 
+/// Como MPD: la clave empieza con una letra y solo tiene letras, `_` y `-`.
 fn parse_pair(line: &str) -> Option<Pair> {
     let (key, value) = line.split_once(PAIR_SEPARATOR)?;
-    Some((key.to_owned(), value.to_owned()))
+    let valid_key = key.starts_with(|character: char| character.is_ascii_alphabetic())
+        && key
+            .chars()
+            .all(|character| character.is_ascii_alphabetic() || KEY_SYMBOLS.contains(&character));
+    valid_key.then(|| (key.to_owned(), value.to_owned()))
 }
 
 #[cfg(test)]
@@ -219,6 +242,29 @@ mod tests {
             })
         );
         assert!(parse_response_line("ACK [roto").is_err());
-        assert!(parse_response_line("sin separador").is_err());
+        assert_eq!(
+            parse_response_line("sin separador").unwrap(),
+            ResponseLine::Continuation("sin separador".into())
+        );
+        assert_eq!(
+            parse_response_line("Verso 2: otra línea").unwrap(),
+            ResponseLine::Continuation("Verso 2: otra línea".into())
+        );
+        assert_eq!(
+            parse_response_line("Last-Modified: x").unwrap(),
+            ResponseLine::Pair(("Last-Modified".into(), "x".into()))
+        );
+    }
+
+    #[test]
+    fn continuations_extend_the_previous_value() {
+        let mut pairs = vec![("LYRICS".to_owned(), "primera".to_owned())];
+        continue_value(&mut pairs, "").unwrap();
+        continue_value(&mut pairs, "segunda").unwrap();
+        assert_eq!(pairs[0].1, "primera\n\nsegunda");
+        assert!(matches!(
+            continue_value(&mut [], "suelta"),
+            Err(Error::Protocol(_))
+        ));
     }
 }

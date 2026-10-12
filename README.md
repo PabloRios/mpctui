@@ -31,6 +31,12 @@ queue_progress = false    # barra de progreso de la cola en el panel (oculta por
 visualizer_fifo = "/tmp/mpd.fifo"   # salida fifo de MPD que lee el visualizador
 visualizer_format = "44100:16:2"    # debe coincidir con el format de esa salida
 visualizer_style = "bars"           # forma con la que arranca: bars, mirror, wave, waterfall, vectorscope o meters
+
+[lyrics]
+enabled = true                                         # false: sin vista 7 ni búsquedas
+sources = ["cache", "song_folder", "tags", "lrclib"]   # orden de búsqueda
+directory = "~/.lyrics"                                # caché (la misma de ncmpcpp y ncmpc)
+music_directory = "~/Music"                            # raíz de la biblioteca; la necesita song_folder
 ```
 
 **Variables de entorno** (las mismas que usa `mpc`):
@@ -41,7 +47,7 @@ visualizer_style = "bars"           # forma con la que arranca: bars, mirror, wa
 | `MPD_PORT` | `6600` | Puerto TCP |
 | `MPCTUI_GLYPHS` | `ascii` | Fuerza el juego de glifos (`auto`, `unicode` o `ascii`) |
 
-Si la configuración es inválida (puerto no numérico, host vacío, campo desconocido en el TOML, contraseña con saltos de línea, `glyphs` distinto de `auto`/`unicode`/`ascii`, `album_progress` o `queue_progress` que no sean `true`/`false`, `visualizer_fifo` vacío, `visualizer_format` que no sea de 16 bits, 1 o 2 canales y entre 8000 y 192000 Hz, `visualizer_style` desconocido, o `mirror`/`vectorscope` con un FIFO de un canal), mpctui no arranca y explica el motivo. Que el FIFO no exista no es un error de configuración: la vista Visual explica cómo crearlo.
+Si la configuración es inválida (puerto no numérico, host vacío, campo desconocido en el TOML, contraseña con saltos de línea, `glyphs` distinto de `auto`/`unicode`/`ascii`, `album_progress` o `queue_progress` que no sean `true`/`false`, `visualizer_fifo` vacío, `visualizer_format` que no sea de 16 bits, 1 o 2 canales y entre 8000 y 192000 Hz, `visualizer_style` desconocido, `mirror`/`vectorscope` con un FIFO de un canal, una fuente de letras desconocida o repetida, `lyrics.sources` vacía con las letras activadas, o `song_folder` sin `music_directory`), mpctui no arranca y explica el motivo. Que el FIFO no exista no es un error de configuración: la vista Visual explica cómo crearlo.
 
 ### Glifos: Unicode o ASCII
 
@@ -65,6 +71,7 @@ mpctui
 | `4` | Búsqueda | Resultados agrupados por álbum, con las coincidencias en negrita y subrayadas |
 | `5` | Playlists | Playlists guardadas y el contenido de la seleccionada |
 | `6` | Visual | Visualizador en vivo, leyendo la salida fifo de MPD. Apretando `6` otra vez se pasa a la forma siguiente |
+| `7` | Letra | La letra del tema que suena; si viene sincronizada (LRC), sigue la canción |
 
 `Tab` / `Shift+Tab` recorren las vistas.
 
@@ -87,6 +94,7 @@ mpctui
   - **Medidores:** RMS (300 ms) y pico retenido (1,5 s) por canal en dBFS, con escala de -60 a 0 y la correlación.
 
   Con un FIFO de un canal, Espejo y Vectorscopio salen del ciclo y los Medidores muestran una sola barra. En pausa o detenido las formas caen a cero y se lee `sin señal`. En modo compacto se ocultan la fila de título, los ejes y las escalas. El FIFO solo se lee mientras la vista está activa, y solo se calcula la forma que se ve.
+- **Letra:** la del tema que suena. Una letra sincronizada deja la línea actual en el medio, marcada con `▸`, y las ya cantadas apagadas; cambia de línea justo a tiempo. Una sin sincronizar se recorre con `j`/`k`, las páginas y `g`/`G`. El título dice si es `sincronizada` o `texto` y de dónde salió. Mientras busca se lee `buscando letra ◐`; si no la encuentra, lo dice (y por qué, si se sabe).
 - **Línea inferior:** los atajos más útiles de la vista activa. Los avisos y errores la reemplazan durante 5 segundos.
 - **Tamaño:** desde 100 × 28 se ve todo. Desde 60 × 16 hay un modo compacto: panel de 3 filas, pestañas abreviadas y, por debajo de 80 columnas, sin columna Álbum. Más chica, mpctui muestra el mínimo necesario y el tamaño actual.
 
@@ -129,6 +137,19 @@ audio_output {
 ```
 
 Con otra ruta o formato, configurar `visualizer_fifo` y `visualizer_format`; la forma con la que arranca se elige con `visualizer_style`. Para ajustar la sensibilidad con música real: `cargo run --example spectrum_smoke` lee el FIFO 3 segundos con Barras y otros 3 con Medidores, e imprime el nivel máximo de cada banda, el RMS y el pico por canal y la correlación (no envía comandos a MPD).
+
+### Letras
+
+La vista Letra prueba las fuentes de `lyrics.sources` en orden y muestra la primera letra que encuentra. Al cambiar el tema, busca la del nuevo; volver a la vista con el mismo tema no busca de nuevo.
+
+| Fuente | Dónde busca |
+|---|---|
+| `cache` | `~/.lyrics/Artista - Título.lrc` y, si no está, `.txt` (necesita los tags de artista y título) |
+| `song_folder` | Junto al archivo del tema, con su mismo nombre: `Album/01 Tema.lrc` al lado de `Album/01 Tema.flac`. Necesita `music_directory`, porque MPD no informa dónde está la música si se conecta por TCP |
+| `tags` | La letra embebida en el archivo (`LYRICS` o `UNSYNCEDLYRICS`, en FLAC y Ogg). En MP3, MPD no expone la letra (`USLT`) |
+| `lrclib` | lrclib.net (todavía no implementada: se acepta en la configuración y por ahora no busca nada) |
+
+Los archivos `.lrc` pueden tener varias marcas por línea, metadatos (`[ar:…]`) y `[offset:…]`; las marcas por palabra del formato extendido se descartan. Un archivo sin marcas de tiempo se muestra como texto.
 
 ## Log
 
