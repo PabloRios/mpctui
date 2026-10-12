@@ -26,6 +26,7 @@ const TITLE_SEPARATOR: &str = " — ";
 const DETAIL_SEPARATOR: &str = " · ";
 const NO_SONG: &str = "Sin tema en reproducción";
 const SEARCHING: &str = "buscando letra";
+const INSTRUMENTAL: &str = "Instrumental";
 const UNTITLED_HINT: &str = "Al tema le faltan el artista o el título en los tags.";
 /// Entre el cursor de la línea actual y su texto.
 const CURSOR_GAP: &str = " ";
@@ -41,6 +42,7 @@ pub fn render(frame: &mut Frame, area: Rect, state: &mut AppState, context: &Con
     let glyphs = context.glyphs;
     match &state.lyrics.status {
         LyricsStatus::NoSong => message(frame, body, NO_SONG),
+        LyricsStatus::Instrumental => message(frame, body, INSTRUMENTAL),
         LyricsStatus::Searching => {
             let spinner = glyphs.spinner_frame(state.ticks);
             message(frame, body, &format!("{SEARCHING} {spinner}"));

@@ -5,8 +5,8 @@ use std::future::Future;
 
 use super::error::Result;
 use crate::domain::{
-    Entry, PlaylistName, SearchText, SingleMode, Song, Status, Subsystem, Tag, TagFilter,
-    TrackIdentity, Volume,
+    Entry, FetchedLyrics, PlaylistName, SearchText, SingleMode, Song, Status, Subsystem, Tag,
+    TagFilter, TrackIdentity, Volume,
 };
 
 pub trait PlayerRepository {
@@ -102,4 +102,19 @@ pub trait LyricsFiles {
     ) -> impl Future<Output = Result<Option<String>>> + Send;
     /// La que está junto al archivo del tema, con su mismo nombre.
     fn beside_song(&mut self, uri: &str) -> impl Future<Output = Result<Option<String>>> + Send;
+    /// Guarda en la caché: `.lrc` si es sincronizada, `.txt` si no.
+    fn save(
+        &mut self,
+        track: &TrackIdentity,
+        text: &str,
+        synced: bool,
+    ) -> impl Future<Output = Result<()>> + Send;
+}
+
+/// Letras de un servicio externo (LRCLIB).
+pub trait LyricsProvider {
+    fn fetch(
+        &mut self,
+        track: &TrackIdentity,
+    ) -> impl Future<Output = Result<FetchedLyrics>> + Send;
 }

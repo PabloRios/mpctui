@@ -337,6 +337,8 @@ pub enum LyricsStatus {
     NoSong,
     Searching,
     Found(Lyrics),
+    /// El tema no tiene letra (según LRCLIB).
+    Instrumental,
     /// `untitled`: al tema le faltan artista o título, así que no se buscó en la caché.
     NotFound {
         untitled: bool,

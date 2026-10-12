@@ -30,7 +30,7 @@ impl LyricsSource {
 
 /// Artista y título de un tema, aptos para nombres de archivo y consultas: no vacíos y
 /// de una sola línea. El álbum y la duración ayudan a elegir la versión correcta.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct TrackIdentity {
     artist: String,
     title: String,
@@ -97,6 +97,16 @@ impl LyricsQuery {
             track,
         }
     }
+}
+
+/// Lo que devuelve una fuente remota de letras.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FetchedLyrics {
+    /// LRC o texto plano.
+    Text(String),
+    /// El tema no tiene letra.
+    Instrumental,
+    Missing,
 }
 
 /// Una línea de la letra; con tiempo si es sincronizada.

@@ -146,3 +146,28 @@ están en `DESIGN.md` ni en `DESIGN_EXTRA.md`.
 - **`7` con las letras desactivadas** avisa `Letras desactivadas (lyrics.enabled = false)`
   en lugar de no hacer nada.
 
+### L2 · LRCLIB
+
+- **`reqwest` 0.13 con `rustls`** (sin OpenSSL) y las features `json` y `query`. En 0.13 la
+  feature se llama `rustls`, no `rustls-tls`; usa `aws-lc-rs` como proveedor de
+  criptografía y compiló sin dependencias del sistema.
+- **`/api/get` exige álbum y duración:** si al tema le falta alguno, se va directo a
+  `/api/search` por artista y título.
+- **Elección en la búsqueda:** entre los resultados con duración dentro de ±2 s (o
+  cualquiera si no se sabe la duración), primero uno sincronizado y si no, cualquiera
+  con letra o instrumental.
+- **Memoria de la sesión:** se recuerda toda respuesta de LRCLIB (letra, "no hay" e
+  instrumental), no solo los "no encontrado". Así, sin `cache` en las fuentes, volver a
+  un tema no repite el pedido. Los errores de red no se recuerdan: se reintenta al
+  volver al tema.
+- **Los instrumentales no se guardan en disco:** el formato de la caché (`.lrc`/`.txt`)
+  no tiene cómo decirlo. Se recuerdan solo durante la sesión.
+- **Sin cancelar la descarga al cambiar de tema** (como en L1): una búsqueda empezada
+  termina (como mucho 10 s por pedido) y su resultado se descarta si el tema ya cambió.
+- **`Error::Http`** nuevo en el repositorio, con un texto corto para la vista
+  (`LRCLIB: no se pudo conectar`, `no respondió a tiempo`, `respondió 500`).
+- **`lyrics_smoke` no guarda nada:** usa el proveedor directo, sin el servicio ni la caché.
+- **Primer uso real:** al probar la vista se creó `~/.lyrics/` con la letra del tema que
+  sonaba (`Soulsavers - You Will Miss me when I Burn.lrc`), que es el comportamiento
+  esperado de la caché.
+

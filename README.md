@@ -147,7 +147,11 @@ La vista Letra prueba las fuentes de `lyrics.sources` en orden y muestra la prim
 | `cache` | `~/.lyrics/Artista - Título.lrc` y, si no está, `.txt` (necesita los tags de artista y título) |
 | `song_folder` | Junto al archivo del tema, con su mismo nombre: `Album/01 Tema.lrc` al lado de `Album/01 Tema.flac`. Necesita `music_directory`, porque MPD no informa dónde está la música si se conecta por TCP |
 | `tags` | La letra embebida en el archivo (`LYRICS` o `UNSYNCEDLYRICS`, en FLAC y Ogg). En MP3, MPD no expone la letra (`USLT`) |
-| `lrclib` | lrclib.net (todavía no implementada: se acepta en la configuración y por ahora no busca nada) |
+| `lrclib` | [lrclib.net](https://lrclib.net): gratis y sin registro, muchas letras sincronizadas. Pide la coincidencia exacta (artista, título, álbum y duración) y, si no hay, busca por artista y título y elige un resultado con una duración parecida (±2 s), prefiriendo los sincronizados. Lo descargado se guarda en la caché si `cache` está en `sources`; lo que no encontró se recuerda hasta cerrar mpctui, para no volver a pedirlo |
+
+Si LRCLIB dice que el tema es instrumental, la vista muestra `Instrumental`.
+
+> **Privacidad:** con `lrclib` en `sources`, mpctui envía a lrclib.net el artista, el título, el álbum y la duración de cada tema cuya letra no encuentra en las fuentes anteriores. Para no usar la red, sacar `lrclib` de la lista.
 
 Los archivos `.lrc` pueden tener varias marcas por línea, metadatos (`[ar:…]`) y `[offset:…]`; las marcas por palabra del formato extendido se descartan. Un archivo sin marcas de tiempo se muestra como texto.
 
@@ -165,4 +169,5 @@ cargo clippy --all-targets -- -D warnings
 cargo test
 cargo run --example smoke            # prueba de solo lectura contra un MPD real
 cargo run --example spectrum_smoke   # bandas, RMS, pico y correlación leyendo el FIFO (solo lectura)
+cargo run --example lyrics_smoke     # letra del tema actual en LRCLIB (no guarda nada ni modifica MPD)
 ```

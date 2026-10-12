@@ -52,6 +52,7 @@ impl<B: Backend> App<B> {
         }
         view.status = match result.outcome {
             LyricsOutcome::Found(lyrics) => LyricsStatus::Found(lyrics),
+            LyricsOutcome::Instrumental => LyricsStatus::Instrumental,
             LyricsOutcome::NotFound { problem } => LyricsStatus::NotFound {
                 untitled: result.query.track.is_none(),
                 problem,

@@ -9,8 +9,10 @@ use super::error::Result;
 use super::traits::LyricsFiles;
 use crate::domain::{PATH_SEPARATOR, TrackIdentity};
 
+const SYNCED_EXTENSION: &str = "lrc";
+const PLAIN_EXTENSION: &str = "txt";
 /// Extensiones que se prueban, en orden: la sincronizada primero.
-const EXTENSIONS: [&str; 2] = ["lrc", "txt"];
+const EXTENSIONS: [&str; 2] = [SYNCED_EXTENSION, PLAIN_EXTENSION];
 /// `Artista - Título`.
 const NAME_SEPARATOR: &str = " - ";
 /// Reemplaza lo que no puede ir en un nombre de archivo.
@@ -50,6 +52,20 @@ impl LyricsFiles for LocalLyricsFiles {
         let song = music.join(relative);
         let candidates = EXTENSIONS.map(|extension| song.with_extension(extension));
         read_first(&candidates).await
+    }
+
+    async fn save(&mut self, track: &TrackIdentity, text: &str, synced: bool) -> Result<()> {
+        let extension = if synced {
+            SYNCED_EXTENSION
+        } else {
+            PLAIN_EXTENSION
+        };
+        tokio::fs::create_dir_all(&self.cache_directory).await?;
+        let path = self
+            .cache_directory
+            .join(format!("{}.{extension}", cache_file_stem(track)));
+        tokio::fs::write(path, text).await?;
+        Ok(())
     }
 }
 
@@ -162,6 +178,23 @@ mod tests {
             files.cached(&time).await.unwrap().as_deref(),
             Some("[00:01]x")
         );
+    }
+
+    #[tokio::test]
+    async fn saved_lyrics_are_read_back_from_the_cache() {
+        let directory = TemporaryDirectory::new("save");
+        let cache = directory.0.join("letras");
+        let mut files = LocalLyricsFiles::new(cache.clone(), None);
+        let time = track("Pink Floyd", "Time");
+        files.save(&time, "[00:01]x", true).await.unwrap();
+        assert!(cache.join("Pink Floyd - Time.lrc").exists());
+        assert_eq!(
+            files.cached(&time).await.unwrap().as_deref(),
+            Some("[00:01]x")
+        );
+        let other = track("Otro", "Tema");
+        files.save(&other, "texto", false).await.unwrap();
+        assert!(cache.join("Otro - Tema.txt").exists());
     }
 
     #[tokio::test]

@@ -7,7 +7,7 @@ use tokio::sync::mpsc;
 use crate::config::{GlyphMode, Settings};
 use crate::domain::Password;
 use crate::repository::mpd::{Address, MpdClient, MpdConnector, ReconnectingTransport};
-use crate::repository::{FifoPcmSource, LocalLyricsFiles, Result};
+use crate::repository::{FifoPcmSource, LRCLIB_URL, LocalLyricsFiles, LrclibProvider, Result};
 use crate::service::{
     Backoff, ChangeWatcher, LibraryService, LyricsLookup, LyricsService, PlaybackService,
     PlaylistService, QueueService, VisualizerLauncher,
@@ -81,7 +81,8 @@ async fn lyrics_lookup(settings: &Settings) -> Result<Option<LyricsLookup>> {
     }
     let files = LocalLyricsFiles::new(lyrics.directory.clone(), lyrics.music_directory.clone());
     let embedded = connect_mpd(&settings.address, settings.password.as_ref()).await?;
-    let service = LyricsService::new(embedded, files, lyrics.sources.clone());
+    let provider = LrclibProvider::new(LRCLIB_URL)?;
+    let service = LyricsService::new(embedded, files, provider, lyrics.sources.clone());
     Ok(Some(LyricsLookup::spawn(service)))
 }
 

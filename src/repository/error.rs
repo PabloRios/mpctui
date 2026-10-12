@@ -28,6 +28,9 @@ pub enum Error {
     Protocol(String),
     #[error("la conexión con MPD se cerró")]
     Closed,
+    /// Un servicio web (LRCLIB) no respondió o respondió algo inesperado.
+    #[error("{0}")]
+    Http(String),
 }
 
 impl Error {

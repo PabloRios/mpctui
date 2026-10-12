@@ -823,6 +823,8 @@ mod tests {
     fn lyrics_states_are_explained() {
         let searching = lyrics_screen(&ASCII, SIZES[0], LyricsStatus::Searching);
         assert_contains(&searching, &["buscando letra |"]);
+        let instrumental = lyrics_screen(&ASCII, SIZES[0], LyricsStatus::Instrumental);
+        assert_contains(&instrumental, &["Instrumental"]);
         let none = lyrics_screen(&ASCII, SIZES[0], LyricsStatus::NoSong);
         assert_contains(&none, &["Sin tema en reproducción"]);
         let untitled = LyricsStatus::NotFound {

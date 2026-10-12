@@ -7,7 +7,7 @@ Base de conocimiento para cualquier agente o persona que trabaje en este reposit
 ## 1. Proyecto
 
 - **Qué es:** cliente TUI de MPD (Music Player Daemon) para Linux, estilo ncmpcpp, escrito en Rust.
-- **Stack:** Rust edition 2024, `tokio` (async), `ratatui` + `crossterm` (TUI), `thiserror`/`anyhow` (errores), `serde` + `toml` (config), `directories`, `tracing` (log a archivo: la terminal es de la TUI).
+- **Stack:** Rust edition 2024, `tokio` (async), `ratatui` + `crossterm` (TUI), `thiserror`/`anyhow` (errores), `serde` + `toml` (config), `directories`, `tracing` (log a archivo: la terminal es de la TUI), `rustfft` (visualizador), `reqwest` con rustls (LRCLIB).
 - **Cliente de MPD propio:** no se usa ningún crate de MPD; el protocolo de texto está implementado en `src/repository/mpd/`.
 - **MVP:** cola + controles, biblioteca (Artista → Álbum → Tema y por directorios), búsqueda, playlists guardadas.
 - **Estado:** MVP completo, más los extras de `DESIGN_EXTRA.md` (formato de audio, actualización de la base, cuenta regresiva de reconexión y visualizador con seis formas). El detalle por fases está en `PLAN.md`; la guía de uso, en `README.md`; las decisiones e ideas pendientes, en `DECISIONES.md`.
@@ -64,6 +64,7 @@ domain  ←  repository  ←  service  ←  tui
 - **`src/domain/`:** modelos compartidos (`Song`, `Status`, `AudioFormat`, `PlayState`, `SingleMode`, `Entry`, `Subsystem`, `Tag`, `TagFilter`), entradas validadas, la línea de tiempo (`timeline()`: tramos consecutivos del mismo álbum y offsets de cada tema) las bandas del espectro (`band_edges`/`band_centers` logarítmicos de 40 Hz a 16 kHz) y el visualizador (`visual.rs`: `VisualizerStyle` y su ciclo, `VisualRequest`, `VisualFrame` con un `VisualContent` por forma). No depende de ninguna otra capa ni conoce MPD.
 - **`src/repository/`:**
   - `traits.rs` define los contratos y `error.rs` el error de acceso a datos.
+  - `lrclib.rs`: `LrclibProvider` implementa `LyricsProvider` sobre `reqwest` (rustls, User-Agent `mpctui/<versión>`, 10 s de espera). `/api/get` exige álbum y duración; sin ellos, o sin coincidencia, `/api/search` y se elige por duración (±2 s), prefiriendo letras sincronizadas. La URL base se inyecta (los tests usan un servidor HTTP local). Los errores de red son `Error::Http`.
   - `lyrics_files.rs`: `LocalLyricsFiles` implementa `LyricsFiles` (caché `Artista - Título.lrc|txt` y archivo junto al tema). Sanea los nombres y no sale de la biblioteca (`..`, rutas absolutas, streams).
   - `fifo.rs`: `FifoPcmSource` implementa `PcmSource` sobre la salida fifo de MPD. Abre en modo no bloqueante en la primera lectura y, tras un fin de archivo (`Ok(0)`), vuelve a abrir en la siguiente. **No** va en `mpd/`: no es el protocolo de MPD.
   - `mpd/` es la implementación:
@@ -80,7 +81,7 @@ domain  ←  repository  ←  service  ←  tui
   - `update_transition` (`database_update.rs`): decide si la actualización de la base empezó o terminó comparando dos `Status` sucesivos.
   - `visual/`: análisis en funciones puras. `pcm.rs` (`PcmDecoder` con cuadros partidos, `StereoWindow` de pares L/R), `bands.rs` (Hann, FFT con `rustfft`, bandas, dB, `Smoother`), `levels.rs` (RMS, pico, correlación), `peak.rs` (`HeldPeak`) y un módulo por forma. `Analysis` calcula solo la forma pedida y se reinicia al cambiar de forma; sin señal vacía la ventana, así todas las formas caen a cero.
   - `Visualizer` (`visualizer.rs`): tarea que lee la `PcmSource`, analiza a 20 FPS la forma del último `VisualRequest` y publica el último cuadro por `watch`. `VisualizerLauncher` la lanza con una fuente nueva; `RunningVisualizer` la cancela al soltarse (`Drop` → `abort`).
-  - `LyricsService` (`lyrics.rs`): prueba las fuentes de letras en el orden de la configuración (caché, carpeta del tema, tags y, en L2, LRCLIB); una fuente que falla no corta la búsqueda. `LyricsLookup` la corre en su propia tarea y atiende solo el último pedido; una búsqueda empezada no se interrumpe, para no dejar a medias un comando de MPD. `parse_lrc` (`lrc.rs`) es pura.
+  - `LyricsService` (`lyrics.rs`): prueba las fuentes de letras en el orden de la configuración (caché, carpeta del tema, tags y LRCLIB); una fuente que falla no corta la búsqueda. Lo descargado se guarda en la caché solo si `cache` es una fuente, y cada respuesta de LRCLIB (también "no hay" o instrumental) se recuerda en memoria durante la sesión. `LyricsLookup` la corre en su propia tarea y atiende solo el último pedido; una búsqueda empezada no se interrumpe, para no dejar a medias un comando de MPD. `parse_lrc` (`lrc.rs`) es pura.
   - `PlaybackClock`: interpola el progreso.
   - Reciben entradas ya validadas y nunca tocan la terminal.
 - **`src/tui/`:**
@@ -188,6 +189,7 @@ cargo clippy --all-targets -- -D warnings   # lint, cero warnings
 cargo test                                  # unitarios + integración
 cargo run --example smoke                   # solo lectura contra el MPD real
 cargo run --example spectrum_smoke          # lee el FIFO 3 s (solo lectura)
+cargo run --example lyrics_smoke            # consulta LRCLIB con el tema actual (solo lectura; usa la red)
 ```
 
 ### Probar la TUI sin intervención
