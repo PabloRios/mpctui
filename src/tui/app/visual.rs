@@ -4,7 +4,7 @@
 use super::{App, Backend};
 use crate::i18n::Message;
 use crate::service::{RunningVisualizer, VisualState};
-use crate::tui::action::{Action, key_label};
+use crate::tui::action::Action;
 use crate::tui::state::ViewKind;
 use crate::tui::views::visualizer_style_name;
 
@@ -17,10 +17,11 @@ impl<B: Backend> App<B> {
         }
         let visual = &mut self.state.visual;
         visual.style = visual.style.next(visual.channels);
-        let texts = self.appearance.texts;
-        let key =
-            key_label(Action::ShowVisualizer, self.appearance.glyphs, texts).unwrap_or_default();
-        let style = texts.phrase(visualizer_style_name(visual.style));
+        let style = self
+            .appearance
+            .texts
+            .phrase(visualizer_style_name(visual.style));
+        let key = self.key(Action::ShowVisualizer);
         self.notify_info(self.message(Message::VisualizerChanged { style, key: &key }));
     }
 

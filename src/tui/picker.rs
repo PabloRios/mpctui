@@ -1,10 +1,11 @@
-//! Selector de playlists: a cuál agregar lo seleccionado, o una nueva.
+//! Selectores: a qué playlist agregar lo seleccionado (o a una nueva) y a qué partición
+//! mover una salida. Los dos se navegan igual.
 
 use crossterm::event::{KeyCode, KeyEvent};
 
 use super::action::{Action, action_for};
 use super::list::{SelectableList, SelectionPolicy};
-use crate::domain::{PlaylistName, Song};
+use crate::domain::{Output, PartitionName, PlaylistName, Song};
 
 /// Lo que se agrega a una playlist y cómo nombrarlo en el aviso.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -45,10 +46,34 @@ pub enum PlaylistChoice {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum PickerOutcome {
+pub enum PickerOutcome<T> {
     Browsing,
-    Chosen(PlaylistChoice),
+    Chosen(T),
     Cancelled,
+}
+
+/// El selector abierto.
+#[derive(Debug)]
+pub enum Picker {
+    Playlist(PlaylistPicker),
+    Partition(PartitionPicker),
+}
+
+/// Enter elige, Esc cancela y las teclas de navegación son las de la tabla de atajos.
+fn choose<T: Clone>(choices: &mut SelectableList<T>, key: KeyEvent) -> PickerOutcome<T> {
+    match key.code {
+        KeyCode::Enter => choices
+            .selected()
+            .cloned()
+            .map_or(PickerOutcome::Browsing, PickerOutcome::Chosen),
+        KeyCode::Esc => PickerOutcome::Cancelled,
+        _ => {
+            if let Some(Action::Navigate(navigation)) = action_for(key) {
+                choices.navigate(navigation);
+            }
+            PickerOutcome::Browsing
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -69,22 +94,27 @@ impl PlaylistPicker {
         Self { addition, choices }
     }
 
-    /// Las teclas de navegación son las de la tabla de atajos.
-    pub fn handle_key(&mut self, key: KeyEvent) -> PickerOutcome {
-        match key.code {
-            KeyCode::Enter => self
-                .choices
-                .selected()
-                .cloned()
-                .map_or(PickerOutcome::Browsing, PickerOutcome::Chosen),
-            KeyCode::Esc => PickerOutcome::Cancelled,
-            _ => {
-                if let Some(Action::Navigate(navigation)) = action_for(key) {
-                    self.choices.navigate(navigation);
-                }
-                PickerOutcome::Browsing
-            }
-        }
+    pub fn handle_key(&mut self, key: KeyEvent) -> PickerOutcome<PlaylistChoice> {
+        choose(&mut self.choices, key)
+    }
+}
+
+/// A qué partición mover una salida: las demás, en el orden recibido.
+#[derive(Debug)]
+pub struct PartitionPicker {
+    pub output: Output,
+    pub choices: SelectableList<PartitionName>,
+}
+
+impl PartitionPicker {
+    pub fn new(output: Output, destinations: Vec<PartitionName>) -> Self {
+        let mut choices = SelectableList::default();
+        choices.set_items(destinations, SelectionPolicy::Reset);
+        Self { output, choices }
+    }
+
+    pub fn handle_key(&mut self, key: KeyEvent) -> PickerOutcome<PartitionName> {
+        choose(&mut self.choices, key)
     }
 }
 
@@ -106,7 +136,7 @@ mod tests {
         PlaylistPicker::new(addition, names)
     }
 
-    fn press(picker: &mut PlaylistPicker, code: KeyCode) -> PickerOutcome {
+    fn press(picker: &mut PlaylistPicker, code: KeyCode) -> PickerOutcome<PlaylistChoice> {
         picker.handle_key(KeyEvent::new(code, KeyModifiers::NONE))
     }
 
@@ -144,5 +174,33 @@ mod tests {
         );
         assert_eq!(picker.choices.selected(), Some(&PlaylistChoice::New));
         assert_eq!(press(&mut picker, KeyCode::Esc), PickerOutcome::Cancelled);
+    }
+
+    #[test]
+    fn the_partition_picker_chooses_a_destination() {
+        let output = Output {
+            id: 0,
+            name: "pulse".into(),
+            plugin: "pulse".into(),
+            enabled: true,
+        };
+        let destinations = ["cocina", "living"]
+            .iter()
+            .map(|name| PartitionName::new(name).unwrap())
+            .collect();
+        let mut picker = PartitionPicker::new(output, destinations);
+        let key = |code| KeyEvent::new(code, KeyModifiers::NONE);
+        assert_eq!(
+            picker.handle_key(key(KeyCode::Char('j'))),
+            PickerOutcome::Browsing
+        );
+        assert_eq!(
+            picker.handle_key(key(KeyCode::Enter)),
+            PickerOutcome::Chosen(PartitionName::new("living").unwrap())
+        );
+        assert_eq!(
+            picker.handle_key(key(KeyCode::Esc)),
+            PickerOutcome::Cancelled
+        );
     }
 }

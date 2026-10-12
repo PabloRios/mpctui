@@ -6,8 +6,8 @@ use std::time::Duration;
 
 use super::error::Result;
 use crate::domain::{
-    Entry, FetchedLyrics, PlaylistName, SearchText, SingleMode, Song, Status, Subsystem, Tag,
-    TagFilter, TrackIdentity, Volume,
+    Entry, FetchedLyrics, Output, PartitionName, PlaylistName, SearchText, SingleMode, Song,
+    Status, Subsystem, Tag, TagFilter, TrackIdentity, Volume,
 };
 
 pub trait PlayerRepository {
@@ -96,6 +96,34 @@ pub trait PlaylistRepository {
         name: &PlaylistName,
         from: u32,
         to: u32,
+    ) -> impl Future<Output = Result<()>> + Send;
+}
+
+/// Particiones y salidas de audio. Lo que depende de la partición se ejecuta en la que
+/// se indica, sin importar en cuál esté la conexión.
+pub trait OutputRepository {
+    fn partitions(&mut self) -> impl Future<Output = Result<Vec<PartitionName>>> + Send;
+    /// Las salidas que pertenecen a `partition`.
+    fn outputs(
+        &mut self,
+        partition: &PartitionName,
+    ) -> impl Future<Output = Result<Vec<Output>>> + Send;
+    fn create_partition(&mut self, name: &PartitionName)
+    -> impl Future<Output = Result<()>> + Send;
+    /// MPD solo borra una partición sin salidas ni clientes conectados.
+    fn delete_partition(&mut self, name: &PartitionName)
+    -> impl Future<Output = Result<()>> + Send;
+    /// Lleva la salida llamada `output` a la partición `to`, venga de donde venga.
+    fn move_output(
+        &mut self,
+        output: &str,
+        to: &PartitionName,
+    ) -> impl Future<Output = Result<()>> + Send;
+    fn set_output_enabled(
+        &mut self,
+        partition: &PartitionName,
+        output_id: u32,
+        enabled: bool,
     ) -> impl Future<Output = Result<()>> + Send;
 }
 

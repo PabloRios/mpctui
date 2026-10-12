@@ -303,3 +303,31 @@ están en `DESIGN.md` ni en `DESIGN_EXTRA.md`.
 - **La playlist elegida se conserva por nombre al recargar**: una nueva puede ordenarse
   antes y correr los índices.
 
+### S1 · Particiones y salidas (administrar)
+
+- **Una pestaña con dos columnas** (particiones | salidas de la elegida), como Playlists.
+  Mover una salida abre un selector con las demás particiones, como `P` con las playlists.
+- **Todo lo que depende de la partición va en una lista de comandos**
+  (`command_list_begin` / `partition X` / comando / `command_list_end`). Es una sola
+  respuesta, y si la conexión se cortó `ReconnectingTransport` reintenta la lista entera:
+  nunca se ejecuta `moveoutput` o `enableoutput` en la partición equivocada. `Command::list`
+  arma la lista como un único `Command` de varias líneas; el transporte no cambió.
+- **Las salidas de cada partición se leen entrando a cada una**: MPD lista en una
+  partición también las salidas de las otras, con el plugin `dummy`. El repositorio las
+  descarta, así cada salida aparece una sola vez, en la partición que la tiene. El id de
+  `enableoutput` es el de la lista de esa partición.
+- **`enableoutput`/`disableoutput`, no `toggleoutput`**: el servicio decide con el estado
+  conocido, como con `pause`.
+- **Borrar una partición devuelve sus salidas a `default`** (MPD solo borra particiones
+  sin salidas ni clientes). Es lógica del servicio: un `moveoutput` por salida y después
+  `delpartition`, desde `default`. `default` no se puede borrar: se avisa sin preguntar.
+- **Tras cada acción propia se relee la vista**: el aviso de `idle` (`output`,
+  `partition`) de un cambio en otra partición puede no llegar a la conexión que vigila.
+  Además, con la vista visible, esos avisos la recargan.
+- **`n` y `m` son atajos de la vista** (en la ayuda, en «Otros», para que siga entrando en
+  30 filas). `Enter` sobre una salida la activa o desactiva.
+- **Con ocho pestañas el español no entra en 100 columnas**: si los títulos completos no
+  entran, se usan los abreviados del modo compacto.
+- **Supuesto sin verificar en el MPD real**: que las salidas de otra partición aparezcan
+  con `plugin: dummy` (crear particiones modifica el servidor). Se cubre con el servidor
+  falso y queda para validar a mano.

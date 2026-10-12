@@ -3,7 +3,7 @@
 use std::time::Duration;
 
 use super::audio::AudioFormat;
-use super::inputs::{PATH_SEPARATOR, Volume};
+use super::inputs::{PATH_SEPARATOR, PartitionName, Volume};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum PlayState {
@@ -134,6 +134,28 @@ pub enum Subsystem {
     Options,
     /// Una actualización de la base empezó o terminó.
     Update,
+    /// Una salida de audio se agregó, se quitó, se movió o cambió de estado.
+    Outputs,
+    /// Una partición se creó, se borró o cambió.
+    Partitions,
+}
+
+/// Salida de audio de una partición.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Output {
+    /// Posición en la lista de su partición: es lo que piden `enableoutput` y
+    /// `disableoutput`, y puede cambiar entre ejecuciones de MPD.
+    pub id: u32,
+    pub name: String,
+    pub plugin: String,
+    pub enabled: bool,
+}
+
+/// Partición de MPD con las salidas que le pertenecen.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Partition {
+    pub name: PartitionName,
+    pub outputs: Vec<Output>,
 }
 
 /// Tags por los que se lista, filtra y busca.

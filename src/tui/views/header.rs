@@ -166,22 +166,14 @@ fn waited_meter(delay: Duration, remaining: Duration) -> Vec<MeterCell> {
 }
 
 /// Pestañas (la activa entre corchetes) y, si entra, `cola: 1229 temas  65:04:13`.
+/// Con los títulos completos que no entran (o en compacto), van los abreviados.
 pub fn render_tabs(frame: &mut Frame, area: Rect, state: &AppState, context: &Context<'_>) {
-    let mut tabs = vec![Span::raw(" ")];
-    for (index, view) in state.views().into_iter().enumerate() {
-        if index > 0 {
-            tabs.push(Span::raw(" "));
-        }
-        let key = context.key(view_action(view));
-        let title = context.phrase(view_title(view, context.is_compact()));
-        let label = format!("{key} {title}");
-        tabs.push(if view == state.view {
-            Span::styled(format!("[{label}]"), theme::FOCUSED)
-        } else {
-            Span::styled(format!(" {label} "), theme::MUTED)
-        });
-    }
-    let tabs = Line::from(tabs);
+    let full = tabs_line(state, context, context.is_compact());
+    let tabs = if full.width() > usize::from(area.width) {
+        tabs_line(state, context, true)
+    } else {
+        full
+    };
     let summary = queue_summary(state, context);
     let line = if tabs.width() + summary.width() < usize::from(area.width) {
         spread(tabs, summary, area.width, context.glyphs)
@@ -191,6 +183,24 @@ pub fn render_tabs(frame: &mut Frame, area: Rect, state: &AppState, context: &Co
     frame
         .buffer_mut()
         .set_line(area.x, area.y, &line, area.width);
+}
+
+fn tabs_line(state: &AppState, context: &Context<'_>, abbreviated: bool) -> Line<'static> {
+    let mut tabs = vec![Span::raw(" ")];
+    for (index, view) in state.views().into_iter().enumerate() {
+        if index > 0 {
+            tabs.push(Span::raw(" "));
+        }
+        let key = context.key(view_action(view));
+        let title = context.phrase(view_title(view, abbreviated));
+        let label = format!("{key} {title}");
+        tabs.push(if view == state.view {
+            Span::styled(format!("[{label}]"), theme::FOCUSED)
+        } else {
+            Span::styled(format!(" {label} "), theme::MUTED)
+        });
+    }
+    Line::from(tabs)
 }
 
 /// Sin duración si falta la de algún tema.
@@ -217,6 +227,8 @@ pub fn view_title(view: ViewKind, abbreviated: bool) -> Phrase {
         (ViewKind::Playlists, true) => Phrase::ViewPlaylistsShort,
         (ViewKind::Visualizer, _) => Phrase::ViewVisualizer,
         (ViewKind::Lyrics, _) => Phrase::ViewLyrics,
+        (ViewKind::Outputs, false) => Phrase::ViewOutputs,
+        (ViewKind::Outputs, true) => Phrase::ViewOutputsShort,
     }
 }
 

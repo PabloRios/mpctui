@@ -10,8 +10,8 @@ use crate::i18n;
 use crate::repository::mpd::{Address, MpdClient, MpdConnector, ReconnectingTransport};
 use crate::repository::{FifoPcmSource, LRCLIB_URL, LocalLyricsFiles, LrclibProvider, Result};
 use crate::service::{
-    Backoff, ChangeWatcher, LibraryService, LyricsLookup, LyricsService, PlaybackService,
-    PlaylistService, QueueService, VisualizerLauncher,
+    Backoff, ChangeWatcher, LibraryService, LyricsLookup, LyricsService, OutputService,
+    PlaybackService, PlaylistService, QueueService, VisualizerLauncher,
 };
 use crate::tui::appearance::{Appearance, ProgressBars};
 use crate::tui::glyphs::{self, Glyphs};
@@ -34,6 +34,7 @@ impl Backend for MpdBackend {
     type Queue = MpdRepository;
     type Library = MpdRepository;
     type Playlists = MpdRepository;
+    type Outputs = MpdRepository;
     type Pcm = FifoPcmSource;
 }
 
@@ -54,6 +55,7 @@ pub async fn build_app(settings: &Settings) -> Result<App<MpdBackend>> {
         queue: QueueService::new(connect().await?),
         library: LibraryService::new(connect().await?),
         playlists: PlaylistService::new(connect().await?),
+        outputs: OutputService::new(connect().await?),
         visualizer: visualizer_launcher(settings),
         lyrics: lyrics_lookup(settings).await?,
         lyrics_in_background: settings.lyrics.fetch_in_background,

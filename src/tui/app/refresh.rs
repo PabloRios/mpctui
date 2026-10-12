@@ -18,6 +18,9 @@ const PLAYER_SUBSYSTEMS: [Subsystem; 4] = [
     Subsystem::Queue,
 ];
 
+/// Subsistemas que cambian lo que muestra la vista Salidas.
+const OUTPUT_SUBSYSTEMS: [Subsystem; 2] = [Subsystem::Outputs, Subsystem::Partitions];
+
 impl<B: Backend> App<B> {
     /// Vuelve a leer todo lo visible: al arrancar y al recuperar la conexión.
     pub(super) async fn resynchronize(&mut self) {
@@ -47,6 +50,13 @@ impl<B: Backend> App<B> {
         if changed.contains(&Subsystem::StoredPlaylist) && self.state.view == ViewKind::Playlists {
             self.load_view().await;
         }
+        if OUTPUT_SUBSYSTEMS
+            .iter()
+            .any(|subsystem| changed.contains(subsystem))
+            && self.state.view == ViewKind::Outputs
+        {
+            self.load_view().await;
+        }
     }
 
     pub(super) async fn show_view(&mut self, view: ViewKind) {
@@ -64,6 +74,7 @@ impl<B: Backend> App<B> {
                 self.open_directory(path, SelectionPolicy::Keep).await;
             }
             ViewKind::Playlists => self.reload_playlists().await,
+            ViewKind::Outputs => self.reload_outputs().await,
         }
     }
 

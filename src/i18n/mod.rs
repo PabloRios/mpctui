@@ -76,6 +76,8 @@ pub enum Phrase {
     AddToPlaylist,
     RetryLyrics,
     UpdateDatabase,
+    NewPartition,
+    MoveOutput,
     // Secciones y marco de la ayuda.
     HelpNavigation,
     HelpLists,
@@ -121,6 +123,10 @@ pub enum Phrase {
     HintEdit,
     HintRemove,
     HintToPlaylist,
+    HintOutputs,
+    HintNewPartition,
+    HintToggleOutput,
+    HintMoveOutput,
     /// Teclas de la línea de búsqueda.
     SearchKeys,
     // Diálogos.
@@ -133,6 +139,8 @@ pub enum Phrase {
     PickerKeys,
     /// Primera opción del selector de playlists.
     NewPlaylistChoice,
+    NewPartitionTitle,
+    PartitionPickerTitle,
     Yes,
     No,
     /// La tecla que se muestra para confirmar (se aceptan las de los dos idiomas).
@@ -149,6 +157,8 @@ pub enum Phrase {
     ViewPlaylistsShort,
     ViewVisualizer,
     ViewLyrics,
+    ViewOutputs,
+    ViewOutputsShort,
     // Conexión en el encabezado.
     Disconnected,
     Connecting,
@@ -180,6 +190,7 @@ pub enum Phrase {
     ColumnPosition,
     ColumnDuration,
     ColumnSong,
+    PartitionsTitle,
     // Formato de audio.
     Mono,
     Stereo,
@@ -221,6 +232,7 @@ pub enum Phrase {
     LibraryUpdateRequested,
     QueueCleared,
     NoVolumeControl,
+    DefaultPartitionUndeletable,
     TerminalTooSmall,
 }
 
@@ -231,6 +243,7 @@ pub enum Message<'a> {
     SongCount(usize),
     EntryCount(usize),
     ChannelCount(u8),
+    OutputCount(usize),
     ResultsInAlbums {
         results: usize,
         albums: usize,
@@ -247,6 +260,10 @@ pub enum Message<'a> {
     // Diálogos.
     ConfirmClearQueue(usize),
     ConfirmRemovePlaylist(&'a str),
+    ConfirmRemovePartition {
+        name: &'a str,
+        outputs: usize,
+    },
     TerminalSize {
         minimum_width: u16,
         minimum_height: u16,
@@ -258,6 +275,9 @@ pub enum Message<'a> {
         key: &'a str,
     },
     NoPlaylists {
+        key: &'a str,
+    },
+    NoOutputs {
         key: &'a str,
     },
     SearchHint {
@@ -320,6 +340,19 @@ pub enum Message<'a> {
     },
     LibraryUpdated {
         elapsed: &'a str,
+    },
+    NoOtherPartition {
+        key: &'a str,
+    },
+    PartitionCreated(&'a str),
+    PartitionDeleted(&'a str),
+    OutputMoved {
+        output: &'a str,
+        partition: &'a str,
+    },
+    OutputToggled {
+        output: &'a str,
+        enabled: bool,
     },
     // Errores.
     Failure(&'a Error),

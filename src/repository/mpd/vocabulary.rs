@@ -41,6 +41,16 @@ pub enum Verb {
     PlaylistMove,
     ReadComments,
     Update,
+    Partition,
+    ListPartitions,
+    NewPartition,
+    DeletePartition,
+    MoveOutput,
+    Outputs,
+    EnableOutput,
+    DisableOutput,
+    CommandListBegin,
+    CommandListEnd,
 }
 
 impl Verb {
@@ -82,6 +92,16 @@ impl Verb {
             Verb::PlaylistMove => "playlistmove",
             Verb::ReadComments => "readcomments",
             Verb::Update => "update",
+            Verb::Partition => "partition",
+            Verb::ListPartitions => "listpartitions",
+            Verb::NewPartition => "newpartition",
+            Verb::DeletePartition => "delpartition",
+            Verb::MoveOutput => "moveoutput",
+            Verb::Outputs => "outputs",
+            Verb::EnableOutput => "enableoutput",
+            Verb::DisableOutput => "disableoutput",
+            Verb::CommandListBegin => "command_list_begin",
+            Verb::CommandListEnd => "command_list_end",
         }
     }
 }
@@ -113,6 +133,11 @@ pub mod keys {
     pub const BITRATE: &str = "bitrate";
     pub const UPDATING_DB: &str = "updating_db";
     pub const CHANGED: &str = "changed";
+    pub const PARTITION: &str = "partition";
+    pub const OUTPUT_ID: &str = "outputid";
+    pub const OUTPUT_NAME: &str = "outputname";
+    pub const OUTPUT_PLUGIN: &str = "plugin";
+    pub const OUTPUT_ENABLED: &str = "outputenabled";
     /// Comentarios con la letra embebida (Vorbis/FLAC); se comparan sin distinguir
     /// mayúsculas porque `readcomments` devuelve la clave tal como está en el archivo.
     pub const LYRICS_COMMENTS: [&str; 2] = ["LYRICS", "UNSYNCEDLYRICS"];
@@ -133,6 +158,8 @@ pub const AUDIO_FIELD_SEPARATOR: char = ':';
 pub const SAMPLE_FORMAT_FLOAT: &str = "f";
 /// Prefijo de la tasa DSD (`dsd64`).
 pub const DSD_PREFIX: &str = "dsd";
+/// Plugin con el que una partición lista las salidas que pertenecen a otra.
+pub const DUMMY_PLUGIN: &str = "dummy";
 /// Bitrate que MPD informa cuando no lo conoce.
 pub const BITRATE_UNKNOWN: u32 = 0;
 
@@ -184,6 +211,8 @@ pub fn parse_subsystem(name: &str) -> Option<Subsystem> {
         "mixer" => Some(Subsystem::Mixer),
         "options" => Some(Subsystem::Options),
         "update" => Some(Subsystem::Update),
+        "output" => Some(Subsystem::Outputs),
+        "partition" => Some(Subsystem::Partitions),
         _ => None,
     }
 }

@@ -111,9 +111,9 @@ mod tests {
 
     use super::*;
     use crate::domain::{
-        AudioFormat, BandFrame, ChannelLevel, Entry, LyricLine, Lyrics, LyricsSource, PlayState,
-        PlaylistName, SampleFormat, SampleRange, ScopePoint, SearchText, Song, Status,
-        VisualContent, VisualFrame, VisualizerStyle, Volume,
+        AudioFormat, BandFrame, ChannelLevel, Entry, LyricLine, Lyrics, LyricsSource, Output,
+        Partition, PartitionName, PlayState, PlaylistName, SampleFormat, SampleRange, ScopePoint,
+        SearchText, Song, Status, VisualContent, VisualFrame, VisualizerStyle, Volume,
     };
     use crate::i18n::{English, Spanish};
     use crate::repository::Error;
@@ -121,10 +121,11 @@ mod tests {
     use crate::tui::appearance::ProgressBars;
     use crate::tui::glyphs::{ASCII, UNICODE};
     use crate::tui::list::SelectionPolicy;
-    use crate::tui::picker::{PlaylistAddition, PlaylistPicker};
+    use crate::tui::picker::{PartitionPicker, Picker, PlaylistAddition, PlaylistPicker};
     use crate::tui::prompt::{Confirmation, Prompt, PromptKind};
     use crate::tui::state::{
-        ConnectionState, LyricsStatus, Notice, NoticeLevel, PlaylistsColumn, ViewKind, VisualView,
+        ConnectionState, LyricsStatus, Notice, NoticeLevel, OutputsColumn, PlaylistsColumn,
+        ViewKind, VisualView,
     };
 
     /// Tamaños de la sección 7 de `DESIGN.md`: completo, compacto y demasiado chico.
@@ -322,7 +323,39 @@ mod tests {
             .playlists
             .preview
             .set_items(songs(), SelectionPolicy::Reset);
+        state.outputs.set_partitions(sample_partitions());
         state
+    }
+
+    fn output(id: u32, name: &str, plugin: &str, enabled: bool) -> Output {
+        Output {
+            id,
+            name: name.into(),
+            plugin: plugin.into(),
+            enabled,
+        }
+    }
+
+    fn sample_partitions() -> Vec<Partition> {
+        vec![
+            Partition {
+                name: PartitionName::default_partition(),
+                outputs: vec![
+                    output(0, "pulse audio", "pulse", true),
+                    output(1, "alsa hw:1,3 BLOCKING", "alsa", false),
+                    output(3, "FIFO pipe", "fifo", true),
+                ],
+            },
+            Partition {
+                name: PartitionName::new("cocina").unwrap(),
+                outputs: Vec::new(),
+            },
+        ]
+    }
+
+    fn sample_partition_picker() -> PartitionPicker {
+        let destinations = vec![PartitionName::new("cocina").unwrap()];
+        PartitionPicker::new(output(0, "pulse audio", "pulse", true), destinations)
     }
 
     /// Variantes que cambian lo que se superpone a la vista.
@@ -346,7 +379,14 @@ mod tests {
             |state| state.prompt = Some(Prompt::text(PromptKind::Search, "time".into())),
             |state| state.prompt = Some(Prompt::text(PromptKind::SavePlaylist, "x".into())),
             |state| state.prompt = Some(Prompt::confirm(Confirmation::ClearQueue)),
-            |state| state.picker = Some(sample_picker()),
+            |state| state.picker = Some(Picker::Playlist(sample_picker())),
+            |state| state.picker = Some(Picker::Partition(sample_partition_picker())),
+            |state| state.prompt = Some(Prompt::text(PromptKind::NewPartition, "z".into())),
+            |state| {
+                let partition = sample_partitions().remove(0);
+                state.prompt = Some(Prompt::confirm(Confirmation::RemovePartition(partition)));
+            },
+            |state| state.outputs.focus = OutputsColumn::Outputs,
             |state| {
                 let kind = PromptKind::NewPlaylist(PlaylistAddition::song(&song(1)));
                 state.prompt = Some(Prompt::text(kind, "y".into()));
@@ -995,7 +1035,7 @@ mod tests {
     #[test]
     fn the_picker_offers_a_new_playlist_and_scrolls_the_existing_ones() {
         let mut state = sample_state();
-        state.picker = Some(sample_picker());
+        state.picker = Some(Picker::Playlist(sample_picker()));
         let screen = screen_lines(&render_to_buffer(&mut state, &ASCII, SIZES[0]));
         assert_contains(
             &screen,
@@ -1007,7 +1047,9 @@ mod tests {
             ],
         );
         assert!(!screen.contains("lista 13"), "{screen}");
-        let picker = state.picker.as_mut().unwrap();
+        let Some(Picker::Playlist(picker)) = state.picker.as_mut() else {
+            unreachable!("el selector de playlists está abierto");
+        };
         picker
             .choices
             .navigate(crate::tui::action::Navigation::Last);
@@ -1056,5 +1098,85 @@ mod tests {
         for hint in ["d borrar", "J bajar", "K subir", "P a playlist", "? ayuda"] {
             assert!(footer.contains(hint), "falta {hint:?} en {footer:?}");
         }
+    }
+
+    #[test]
+    fn outputs_show_partitions_and_the_outputs_of_the_chosen_one() {
+        let mut state = sample_state();
+        state.view = ViewKind::Outputs;
+        let partitions = screen_lines(&render_to_buffer(&mut state, &ASCII, SIZES[0]));
+        assert_contains(
+            &partitions,
+            &[
+                "[8 Sal.]",
+                "[Particiones (2)]",
+                "> default  3 salidas",
+                "cocina  0 salidas",
+                " default: 3 salidas ",
+                "[x] pulse audio  pulse",
+                "[ ] alsa hw:1,3 BLOCKING  alsa",
+                "l salidas",
+                "n nueva partición",
+            ],
+        );
+        state.outputs.focus = OutputsColumn::Outputs;
+        let outputs = screen_lines(&render_to_buffer(&mut state, &ASCII, SIZES[0]));
+        assert_contains(
+            &outputs,
+            &[
+                "[default: 3 salidas]",
+                "Enter activar/desactivar",
+                "m mover",
+                "h volver",
+            ],
+        );
+        state.outputs.focus = OutputsColumn::Partitions;
+        state
+            .outputs
+            .partitions
+            .navigate(crate::tui::action::Navigation::Next);
+        state.outputs.show_selected_outputs(SelectionPolicy::Reset);
+        let empty = screen_lines(&render_to_buffer(&mut state, &ASCII, SIZES[0]));
+        assert_contains(&empty, &["cocina: 0 salidas", "traela con m"]);
+    }
+
+    #[test]
+    fn partition_dialogs_explain_what_happens() {
+        let mut state = sample_state();
+        let partition = sample_partitions().remove(0);
+        state.prompt = Some(Prompt::confirm(Confirmation::RemovePartition(partition)));
+        let confirm = screen_lines(&render_to_buffer(&mut state, &ASCII, SIZES[0]));
+        assert_contains(&confirm, &["Sus 3 salidas vuelven a default."]);
+        state.prompt = Some(Prompt::text(PromptKind::NewPartition, "living".into()));
+        let name = screen_lines(&render_to_buffer(&mut state, &ASCII, SIZES[0]));
+        assert_contains(&name, &["Nueva partición", "Nombre: [living"]);
+        state.prompt = None;
+        state.picker = Some(Picker::Partition(sample_partition_picker()));
+        let picker = screen_lines(&render_to_buffer(&mut state, &ASCII, SIZES[0]));
+        assert_contains(&picker, &["Mover a la partición", "> cocina"]);
+    }
+
+    /// La fila de las pestañas, con la de Salidas activa.
+    fn tabs_row(texts: &'static dyn Catalog, size: (u16, u16)) -> String {
+        let mut state = sample_state();
+        state.view = ViewKind::Outputs;
+        let screen = screen_lines(&render_in(&mut state, &ASCII, size, ALL_BARS, texts));
+        screen.lines().nth(1).unwrap().to_owned()
+    }
+
+    #[test]
+    fn tabs_are_abbreviated_only_when_the_full_titles_do_not_fit() {
+        assert!(tabs_row(&English, SIZES[0]).contains("2 Library"));
+        assert!(tabs_row(&English, SIZES[0]).contains("[8 Outputs]"));
+        let narrow = tabs_row(&Spanish, SIZES[0]);
+        assert!(
+            narrow.contains("2 Bibl.") && narrow.contains("[8 Sal.]"),
+            "{narrow}"
+        );
+        let wide = tabs_row(&Spanish, (120, 30));
+        assert!(
+            wide.contains("2 Biblioteca") && wide.contains("[8 Salidas]"),
+            "{wide}"
+        );
     }
 }

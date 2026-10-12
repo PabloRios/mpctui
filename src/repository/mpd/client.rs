@@ -3,18 +3,20 @@
 use std::time::Duration;
 
 use super::parse::{
-    parse_entries, parse_playlist_names, parse_songs, parse_status, parse_subsystems, values_of,
+    parse_entries, parse_outputs, parse_partition_names, parse_playlist_names, parse_songs,
+    parse_status, parse_subsystems, values_of,
 };
 use super::protocol::{Command, FilterOperator, Pair, filter_expression};
 use super::transport::Transport;
 use super::vocabulary::{SEEK_DECIMALS, Verb, flag, keys, single_mode_argument, tag_name};
 use crate::domain::{
-    Entry, PlaylistName, SearchText, SingleMode, Song, Status, Subsystem, Tag, TagFilter, Volume,
+    Entry, Output, PartitionName, PlaylistName, SearchText, SingleMode, Song, Status, Subsystem,
+    Tag, TagFilter, Volume,
 };
 use crate::repository::error::Result;
 use crate::repository::traits::{
     ChangesRepository, EmbeddedLyricsRepository, LibraryRepository, OptionsRepository,
-    PlayerRepository, PlaylistRepository, QueueRepository,
+    OutputRepository, PlayerRepository, PlaylistRepository, QueueRepository,
 };
 
 pub struct MpdClient<T> {
@@ -34,6 +36,17 @@ impl<T: Transport + Send> MpdClient<T> {
     /// Ejecuta un comando cuya respuesta no tiene datos.
     async fn run(&mut self, command: Command) -> Result<()> {
         self.fetch(command).await.map(drop)
+    }
+
+    /// Ejecuta `command` en `partition`: los dos van en una lista, así un reintento
+    /// tras reconectar no lo ejecuta en otra partición.
+    async fn fetch_in(&mut self, partition: &PartitionName, command: Command) -> Result<Vec<Pair>> {
+        let switch = Command::new(Verb::Partition).arg(partition);
+        self.fetch(Command::list([switch, command])).await
+    }
+
+    async fn run_in(&mut self, partition: &PartitionName, command: Command) -> Result<()> {
+        self.fetch_in(partition, command).await.map(drop)
     }
 }
 
@@ -213,6 +226,51 @@ impl<T: Transport + Send> PlaylistRepository for MpdClient<T> {
 
     async fn move_in_playlist(&mut self, name: &PlaylistName, from: u32, to: u32) -> Result<()> {
         self.run(Command::new(Verb::PlaylistMove).arg(name).arg(from).arg(to))
+            .await
+    }
+}
+
+impl<T: Transport + Send> OutputRepository for MpdClient<T> {
+    async fn partitions(&mut self) -> Result<Vec<PartitionName>> {
+        parse_partition_names(&self.fetch(Command::new(Verb::ListPartitions)).await?)
+    }
+
+    async fn outputs(&mut self, partition: &PartitionName) -> Result<Vec<Output>> {
+        parse_outputs(
+            &self
+                .fetch_in(partition, Command::new(Verb::Outputs))
+                .await?,
+        )
+    }
+
+    async fn create_partition(&mut self, name: &PartitionName) -> Result<()> {
+        self.run(Command::new(Verb::NewPartition).arg(name)).await
+    }
+
+    /// Desde `default`: la propia conexión no puede estar en la que se borra.
+    async fn delete_partition(&mut self, name: &PartitionName) -> Result<()> {
+        let command = Command::new(Verb::DeletePartition).arg(name);
+        self.run_in(&PartitionName::default_partition(), command)
+            .await
+    }
+
+    async fn move_output(&mut self, output: &str, to: &PartitionName) -> Result<()> {
+        self.run_in(to, Command::new(Verb::MoveOutput).arg(output))
+            .await
+    }
+
+    async fn set_output_enabled(
+        &mut self,
+        partition: &PartitionName,
+        output_id: u32,
+        enabled: bool,
+    ) -> Result<()> {
+        let verb = if enabled {
+            Verb::EnableOutput
+        } else {
+            Verb::DisableOutput
+        };
+        self.run_in(partition, Command::new(verb).arg(output_id))
             .await
     }
 }

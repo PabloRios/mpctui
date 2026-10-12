@@ -1,11 +1,12 @@
-//! Selector de playlists: se abre con lo que hay que agregar y, al elegir, lo agrega.
+//! Selectores: el de playlists se abre con lo que hay que agregar y, al elegir, lo
+//! agrega; el de particiones mueve la salida elegida.
 
 use crossterm::event::KeyEvent;
 
 use super::{App, Backend};
 use crate::domain::{PlaylistName, Song};
 use crate::i18n::Message;
-use crate::tui::picker::{PickerOutcome, PlaylistAddition, PlaylistChoice, PlaylistPicker};
+use crate::tui::picker::{Picker, PickerOutcome, PlaylistAddition, PlaylistChoice, PlaylistPicker};
 use crate::tui::prompt::{Prompt, PromptKind};
 
 impl<B: Backend> App<B> {
@@ -16,7 +17,7 @@ impl<B: Backend> App<B> {
         }
         let result = self.services.playlists.names().await;
         if let Some(names) = self.report(result) {
-            self.state.picker = Some(PlaylistPicker::new(addition, names));
+            self.state.picker = Some(Picker::Playlist(PlaylistPicker::new(addition, names)));
         }
     }
 
@@ -29,17 +30,26 @@ impl<B: Backend> App<B> {
     }
 
     pub(super) async fn handle_picker_key(&mut self, key: KeyEvent) {
-        let Some(picker) = self.state.picker.as_mut() else {
-            return;
-        };
-        match picker.handle_key(key) {
-            PickerOutcome::Browsing => {}
-            PickerOutcome::Cancelled => self.state.picker = None,
-            PickerOutcome::Chosen(choice) => {
-                if let Some(picker) = self.state.picker.take() {
-                    self.apply_choice(choice, picker.addition).await;
+        match self.state.picker.as_mut() {
+            Some(Picker::Playlist(picker)) => match picker.handle_key(key) {
+                PickerOutcome::Browsing => {}
+                PickerOutcome::Cancelled => self.state.picker = None,
+                PickerOutcome::Chosen(choice) => {
+                    if let Some(Picker::Playlist(picker)) = self.state.picker.take() {
+                        self.apply_choice(choice, picker.addition).await;
+                    }
                 }
-            }
+            },
+            Some(Picker::Partition(picker)) => match picker.handle_key(key) {
+                PickerOutcome::Browsing => {}
+                PickerOutcome::Cancelled => self.state.picker = None,
+                PickerOutcome::Chosen(destination) => {
+                    if let Some(Picker::Partition(picker)) = self.state.picker.take() {
+                        self.move_output(&picker.output, &destination).await;
+                    }
+                }
+            },
+            None => {}
         }
     }
 

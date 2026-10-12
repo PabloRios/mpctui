@@ -5,7 +5,7 @@ use mpctui::domain::{SearchText, Tag, TagFilter};
 use mpctui::factory::connect_mpd;
 use mpctui::repository::mpd::{Address, DEFAULT_HOST, DEFAULT_PORT};
 use mpctui::repository::{
-    LibraryRepository, PlayerRepository, PlaylistRepository, QueueRepository,
+    LibraryRepository, OutputRepository, PlayerRepository, PlaylistRepository, QueueRepository,
 };
 
 const SAMPLE_SEARCH: &str = "love";
@@ -55,6 +55,17 @@ async fn main() -> anyhow::Result<()> {
     if let Some(first) = playlists.first() {
         let songs = client.playlist_songs(first).await?;
         println!("  {first}: {} temas", songs.len());
+    }
+
+    for partition in client.partitions().await? {
+        println!("Partición {partition}:");
+        for output in client.outputs(&partition).await? {
+            let state = if output.enabled { "activa" } else { "inactiva" };
+            println!(
+                "  [{}] {} ({}, {state})",
+                output.id, output.name, output.plugin
+            );
+        }
     }
     Ok(())
 }

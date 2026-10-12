@@ -3,16 +3,16 @@
 use std::time::Duration;
 
 use mpctui::domain::{
-    Entry, Password, PlayState, PlaylistName, SampleFormat, SearchText, Status, Subsystem, Tag,
-    TagFilter, Volume,
+    Entry, PartitionName, Password, PlayState, PlaylistName, SampleFormat, SearchText, Status,
+    Subsystem, Tag, TagFilter, Volume,
 };
 use mpctui::factory::connect_mpd;
 use mpctui::repository::mpd::Address;
 use mpctui::repository::{
-    ChangesRepository, EmbeddedLyricsRepository, Error, LibraryRepository, PlayerRepository,
-    PlaylistRepository, QueueRepository,
+    ChangesRepository, EmbeddedLyricsRepository, Error, LibraryRepository, OutputRepository,
+    PlayerRepository, PlaylistRepository, QueueRepository,
 };
-use mpctui::service::{UpdateTransition, update_transition};
+use mpctui::service::{OutputService, UpdateTransition, update_transition};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
@@ -190,6 +190,92 @@ async fn edits_the_queue_and_stored_playlists() {
     client.add_to_playlist(&rock, "a/b.flac").await.unwrap();
     client.delete_from_playlist(&rock, 2).await.unwrap();
     client.move_in_playlist(&rock, 1, 0).await.unwrap();
+    server.await.unwrap();
+}
+
+/// Un comando en una partición: la lista llega línea por línea y MPD responde una sola
+/// vez, al cerrarla.
+fn in_partition(
+    partition: &'static str,
+    command: &'static str,
+    response: &'static str,
+) -> [Step; 4] {
+    [
+        ("command_list_begin", ""),
+        (partition, ""),
+        (command, ""),
+        ("command_list_end", response),
+    ]
+}
+
+#[tokio::test]
+async fn lists_partitions_with_their_own_outputs() {
+    let mut script = vec![(
+        "listpartitions",
+        "partition: default\npartition: cocina\nOK\n",
+    )];
+    script.extend(in_partition(
+        r#"partition "default""#,
+        "outputs",
+        "outputid: 0\noutputname: pulse audio\nplugin: pulse\noutputenabled: 1\n\
+         outputid: 1\noutputname: parlante\nplugin: dummy\noutputenabled: 0\nOK\n",
+    ));
+    script.extend(in_partition(
+        r#"partition "cocina""#,
+        "outputs",
+        "outputid: 0\noutputname: pulse audio\nplugin: dummy\noutputenabled: 1\n\
+         outputid: 1\noutputname: parlante\nplugin: alsa\noutputenabled: 0\n\
+         attribute: dop=0\nOK\n",
+    ));
+    let (address, server) = fake_server(script).await;
+    let mut service = OutputService::new(connect_mpd(&address, None).await.unwrap());
+    let partitions = service.overview().await.unwrap();
+    let owned: Vec<(&str, Vec<&str>)> = partitions
+        .iter()
+        .map(|partition| {
+            let outputs = partition.outputs.iter().map(|output| output.name.as_str());
+            (partition.name.as_str(), outputs.collect())
+        })
+        .collect();
+    assert_eq!(
+        owned,
+        [
+            ("default", vec!["pulse audio"]),
+            ("cocina", vec!["parlante"])
+        ]
+    );
+    assert_eq!(partitions[1].outputs[0].id, 1);
+    server.await.unwrap();
+}
+
+#[tokio::test]
+async fn manages_partitions_and_outputs() {
+    let mut script = vec![(r#"newpartition "cocina""#, "OK\n")];
+    script.extend(in_partition(
+        r#"partition "cocina""#,
+        r#"moveoutput "pulse audio""#,
+        "OK\n",
+    ));
+    script.extend(in_partition(
+        r#"partition "cocina""#,
+        r#"enableoutput "1""#,
+        "OK\n",
+    ));
+    script.extend(in_partition(
+        r#"partition "default""#,
+        r#"delpartition "cocina""#,
+        "ACK [56@3] {delpartition} partition is busy\n",
+    ));
+    let (address, server) = fake_server(script).await;
+    let mut client = connect_mpd(&address, None).await.unwrap();
+    let cocina = PartitionName::new("cocina").unwrap();
+    client.create_partition(&cocina).await.unwrap();
+    client.move_output("pulse audio", &cocina).await.unwrap();
+    client.set_output_enabled(&cocina, 1, true).await.unwrap();
+    match client.delete_partition(&cocina).await {
+        Err(Error::Ack(ack)) => assert_eq!(ack.command, "delpartition"),
+        other => panic!("se esperaba ACK, llegó {other:?}"),
+    }
     server.await.unwrap();
 }
 

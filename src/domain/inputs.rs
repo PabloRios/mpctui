@@ -13,6 +13,10 @@ pub const PCM_MAX_CHANNELS: u8 = 2;
 /// Separa los campos de un formato PCM: `44100:16:2`, como en `mpd.conf`.
 const PCM_FIELD_SEPARATOR: char = ':';
 const BITS_PER_BYTE: u8 = 8;
+/// Partición que MPD crea al arrancar; no se puede borrar.
+pub const DEFAULT_PARTITION: &str = "default";
+/// Además de letras y dígitos ASCII, lo único que MPD admite en un nombre de partición.
+const PARTITION_NAME_SYMBOLS: [char; 2] = ['-', '_'];
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum InputError {
@@ -24,6 +28,8 @@ pub enum InputError {
     ControlCharacter,
     #[error("el nombre de la playlist no puede contener '{PATH_SEPARATOR}'")]
     PathSeparatorInName,
+    #[error("el nombre de la partición solo admite letras y dígitos ASCII, '-' y '_'")]
+    InvalidPartitionName,
     #[error("el formato PCM debe ser frecuencia:bits:canales (como \"44100:16:2\"), no {0:?}")]
     MalformedPcmFormat(String),
     #[error(
@@ -91,6 +97,43 @@ impl PlaylistName {
 }
 
 impl fmt::Display for PlaylistName {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(&self.0)
+    }
+}
+
+/// Nombre de partición de MPD: no vacío, solo letras y dígitos ASCII, `-` y `_` (lo
+/// mismo que exige `newpartition`).
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct PartitionName(String);
+
+impl PartitionName {
+    pub fn new(raw: &str) -> Result<Self, InputError> {
+        let name = validate_single_line(raw)?;
+        let valid = |character: char| {
+            character.is_ascii_alphanumeric() || PARTITION_NAME_SYMBOLS.contains(&character)
+        };
+        if !name.chars().all(valid) {
+            return Err(InputError::InvalidPartitionName);
+        }
+        Ok(Self(name.to_owned()))
+    }
+
+    /// La partición con la que arranca MPD.
+    pub fn default_partition() -> Self {
+        Self(DEFAULT_PARTITION.to_owned())
+    }
+
+    pub fn is_default(&self) -> bool {
+        self.0 == DEFAULT_PARTITION
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl fmt::Display for PartitionName {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(&self.0)
     }
@@ -283,5 +326,32 @@ mod tests {
             Err(InputError::PathSeparatorInName)
         );
         assert_eq!(PlaylistName::new(""), Err(InputError::EmptyText));
+    }
+
+    #[test]
+    fn partition_name_accepts_only_what_mpd_accepts() {
+        assert_eq!(
+            PartitionName::new(" cocina_2 ").unwrap().as_str(),
+            "cocina_2"
+        );
+        assert_eq!(
+            PartitionName::new("living-room").unwrap().as_str(),
+            "living-room"
+        );
+        assert_eq!(PartitionName::new(""), Err(InputError::EmptyText));
+        for invalid in ["la cocina", "cocción", "a/b", "a\"b"] {
+            assert_eq!(
+                PartitionName::new(invalid),
+                Err(InputError::InvalidPartitionName),
+                "{invalid}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_default_partition_is_recognized() {
+        assert!(PartitionName::default_partition().is_default());
+        assert!(PartitionName::new("default").unwrap().is_default());
+        assert!(!PartitionName::new("cocina").unwrap().is_default());
     }
 }

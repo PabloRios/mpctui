@@ -12,7 +12,7 @@ use crate::i18n::Phrase;
 use crate::tui::action::Action;
 use crate::tui::glyphs::Glyphs;
 use crate::tui::prompt::PromptKind;
-use crate::tui::state::{AppState, Notice, NoticeLevel, PlaylistsColumn, ViewKind};
+use crate::tui::state::{AppState, Notice, NoticeLevel, OutputsColumn, PlaylistsColumn, ViewKind};
 
 const HINT_GAP: &str = "   ";
 /// Separación entre el borde de la pantalla y el texto.
@@ -43,7 +43,7 @@ pub fn render(frame: &mut Frame, area: Rect, state: &AppState, context: &Context
         .set_line(area.x, area.y, &line, area.width);
 }
 
-/// Atajos que sugiere cada vista (en Playlists, según la columna con foco); la tecla
+/// Atajos que sugiere cada vista (en Playlists y Salidas, según la columna con foco); la tecla
 /// sale de la tabla `BINDINGS`.
 fn view_hints(state: &AppState) -> &'static [(Action, Phrase)] {
     match state.view {
@@ -89,6 +89,21 @@ fn view_hints(state: &AppState) -> &'static [(Action, Phrase)] {
                 (Action::MoveSong(MoveDirection::Up), Phrase::HintMoveUp),
                 (Action::Delete, Phrase::HintRemove),
                 (Action::AddToPlaylist, Phrase::HintToPlaylist),
+                (Action::Back, Phrase::HintBack),
+                (Action::ToggleHelp, Phrase::HintHelp),
+            ],
+        },
+        ViewKind::Outputs => match state.outputs.focus {
+            OutputsColumn::Partitions => &[
+                (Action::Forward, Phrase::HintOutputs),
+                (Action::NewPartition, Phrase::HintNewPartition),
+                (Action::Delete, Phrase::HintDelete),
+                (Action::ToggleHelp, Phrase::HintHelp),
+            ],
+            OutputsColumn::Outputs => &[
+                (Action::Activate, Phrase::HintToggleOutput),
+                (Action::MoveOutput, Phrase::HintMoveOutput),
+                (Action::NewPartition, Phrase::HintNewPartition),
                 (Action::Back, Phrase::HintBack),
                 (Action::ToggleHelp, Phrase::HintHelp),
             ],

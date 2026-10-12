@@ -1,5 +1,5 @@
 //! Diálogos superpuestos y centrados: confirmación, nombre de playlist (guardar la cola
-//! o crear una nueva) y selector de playlists.
+//! o crear una nueva) o de partición, y selectores de playlist y de partición.
 
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Margin, Rect};
@@ -10,9 +10,11 @@ use super::chrome::{Context, titled_block};
 use super::format::{fit_start, saturating_u16};
 use super::theme;
 use super::widgets::{ItemRows, RowSource, Selection, render_list};
+use crate::domain::PartitionName;
 use crate::i18n::{Message, Phrase};
 use crate::tui::glyphs::Glyphs;
-use crate::tui::picker::{PlaylistChoice, PlaylistPicker};
+use crate::tui::list::SelectableList;
+use crate::tui::picker::{Picker, PlaylistChoice};
 use crate::tui::prompt::{Confirmation, DECLINE_KEYS, Prompt, PromptKind};
 use crate::tui::state::AppState;
 
@@ -48,6 +50,9 @@ pub fn render(frame: &mut Frame, area: Rect, state: &AppState, context: &Context
         PromptKind::NewPlaylist(_) => {
             name_dialog(frame, area, prompt, Phrase::NewPlaylistTitle, context);
         }
+        PromptKind::NewPartition => {
+            name_dialog(frame, area, prompt, Phrase::NewPartitionTitle, context);
+        }
         PromptKind::Confirm(confirmation) => {
             let question = question(confirmation, state, context);
             confirm_dialog(frame, area, question, context);
@@ -62,6 +67,12 @@ fn question(confirmation: &Confirmation, state: &AppState, context: &Context<'_>
         }
         Confirmation::RemovePlaylist(name) => {
             context.message(Message::ConfirmRemovePlaylist(name.as_str()))
+        }
+        Confirmation::RemovePartition(partition) => {
+            context.message(Message::ConfirmRemovePartition {
+                name: partition.name.as_str(),
+                outputs: partition.outputs.len(),
+            })
         }
     }
 }
@@ -162,22 +173,49 @@ fn name_dialog(
     dialog(frame, area, width, context.phrase(title), rows, glyphs);
 }
 
-/// «Nueva playlist» resaltada arriba y las existentes con su insignia; las teclas, al pie.
-pub fn render_picker(
+pub fn render_picker(frame: &mut Frame, area: Rect, picker: &mut Picker, context: &Context<'_>) {
+    let glyphs = context.glyphs;
+    match picker {
+        Picker::Playlist(picker) => {
+            let new_playlist = context.phrase(Phrase::NewPlaylistChoice);
+            picker_dialog(
+                frame,
+                area,
+                Phrase::PickerTitle,
+                &mut picker.choices,
+                context,
+                |choices| choice_rows(choices, new_playlist, glyphs),
+            );
+        }
+        Picker::Partition(picker) => picker_dialog(
+            frame,
+            area,
+            Phrase::PartitionPickerTitle,
+            &mut picker.choices,
+            context,
+            partition_rows,
+        ),
+    }
+}
+
+/// Marco, lista desplazable de opciones y teclas al pie.
+fn picker_dialog<'a, T, S: RowSource>(
     frame: &mut Frame,
     area: Rect,
-    picker: &mut PlaylistPicker,
+    title: Phrase,
+    choices: &'a mut SelectableList<T>,
     context: &Context<'_>,
+    make_rows: impl FnOnce(&'a [T]) -> S,
 ) {
     let glyphs = context.glyphs;
-    let visible = picker.choices.items().len().min(PICKER_MAX_ROWS);
+    let visible = choices.items().len().min(PICKER_MAX_ROWS);
     let height = saturating_u16(visible + PICKER_FIXED_ROWS);
     let popup = area.centered(
         Constraint::Length(PICKER_WIDTH.min(area.width)),
         Constraint::Length(height.min(area.height)),
     );
     frame.render_widget(Clear, popup);
-    let title = Line::styled(context.phrase(Phrase::PickerTitle).to_owned(), theme::BOLD);
+    let title = Line::styled(context.phrase(title).to_owned(), theme::BOLD);
     let block = titled_block(title, glyphs);
     let inner = block.inner(popup);
     frame.render_widget(block, popup);
@@ -187,9 +225,8 @@ pub fn render_picker(
         Constraint::Length(1),
     ])
     .areas(inner.inner(Margin::new(1, 0)));
-    let (choices, table) = picker.choices.parts_mut();
-    let new_playlist = context.phrase(Phrase::NewPlaylistChoice);
-    let rows = choice_rows(choices, new_playlist, glyphs);
+    let (items, table) = choices.parts_mut();
+    let rows = make_rows(items);
     let selection = Selection {
         row: table.selected(),
         focused: true,
@@ -204,6 +241,14 @@ pub fn render_picker(
         .set_line(keys_area.x, keys_area.y, &keys, keys_area.width);
 }
 
+fn partition_rows<'a>(names: &'a [PartitionName]) -> impl RowSource + 'a {
+    ItemRows {
+        items: names,
+        line: |name: &'a PartitionName| Line::raw(name.as_str()),
+    }
+}
+
+/// «Nueva playlist» resaltada arriba y las existentes con su insignia.
 fn choice_rows<'a>(
     choices: &'a [PlaylistChoice],
     new_playlist: &'a str,

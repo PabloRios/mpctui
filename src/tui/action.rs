@@ -87,6 +87,10 @@ pub enum Action {
     /// En la vista Letra, vuelve a buscar la letra si la búsqueda falló.
     RetryLyrics,
     UpdateDatabase,
+    /// En la vista Salidas, pide el nombre de una partición nueva.
+    NewPartition,
+    /// En la vista Salidas, abre el selector de partición para la salida elegida.
+    MoveOutput,
 }
 
 /// Las vistas de listas comparten descripción (`Phrase::GoToView`): la ayuda las
@@ -157,6 +161,11 @@ pub const BINDINGS: &[Binding] = &[
     plain(
         &[KeyCode::Char('7')],
         Action::ShowView(ViewKind::Lyrics),
+        Phrase::GoToView,
+    ),
+    plain(
+        &[KeyCode::Char('8')],
+        Action::ShowView(ViewKind::Outputs),
         Phrase::GoToView,
     ),
     plain(&[KeyCode::Tab], Action::NextView, Phrase::NextView),
@@ -304,6 +313,16 @@ pub const BINDINGS: &[Binding] = &[
         Action::UpdateDatabase,
         Phrase::UpdateDatabase,
     ),
+    plain(
+        &[KeyCode::Char('n')],
+        Action::NewPartition,
+        Phrase::NewPartition,
+    ),
+    plain(
+        &[KeyCode::Char('m')],
+        Action::MoveOutput,
+        Phrase::MoveOutput,
+    ),
 ];
 
 /// La acción que abre cada vista: la del visualizador además cambia de forma.
@@ -385,6 +404,8 @@ impl HelpGroup {
             Action::StartSearch
             | Action::RetryLyrics
             | Action::UpdateDatabase
+            | Action::NewPartition
+            | Action::MoveOutput
             | Action::ToggleHelp
             | Action::Quit => HelpGroup::Other,
         }
@@ -630,13 +651,22 @@ mod tests {
     }
 
     #[test]
+    fn eight_opens_the_outputs_and_n_m_manage_them() {
+        let press =
+            |character| action_for(KeyEvent::new(KeyCode::Char(character), KeyModifiers::NONE));
+        assert_eq!(press('8'), Some(Action::ShowView(ViewKind::Outputs)));
+        assert_eq!(press('n'), Some(Action::NewPartition));
+        assert_eq!(press('m'), Some(Action::MoveOutput));
+    }
+
+    #[test]
     fn help_groups_keys_by_description() {
         let entries = all_entries(&UNICODE);
         let views = entries
             .iter()
             .find(|entry| entry.description == Phrase::GoToView)
             .unwrap();
-        assert_eq!(views.keys, "1 2 3 4 5 7");
+        assert_eq!(views.keys, "1 2 3 4 5 7 8");
         let quit = entries
             .iter()
             .find(|entry| entry.description == Phrase::Quit)

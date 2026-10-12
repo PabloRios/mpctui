@@ -4,6 +4,7 @@
 mod browse;
 mod library;
 mod lyrics;
+mod outputs;
 mod playlists;
 mod queue;
 mod search;
@@ -30,6 +31,7 @@ pub fn render(frame: &mut Frame, area: Rect, state: &mut AppState, context: &Con
         ViewKind::Playlists => playlists::render(frame, area, state, context),
         ViewKind::Visualizer => visual::render(frame, area, state, context),
         ViewKind::Lyrics => lyrics::render(frame, area, state, context),
+        ViewKind::Outputs => outputs::render(frame, area, state, context),
     }
 }
 

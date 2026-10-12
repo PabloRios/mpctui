@@ -1,9 +1,10 @@
-//! Línea de entrada: texto libre (búsqueda, nombre de playlist) o confirmación s/n.
+//! Línea de entrada: texto libre (búsqueda, nombre de playlist o de partición) o
+//! confirmación s/n.
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use super::picker::PlaylistAddition;
-use crate::domain::{InputError, PlaylistName};
+use crate::domain::{InputError, Partition, PlaylistName};
 
 /// Teclas que confirman (español e inglés: valen en los dos idiomas).
 pub const CONFIRM_KEYS: [char; 4] = ['s', 'S', 'y', 'Y'];
@@ -13,6 +14,8 @@ pub const DECLINE_KEYS: [char; 2] = ['n', 'N'];
 pub enum Confirmation {
     ClearQueue,
     RemovePlaylist(PlaylistName),
+    /// Con sus salidas, que vuelven a `default` antes de borrarla.
+    RemovePartition(Partition),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -21,6 +24,7 @@ pub enum PromptKind {
     SavePlaylist,
     /// Nombre de una playlist nueva para agregarle lo elegido en el selector.
     NewPlaylist(PlaylistAddition),
+    NewPartition,
     Confirm(Confirmation),
 }
 
@@ -61,9 +65,10 @@ impl Prompt {
     pub fn handle_key(&mut self, key: KeyEvent) -> PromptOutcome {
         match self.kind {
             PromptKind::Confirm(_) => confirmation_outcome(key.code),
-            PromptKind::Search | PromptKind::SavePlaylist | PromptKind::NewPlaylist(_) => {
-                self.edit(key)
-            }
+            PromptKind::Search
+            | PromptKind::SavePlaylist
+            | PromptKind::NewPlaylist(_)
+            | PromptKind::NewPartition => self.edit(key),
         }
     }
 

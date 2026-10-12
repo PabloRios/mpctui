@@ -6,11 +6,11 @@ use ratatui::widgets::TableState;
 
 use super::action::Navigation;
 use super::list::{SelectableList, SelectionPolicy};
-use super::picker::PlaylistPicker;
+use super::picker::Picker;
 use super::prompt::Prompt;
 use crate::domain::{
-    Entry, Lyrics, LyricsQuery, PATH_SEPARATOR, PlaylistName, STEREO_CHANNELS, SearchText, Song,
-    Tag, Timeline, VisualRequest, VisualizerStyle, timeline,
+    Entry, Lyrics, LyricsQuery, Output, PATH_SEPARATOR, Partition, PartitionName, PlaylistName,
+    STEREO_CHANNELS, SearchText, Song, Tag, Timeline, VisualRequest, VisualizerStyle, timeline,
 };
 use crate::repository::Error;
 use crate::service::{LIBRARY_ROOT, PlaybackClock, PlayerSnapshot, VisualState};
@@ -28,10 +28,11 @@ pub enum ViewKind {
     Playlists,
     Visualizer,
     Lyrics,
+    Outputs,
 }
 
 impl ViewKind {
-    pub const ALL: [ViewKind; 7] = [
+    pub const ALL: [ViewKind; 8] = [
         ViewKind::Queue,
         ViewKind::Library,
         ViewKind::Browse,
@@ -39,6 +40,7 @@ impl ViewKind {
         ViewKind::Playlists,
         ViewKind::Visualizer,
         ViewKind::Lyrics,
+        ViewKind::Outputs,
     ];
 }
 
@@ -215,6 +217,62 @@ pub struct PlaylistsView {
     pub focus: PlaylistsColumn,
 }
 
+/// Columna con foco en la vista Salidas: las particiones o las salidas de la elegida.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum OutputsColumn {
+    #[default]
+    Partitions,
+    Outputs,
+}
+
+/// Particiones a la izquierda y salidas de la elegida a la derecha.
+#[derive(Debug, Default)]
+pub struct OutputsView {
+    pub partitions: SelectableList<Partition>,
+    pub outputs: SelectableList<Output>,
+    pub focus: OutputsColumn,
+}
+
+impl OutputsView {
+    pub fn selected_partition(&self) -> Option<&Partition> {
+        self.partitions.selected()
+    }
+
+    /// Carga las particiones conservando la elegida por nombre aunque cambie de lugar;
+    /// si ya no está, sus salidas vuelven al principio y el foco a las particiones.
+    pub fn set_partitions(&mut self, partitions: Vec<Partition>) {
+        let previous = self.selected_name();
+        self.partitions.set_items(partitions, SelectionPolicy::Keep);
+        if let Some(previous) = &previous {
+            self.partitions
+                .select_where(|partition| partition.name == *previous);
+        }
+        let policy = if self.selected_name() == previous {
+            SelectionPolicy::Keep
+        } else {
+            SelectionPolicy::Reset
+        };
+        self.show_selected_outputs(policy);
+    }
+
+    /// Las salidas de la partición elegida pasan a la columna derecha.
+    pub fn show_selected_outputs(&mut self, policy: SelectionPolicy) {
+        let outputs = self
+            .selected_partition()
+            .map(|partition| partition.outputs.clone())
+            .unwrap_or_default();
+        if outputs.is_empty() {
+            self.focus = OutputsColumn::Partitions;
+        }
+        self.outputs.set_items(outputs, policy);
+    }
+
+    fn selected_name(&self) -> Option<PartitionName> {
+        self.selected_partition()
+            .map(|partition| partition.name.clone())
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NoticeLevel {
     Info,
@@ -286,8 +344,8 @@ pub struct AppState {
     pub view: ViewKind,
     pub help_visible: bool,
     pub prompt: Option<Prompt>,
-    /// Selector de playlists abierto (`P`).
-    pub picker: Option<PlaylistPicker>,
+    /// Selector abierto: de playlist (`P`) o de partición (`m`).
+    pub picker: Option<Picker>,
     pub notice: Option<Notice>,
     pub connection: ConnectionState,
     /// Cuándo se vio por primera vez la actualización de la base en curso.
@@ -303,6 +361,7 @@ pub struct AppState {
     pub browse: BrowseView,
     pub search: SearchView,
     pub playlists: PlaylistsView,
+    pub outputs: OutputsView,
     pub visual: VisualView,
     pub lyrics: LyricsView,
     /// Con las letras desactivadas, la vista no aparece ni entra en el ciclo de `Tab`.
@@ -398,8 +457,10 @@ mod tests {
             ..AppState::default()
         };
         assert_eq!(state.next_view(), ViewKind::Library);
-        assert_eq!(state.previous_view(), ViewKind::Lyrics);
+        assert_eq!(state.previous_view(), ViewKind::Outputs);
         state.view = ViewKind::Lyrics;
+        assert_eq!(state.next_view(), ViewKind::Outputs);
+        state.view = ViewKind::Outputs;
         assert_eq!(state.next_view(), ViewKind::Queue);
     }
 
@@ -407,9 +468,67 @@ mod tests {
     fn disabled_lyrics_leave_the_cycle() {
         let mut state = AppState::default();
         assert_eq!(state.views().len(), ViewKind::ALL.len() - 1);
-        assert_eq!(state.previous_view(), ViewKind::Visualizer);
+        assert_eq!(state.previous_view(), ViewKind::Outputs);
         state.view = ViewKind::Visualizer;
-        assert_eq!(state.next_view(), ViewKind::Queue);
+        assert_eq!(state.next_view(), ViewKind::Outputs);
+    }
+
+    fn partition(name: &str, outputs: &[&str]) -> Partition {
+        Partition {
+            name: PartitionName::new(name).unwrap(),
+            outputs: outputs
+                .iter()
+                .zip(0..)
+                .map(|(output, id)| Output {
+                    id,
+                    name: (*output).into(),
+                    plugin: "alsa".into(),
+                    enabled: true,
+                })
+                .collect(),
+        }
+    }
+
+    fn output_names(view: &OutputsView) -> Vec<&str> {
+        view.outputs
+            .items()
+            .iter()
+            .map(|output| output.name.as_str())
+            .collect()
+    }
+
+    #[test]
+    fn reloading_partitions_keeps_the_chosen_one_by_name() {
+        let mut view = OutputsView::default();
+        view.set_partitions(vec![
+            partition("default", &["a"]),
+            partition("zona", &["b", "c"]),
+        ]);
+        view.partitions.navigate(Navigation::Next);
+        view.show_selected_outputs(SelectionPolicy::Reset);
+        view.outputs.navigate(Navigation::Next);
+        view.focus = OutputsColumn::Outputs;
+        view.set_partitions(vec![
+            partition("default", &["a"]),
+            partition("cocina", &[]),
+            partition("zona", &["b", "c"]),
+        ]);
+        assert_eq!(view.selected_partition().unwrap().name.as_str(), "zona");
+        assert_eq!(view.outputs.selected().unwrap().name, "c");
+        assert_eq!(view.focus, OutputsColumn::Outputs);
+    }
+
+    #[test]
+    fn a_partition_without_outputs_takes_the_focus_back() {
+        let mut view = OutputsView {
+            focus: OutputsColumn::Outputs,
+            ..OutputsView::default()
+        };
+        view.set_partitions(vec![partition("cocina", &[])]);
+        assert!(output_names(&view).is_empty());
+        assert_eq!(view.focus, OutputsColumn::Partitions);
+        view.set_partitions(vec![partition("default", &["a", "b"])]);
+        assert_eq!(output_names(&view), ["a", "b"]);
     }
 
     #[test]

@@ -59,6 +59,8 @@ impl Catalog for English {
             Phrase::AddToPlaylist => "Add to a playlist",
             Phrase::RetryLyrics => "Retry the lyrics download",
             Phrase::UpdateDatabase => "Update the library",
+            Phrase::NewPartition => "New partition",
+            Phrase::MoveOutput => "Move output to partition",
             Phrase::HelpNavigation => "Navigation",
             Phrase::HelpLists => "Queue and lists",
             Phrase::HelpPlayback => "Playback",
@@ -96,6 +98,10 @@ impl Catalog for English {
             Phrase::HintEdit => "edit",
             Phrase::HintRemove => "remove",
             Phrase::HintToPlaylist => "to playlist",
+            Phrase::HintOutputs => "outputs",
+            Phrase::HintNewPartition => "new partition",
+            Phrase::HintToggleOutput => "enable/disable",
+            Phrase::HintMoveOutput => "move",
             Phrase::HintPause => "pause",
             Phrase::HintNextStyle => "next style",
             Phrase::HintRetry => "retry",
@@ -110,6 +116,8 @@ impl Catalog for English {
             Phrase::PickerTitle => "Add to playlist",
             Phrase::PickerKeys => "Enter chooses   Esc cancels",
             Phrase::NewPlaylistChoice => "New playlist",
+            Phrase::NewPartitionTitle => "New partition",
+            Phrase::PartitionPickerTitle => "Move to partition",
             Phrase::Yes => "yes",
             Phrase::No => "no",
             Phrase::ConfirmKey => "y",
@@ -124,6 +132,8 @@ impl Catalog for English {
             Phrase::ViewPlaylistsShort => "Playl.",
             Phrase::ViewVisualizer => "Visual",
             Phrase::ViewLyrics => "Lyrics",
+            Phrase::ViewOutputs => "Outputs",
+            Phrase::ViewOutputsShort => "Out.",
             Phrase::Disconnected => "disconnected",
             Phrase::Connecting => "connecting",
             Phrase::Playing => "playing",
@@ -151,6 +161,7 @@ impl Catalog for English {
             Phrase::ColumnPosition => "pos",
             Phrase::ColumnDuration => "time",
             Phrase::ColumnSong => "Song",
+            Phrase::PartitionsTitle => "Partitions",
             Phrase::Mono => "mono",
             Phrase::Stereo => "stereo",
             Phrase::FloatSamples => "float",
@@ -188,6 +199,7 @@ impl Catalog for English {
             Phrase::LibraryUpdateRequested => "Library update requested",
             Phrase::QueueCleared => "Queue cleared",
             Phrase::NoVolumeControl => "The server has no volume control",
+            Phrase::DefaultPartitionUndeletable => "The default partition cannot be deleted",
             Phrase::TerminalTooSmall => "The terminal is too small.",
         }
     }
@@ -196,6 +208,7 @@ impl Catalog for English {
         match *message {
             Message::SongCount(count) => songs(count),
             Message::EntryCount(count) => counted(count, "entry", "entries"),
+            Message::OutputCount(count) => counted(count, "output", "outputs"),
             Message::ChannelCount(count) => format!("{count} channels"),
             Message::ResultsInAlbums { results, albums } => format!(
                 "{} in {}",
@@ -210,6 +223,13 @@ impl Catalog for English {
                 format!("Clear the queue? {} will be removed.", songs(count))
             }
             Message::ConfirmRemovePlaylist(name) => format!("Delete the playlist \"{name}\"?"),
+            Message::ConfirmRemovePartition { name, outputs } => match outputs {
+                0 => format!("Delete the partition \"{name}\"?"),
+                1 => format!("Delete the partition \"{name}\"? Its output returns to default."),
+                many => format!(
+                    "Delete the partition \"{name}\"? Its {many} outputs return to default."
+                ),
+            },
             Message::TerminalSize {
                 minimum_width,
                 minimum_height,
@@ -223,6 +243,9 @@ impl Catalog for English {
             }
             Message::NoPlaylists { key } => {
                 format!("No saved playlists. {key} saves the queue as a playlist.")
+            }
+            Message::NoOutputs { key } => {
+                format!("No outputs. Select one in another partition and move it here with {key}.")
             }
             Message::SearchHint { key } => format!("{key} searches the library"),
             Message::NoResults { query } => format!("No results for \"{query}\""),
@@ -270,6 +293,18 @@ impl Catalog for English {
                 format!("Removed from \"{playlist}\": {song}")
             }
             Message::LibraryUpdated { elapsed } => format!("Library updated ({elapsed})"),
+            Message::NoOtherPartition { key } => {
+                format!("There is no other partition: {key} creates one")
+            }
+            Message::PartitionCreated(name) => format!("Partition \"{name}\" created"),
+            Message::PartitionDeleted(name) => format!("Partition \"{name}\" deleted"),
+            Message::OutputMoved { output, partition } => {
+                format!("\"{output}\" moved to \"{partition}\"")
+            }
+            Message::OutputToggled { output, enabled } => {
+                let state = if enabled { "enabled" } else { "disabled" };
+                format!("Output \"{output}\" {state}")
+            }
             Message::Failure(error) => failure(error),
             Message::Input(error) => input(error),
             Message::Config(error) => config(error),
@@ -327,6 +362,9 @@ fn input(error: &InputError) -> String {
         }
         InputError::PathSeparatorInName => {
             format!("the playlist name cannot contain '{PATH_SEPARATOR}'")
+        }
+        InputError::InvalidPartitionName => {
+            "the partition name only accepts ASCII letters and digits, '-' and '_'".to_owned()
         }
         InputError::MalformedPcmFormat(value) => format!(
             "the PCM format must be rate:bits:channels (like \"44100:16:2\"), not {value:?}"

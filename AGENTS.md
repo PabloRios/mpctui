@@ -10,7 +10,7 @@ Base de conocimiento para cualquier agente o persona que trabaje en este reposit
 - **Stack:** Rust edition 2024, `tokio` (async), `ratatui` + `crossterm` (TUI), `thiserror`/`anyhow` (errores), `serde` + `toml` (config), `directories`, `tracing` (log a archivo: la terminal es de la TUI), `rustfft` (visualizador), `reqwest` con rustls (LRCLIB).
 - **Cliente de MPD propio:** no se usa ningún crate de MPD; el protocolo de texto está implementado en `src/repository/mpd/`.
 - **MVP:** cola + controles, biblioteca (Artista → Álbum → Tema y por directorios), búsqueda, playlists guardadas.
-- **Estado:** MVP completo, más los extras de `DESIGN_EXTRA.md` (formato de audio, actualización de la base, cuenta regresiva de reconexión y visualizador con seis formas), letras y la interfaz en inglés (por defecto) y español. El detalle por fases está en `PLAN.md`; la guía de uso, en `README.md`; las decisiones e ideas pendientes, en `DECISIONES.md`.
+- **Estado:** MVP completo, más los extras de `DESIGN_EXTRA.md` (formato de audio, actualización de la base, cuenta regresiva de reconexión y visualizador con seis formas), letras, la interfaz en inglés (por defecto) y español, y la pestaña Salidas (particiones y salidas de audio; usar otra partición está pendiente: fase S2). El detalle por fases está en `PLAN.md`; la guía de uso, en `README.md`; las decisiones e ideas pendientes, en `DECISIONES.md`.
 
 ---
 
@@ -18,7 +18,7 @@ Base de conocimiento para cualquier agente o persona que trabaje en este reposit
 
 Todo diseño respeta SOLID. En este proyecto eso significa:
 
-- Las abstracciones son **traits angostos** (ver `src/repository/traits.rs`): `PlayerRepository`, `OptionsRepository`, `QueueRepository`, `LibraryRepository`, `PlaylistRepository`, `ChangesRepository`, `PcmSource`, más `Transport` en `src/repository/mpd/transport.rs`. Se extiende componiendo e implementando traits, no modificando structs existentes.
+- Las abstracciones son **traits angostos** (ver `src/repository/traits.rs`): `PlayerRepository`, `OptionsRepository`, `QueueRepository`, `LibraryRepository`, `PlaylistRepository`, `OutputRepository`, `ChangesRepository`, `PcmSource`, más `Transport` en `src/repository/mpd/transport.rs`. Se extiende componiendo e implementando traits, no modificando structs existentes.
 - Cada consumidor depende **solo del trait que necesita** (p. ej. el vigilante de cambios solo pide `ChangesRepository`), nunca de `MpdClient` ni de `Connection`.
 - Las dependencias se **inyectan por constructor** (`MpdClient::new(transport)`) y se arman en **`src/factory.rs`** (composition root). Ninguna struct instancia sus colaboradores.
 
@@ -32,7 +32,7 @@ Todo diseño respeta SOLID. En este proyecto eso significa:
   - El repositorio solo expone `set_pause(bool)`.
 - **Composición sobre herencia:** structs chicas y enfocadas que se combinan; un tipo puede implementar varios traits angostos.
 - **Fail fast:** validar los inputs en el borde (capa TUI/entrada) antes de ejecutar cualquier lógica de negocio. En Rust el equivalente de Pydantic son los **newtypes con constructor validado** de `src/domain/inputs.rs`:
-  - Tipos actuales: `Volume`, `SearchText`, `PlaylistName`, `Password` (este último con `Debug` enmascarado) y `PcmFormat` (16 bits, 1 o 2 canales, 8–192 kHz).
+  - Tipos actuales: `Volume`, `SearchText`, `PlaylistName`, `PartitionName` (ASCII alfanumérico, `-` y `_`), `Password` (este último con `Debug` enmascarado) y `PcmFormat` (16 bits, 1 o 2 canales, 8–192 kHz).
   - Si existe un valor de estos tipos, es válido. Servicios y repositorios los reciben ya validados y no revalidan.
   - Nunca corregir en silencio (nada de `.min(100)`): devolver `InputError`.
   - Las respuestas del servidor también se parsean de forma estricta: un valor inválido es `Error::Protocol`, no `None`.
@@ -69,7 +69,7 @@ i18n (textos del usuario) ← tui, main
   - Un texto nuevo de la interfaz se agrega como variante de `Phrase` o `Message` y en los dos catálogos; nunca como literal en una vista.
   - No se traducen: el protocolo de MPD (`vocabulary.rs`), las claves del TOML y las variables de entorno, las unidades (`kHz`, `dB`, `ms`), los nombres propios (LRCLIB) ni las teclas que se escriben igual (`Enter`, `Tab`, `Ctrl+`).
 
-- **`src/domain/`:** modelos compartidos (`Song`, `Status`, `AudioFormat`, `PlayState`, `SingleMode`, `Entry`, `Subsystem`, `Tag`, `TagFilter`), entradas validadas, la línea de tiempo (`timeline()`: tramos consecutivos del mismo álbum y offsets de cada tema) las bandas del espectro (`band_edges`/`band_centers` logarítmicos de 40 Hz a 16 kHz) y el visualizador (`visual.rs`: `VisualizerStyle` y su ciclo, `VisualRequest`, `VisualFrame` con un `VisualContent` por forma). No depende de ninguna otra capa ni conoce MPD.
+- **`src/domain/`:** modelos compartidos (`Song`, `Status`, `AudioFormat`, `PlayState`, `SingleMode`, `Entry`, `Subsystem`, `Tag`, `TagFilter`, `Output`, `Partition`), entradas validadas, la línea de tiempo (`timeline()`: tramos consecutivos del mismo álbum y offsets de cada tema) las bandas del espectro (`band_edges`/`band_centers` logarítmicos de 40 Hz a 16 kHz) y el visualizador (`visual.rs`: `VisualizerStyle` y su ciclo, `VisualRequest`, `VisualFrame` con un `VisualContent` por forma). No depende de ninguna otra capa ni conoce MPD.
 - **`src/repository/`:**
   - `traits.rs` define los contratos y `error.rs` el error de acceso a datos. Es `Clone + Eq` (el de E/S se guarda como `IoFailure`, con su tipo y su texto) para que viaje tal cual hasta la TUI en eventos y resultados.
   - `lrclib.rs`: `LrclibProvider` implementa `LyricsProvider` sobre `reqwest` (rustls, User-Agent `mpctui/<versión>`, 10 s de espera). `/api/get` exige álbum y duración; sin ellos, o sin coincidencia, `/api/search` y se elige por duración (±2 s), prefiriendo letras sincronizadas. La URL base se inyecta (los tests usan un servidor HTTP local). Los errores de red son `Error::Http`.
@@ -77,14 +77,15 @@ i18n (textos del usuario) ← tui, main
   - `fifo.rs`: `FifoPcmSource` implementa `PcmSource` sobre la salida fifo de MPD. Abre en modo no bloqueante en la primera lectura y, tras un fin de archivo (`Ok(0)`), vuelve a abrir en la siguiente. **No** va en `mpd/`: no es el protocolo de MPD.
   - `mpd/` es la implementación:
     - `vocabulary.rs`: comandos, claves y mapeos dominio ↔ MPD. Es el único lugar con strings del protocolo.
-    - `protocol.rs`: sintaxis. Escape, `Command`, expresiones de filtro y clasificación de líneas (`OK`/`ACK`/par).
+    - `protocol.rs`: sintaxis. Escape, `Command` (y `Command::list`, una lista de comandos que viaja como un solo `Command` de varias líneas), expresiones de filtro y clasificación de líneas (`OK`/`ACK`/par).
     - `parse.rs`: pares → modelos del dominio.
     - `transport.rs`: trait `Transport`, `Connection` real (TCP o socket unix, autentica al conectar) y `MpdConnector`.
     - `reconnect.rs`: trait `Connector` + `ReconnectingTransport`, que reabre la conexión y reintenta **una vez** si se cortó (`Error::is_disconnection`). Un `ACK` no reconecta.
-    - `client.rs`: `MpdClient<T: Transport>` implementa todos los traits de repositorio.
+    - `client.rs`: `MpdClient<T: Transport>` implementa todos los traits de repositorio. Lo que depende de una partición (`outputs`, `moveoutput`, `enable/disableoutput`, `delpartition`) va en una lista con `partition X` delante (`fetch_in`/`run_in`).
 - **`src/service/`:** lógica de negocio sobre los traits del repositorio.
   - `PlaybackService`: alterna pausa según el estado, pasos de volumen, ciclo de single y `play_from` (salta a un momento y deja sonando: en pausa reanuda, detenido arranca).
   - `QueueService`, `LibraryService` y `PlaylistService`.
+  - `OutputService`: particiones con sus salidas (`overview`), crear, borrar (primero devuelve sus salidas a `default`), mover y activar/desactivar (decide según el estado conocido).
   - `ChangeWatcher`: loop de `idle` que emite `ServerEvent`. Es la **única fuente del estado de conexión**: si se corta, emite `Disconnected { attempt, retry_at, delay, reason }`, espera con `Backoff` exponencial (1 s → 30 s), emite `Connecting` y prueba con `ping` (no con `idle`, que bloquearía); al responder, `Connected`. `retry_at` es `tokio::time::Instant` para testear con `start_paused`.
   - `update_transition` (`database_update.rs`): decide si la actualización de la base empezó o terminó comparando dos `Status` sucesivos.
   - `visual/`: análisis en funciones puras. `pcm.rs` (`PcmDecoder` con cuadros partidos, `StereoWindow` de pares L/R), `bands.rs` (Hann, FFT con `rustfft`, bandas, dB, `Smoother`), `levels.rs` (RMS, pico, correlación), `peak.rs` (`HeldPeak`) y un módulo por forma. `Analysis` calcula solo la forma pedida y se reinicia al cambiar de forma; sin señal vacía la ventana, así todas las formas caen a cero.
@@ -93,12 +94,12 @@ i18n (textos del usuario) ← tui, main
   - `PlaybackClock`: interpola el progreso.
   - Reciben entradas ya validadas y nunca tocan la terminal.
 - **`src/tui/`:**
-  - `app/` contiene `App<B: Backend>`. Corre el loop `tokio::select!` (teclas, `ServerEvent`, tick de 1 s) y tiene un submódulo por vista (`queue`, `library`, `browse`, `search`, `playlists`, `visual`), más `playback`, `prompt` y `refresh`.
+  - `app/` contiene `App<B: Backend>`. Corre el loop `tokio::select!` (teclas, `ServerEvent`, tick de 1 s) y tiene un submódulo por vista (`queue`, `library`, `browse`, `search`, `playlists`, `visual`, `lyrics`, `outputs`), más `playback`, `picker`, `prompt` y `refresh`.
   - `action.rs`: **tabla única `BINDINGS`** de la que salen `action_for` y la ayuda (`help_entries`). Un atajo nuevo se agrega solo ahí.
   - Las acciones de vista (`Activate`, `Add`, `AddAll`, `Delete`, `Back`, `Forward`, `Navigate`) las interpreta la vista activa.
   - `list.rs`: `SelectableList<T>` con `SelectionPolicy::{Keep, Reset}` (Keep para refrescos, Reset para contenido nuevo). La usan todas las listas.
   - `prompt.rs`: texto libre y confirmaciones s/n. Las acciones destructivas (vaciar cola, borrar playlist) siempre confirman; quitar un tema (de la cola o de una playlist) no.
-  - `picker.rs`: selector de playlists (`P`). `PlaylistAddition` lleva las URI y el nombre para el aviso; la primera opción es «Nueva playlist», que abre el prompt `NewPlaylist`.
+  - `picker.rs`: selectores (`Picker`), con la misma navegación (`choose`). El de playlists (`P`): `PlaylistAddition` lleva las URI y el nombre para el aviso; la primera opción es «Nueva playlist», que abre el prompt `NewPlaylist`. El de particiones (`m`, vista Salidas): las demás particiones como destino de la salida elegida.
   - `views/` solo dibuja a partir de `AppState`, recibiendo un `chrome::Context` (glifos, modo de layout, ancho, instante). Colores en `theme.rs`, textos auxiliares en `format.rs`.
     - **Listas:** todas pasan por `widgets::render_list`, que arma solo las filas visibles a partir de un `RowSource` (cursor, foco, desplazamiento, cabecera fija, barra de desplazamiento). Una lista nueva implementa `RowSource`; no usa `Table`.
     - **Temas agrupados:** `GroupedSongRows` (Cola, Búsqueda, Playlists) intercala separadoras de álbum; la selección sigue siendo un índice de tema y la `Timeline` vive en `state::GroupedSongs`, que la recalcula solo al cambiar los temas.
@@ -163,9 +164,12 @@ i18n (textos del usuario) ← tui, main
 - **`pause` sin argumento está deprecado:** se usa `pause 0|1` y el toggle se decide en el servicio.
 - **`lsinfo`:** sin argumento lista la raíz. Puede devolver `directory`, `file` y `playlist` (`.m3u` dentro de la biblioteca).
 - **Nombres de playlist:** no pueden contener `/` ni saltos de línea.
-- **`idle`:** bloquea la conexión hasta que cambia un subsistema y responde `changed: <subsistema>`. Se mapean `database`, `stored_playlist`, `playlist` (→ `Subsystem::Queue`), `player`, `mixer`, `options` y `update`; el resto se ignora.
+- **`idle`:** bloquea la conexión hasta que cambia un subsistema y responde `changed: <subsistema>`. Se mapean `database`, `stored_playlist`, `playlist` (→ `Subsystem::Queue`), `player`, `mixer`, `options`, `update`, `output` (→ `Subsystem::Outputs`) y `partition` (→ `Subsystem::Partitions`); el resto se ignora.
 - **`update` y `updating_db`:** `changed: update` llega cuando una actualización de la base **empieza o termina**; para saber cuál, se relee `status`, que trae `updating_db: <id>` solo mientras hay una en curso. MPD no informa progreso ni hora de inicio.
 - **Edición:** `move <desde> <hasta>` corre un tema de la cola. `playlistadd <nombre> <uri>` agrega un archivo o un directorio completo al final de una playlist y la crea si no existe; `playlistdelete <nombre> <pos>` y `playlistmove <nombre> <desde> <hasta>` usan posiciones desde 0. No hay `findaddpl`: para agregar un artista se buscan sus temas con `find` y se agregan de a uno.
+- **Listas de comandos:** `command_list_begin`, un comando por línea y `command_list_end`. MPD las ejecuta de corrido sobre la conexión y responde una sola vez: `OK`, o el `ACK` del primero que falla. En el servidor falso, cada línea es un paso del guion y solo la última lleva respuesta.
+- **Particiones:** cada una es un reproductor con su cola, su reproducción y sus salidas; cada conexión está en una (al conectar, `default`). `listpartitions` → `partition: <nombre>`; `partition X` cambia la conexión; `newpartition X` (nombre ASCII alfanumérico, `-`, `_`); `delpartition X` solo si no tiene salidas ni clientes; `moveoutput <nombre>` trae la salida a la partición **de la conexión**. No sobreviven a un reinicio de MPD. Requieren el permiso `admin`.
+- **Salidas:** `outputs` lista `outputid`, `outputname`, `plugin`, `outputenabled` (y `attribute`, que no se parsea). El id es la posición en la lista **de esa partición**. Las salidas de otra partición aparecen con `plugin: dummy` (se descartan). Se activan con `enableoutput <id>` / `disableoutput <id>` en su partición.
 - **`ping`:** responde `OK` sin efectos. Lo usa el vigilante para confirmar la reconexión.
 - **`readcomments <uri>`:** todos los comentarios del archivo, con la clave tal como está en él (comparar sin distinguir mayúsculas). MPD imprime el valor **sin escapar**: una letra embebida multilínea llega partida en varias líneas, incluso vacías. Por eso una línea que no es `OK`, `ACK` ni un par con clave válida para MPD (letras, `_` y `-`) es continuación del valor anterior (`ResponseLine::Continuation`). En MP3 solo expone frames `TXXX`, no `USLT`.
 - **Salida fifo:** MPD escribe PCM crudo, entrelazado, con signo y en el orden de bytes nativo, en el `format` de su `audio_output` fifo. Un FIFO abierto en no bloqueante sin escritor no despierta al lector hasta que alguien escribe; cuando el escritor cierra, la lectura devuelve 0 (fin de archivo).
@@ -218,7 +222,7 @@ tmux capture-pane -t prueba -p        # pantalla
 tmux kill-session -t prueba
 ```
 
-Contra el MPD real solo se envían teclas de lectura: `1`–`7`, `Tab`, `j`/`k`, `g`/`G`, `h`/`l`, `/` + búsqueda, `o` y `?`. **Nunca** `Enter` en la cola, `p`, `s`, `<`, `>`, `+`, `-`, `f`, `b`, `z`, `r`, `y`, `R`, `a`, `A`, `d`, `c`, `S`, `u`, `J`, `K` ni `Enter` en el selector de playlists (`P` + `Esc` sí: solo lo abre y lo cierra).
+Contra el MPD real solo se envían teclas de lectura: `1`–`8`, `Tab`, `j`/`k`, `g`/`G`, `h`/`l`, `/` + búsqueda, `o` y `?`. **Nunca** `Enter` en la cola, `p`, `s`, `<`, `>`, `+`, `-`, `f`, `b`, `z`, `r`, `y`, `R`, `a`, `A`, `d`, `c`, `S`, `u`, `J`, `K`, `n`, `m` ni `Enter` en el selector de playlists (`P` + `Esc` sí: solo lo abre y lo cierra) ni en la vista Salidas (activa o desactiva una salida).
 
 Checklist antes de dar un cambio por terminado:
 

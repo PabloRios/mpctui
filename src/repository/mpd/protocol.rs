@@ -18,6 +18,8 @@ const KEY_SYMBOLS: [char; 2] = ['_', '-'];
 /// Une las líneas de un valor partido.
 const LINE_BREAK: char = '\n';
 const QUOTE: char = '"';
+/// Separa los comandos de una lista.
+const COMMAND_SEPARATOR: &str = "\n";
 const ESCAPE: char = '\\';
 
 /// Encierra un argumento entre comillas dobles escapando `\` y `"`.
@@ -55,6 +57,16 @@ impl Command {
             Some(argument) => self.arg(argument),
             None => self,
         }
+    }
+
+    /// Lista de comandos que MPD ejecuta de corrido sobre la misma conexión, con una
+    /// sola respuesta (`OK`, o el `ACK` del primero que falla). Viaja como un único
+    /// `Command` de varias líneas: si hay que reintentar, se reintenta entera.
+    pub fn list(commands: impl IntoIterator<Item = Command>) -> Self {
+        let mut lines = vec![Verb::CommandListBegin.as_str().to_owned()];
+        lines.extend(commands.into_iter().map(|command| command.0));
+        lines.push(Verb::CommandListEnd.as_str().to_owned());
+        Self(lines.join(COMMAND_SEPARATOR))
     }
 
     pub fn as_str(&self) -> &str {
@@ -191,6 +203,18 @@ mod tests {
         assert_eq!(command.as_str(), r#"add "Rock/Tema 1.mp3""#);
         let command = Command::new(Verb::Play).optional_arg(None::<u32>);
         assert_eq!(command.as_str(), "play");
+    }
+
+    #[test]
+    fn command_list_wraps_each_command_in_its_own_line() {
+        let list = Command::list([
+            Command::new(Verb::Partition).arg("cocina"),
+            Command::new(Verb::MoveOutput).arg("pulse audio"),
+        ]);
+        assert_eq!(
+            list.as_str(),
+            "command_list_begin\npartition \"cocina\"\nmoveoutput \"pulse audio\"\ncommand_list_end"
+        );
     }
 
     #[test]

@@ -6,11 +6,13 @@ use std::time::Duration;
 
 use super::protocol::Pair;
 use super::vocabulary::{
-    AUDIO_FIELD_SEPARATOR, BITRATE_UNKNOWN, DSD_PREFIX, SAMPLE_FORMAT_FLOAT, SINGLE_ONESHOT,
-    VOLUME_UNAVAILABLE, keys, parse_flag, parse_play_state, parse_single_mode, parse_subsystem,
+    AUDIO_FIELD_SEPARATOR, BITRATE_UNKNOWN, DSD_PREFIX, DUMMY_PLUGIN, SAMPLE_FORMAT_FLOAT,
+    SINGLE_ONESHOT, VOLUME_UNAVAILABLE, keys, parse_flag, parse_play_state, parse_single_mode,
+    parse_subsystem,
 };
 use crate::domain::{
-    AudioFormat, Entry, PlaylistName, SampleFormat, Song, Status, Subsystem, Volume,
+    AudioFormat, Entry, Output, PartitionName, PlaylistName, SampleFormat, Song, Status, Subsystem,
+    Volume,
 };
 use crate::repository::error::{Error, Result};
 
@@ -132,6 +134,50 @@ pub fn parse_playlist_names(pairs: &[Pair]) -> Result<Vec<PlaylistName>> {
                 .map_err(|error| Error::Protocol(format!("playlist {name:?}: {error}")))
         })
         .collect()
+}
+
+pub fn parse_partition_names(pairs: &[Pair]) -> Result<Vec<PartitionName>> {
+    values_of(pairs, keys::PARTITION)
+        .map(|name| {
+            PartitionName::new(&name)
+                .map_err(|error| Error::Protocol(format!("partición {name:?}: {error}")))
+        })
+        .collect()
+}
+
+/// Las salidas propias de la partición: las que pertenecen a otra aparecen en su lista
+/// con el plugin `dummy` y se descartan.
+pub fn parse_outputs(pairs: &[Pair]) -> Result<Vec<Output>> {
+    let outputs: Vec<Output> = split_records(pairs, &[keys::OUTPUT_ID])
+        .into_iter()
+        .map(parse_output)
+        .collect::<Result<_>>()?;
+    Ok(outputs
+        .into_iter()
+        .filter(|output| output.plugin != DUMMY_PLUGIN)
+        .collect())
+}
+
+fn parse_output(record: &[Pair]) -> Result<Output> {
+    let (key, value) = &record[0];
+    let mut output = Output {
+        id: parse_number(key, value)?,
+        name: String::new(),
+        plugin: String::new(),
+        enabled: false,
+    };
+    for (key, value) in &record[1..] {
+        match key.as_str() {
+            keys::OUTPUT_NAME => output.name = value.clone(),
+            keys::OUTPUT_PLUGIN => output.plugin = value.clone(),
+            keys::OUTPUT_ENABLED => output.enabled = parse_with(key, value, parse_flag)?,
+            _ => {}
+        }
+    }
+    if output.name.is_empty() {
+        return Err(Error::Protocol(format!("salida {} sin nombre", output.id)));
+    }
+    Ok(output)
 }
 
 pub fn parse_subsystems(pairs: &[Pair]) -> Vec<Subsystem> {
@@ -371,6 +417,14 @@ mod tests {
     }
 
     #[test]
+    fn output_and_partition_subsystems_are_parsed() {
+        assert_eq!(
+            parse_subsystems(&pairs("changed: output\nchanged: partition")),
+            [Subsystem::Outputs, Subsystem::Partitions]
+        );
+    }
+
+    #[test]
     fn update_subsystem_and_job_are_parsed() {
         assert_eq!(
             parse_subsystems(&pairs("changed: update")),
@@ -380,5 +434,35 @@ mod tests {
         assert_eq!(updating("updating_db: 3").unwrap(), Some(3));
         assert_eq!(updating("state: play").unwrap(), None);
         assert!(updating("updating_db: sí").is_err());
+    }
+
+    #[test]
+    fn outputs_skip_the_ones_owned_by_another_partition() {
+        let outputs = parse_outputs(&pairs(
+            "outputid: 0\noutputname: pulse audio\nplugin: pulse\noutputenabled: 1\n\
+             outputid: 1\noutputname: alsa hw:1,3\nplugin: alsa\noutputenabled: 0\n\
+             attribute: dop=0\n\
+             outputid: 2\noutputname: FIFO pipe\nplugin: dummy\noutputenabled: 1",
+        ))
+        .unwrap();
+        let names: Vec<_> = outputs.iter().map(|output| output.name.as_str()).collect();
+        assert_eq!(names, ["pulse audio", "alsa hw:1,3"]);
+        assert_eq!(outputs[1].id, 1);
+        assert_eq!(outputs[1].plugin, "alsa");
+        assert!(outputs[0].enabled && !outputs[1].enabled);
+    }
+
+    #[test]
+    fn outputs_fail_fast_on_invalid_values() {
+        assert!(parse_outputs(&pairs("outputid: x\noutputname: a")).is_err());
+        assert!(parse_outputs(&pairs("outputid: 0\noutputname: a\noutputenabled: 2")).is_err());
+        assert!(parse_outputs(&pairs("outputid: 0\nplugin: alsa")).is_err());
+    }
+
+    #[test]
+    fn partition_names_are_validated() {
+        let names = parse_partition_names(&pairs("partition: default\npartition: cocina")).unwrap();
+        assert_eq!(names[1].as_str(), "cocina");
+        assert!(parse_partition_names(&pairs("partition: la cocina")).is_err());
     }
 }

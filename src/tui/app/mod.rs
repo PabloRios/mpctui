@@ -4,6 +4,7 @@
 mod browse;
 mod library;
 mod lyrics;
+mod outputs;
 mod picker;
 mod playback;
 mod playlists;
@@ -21,18 +22,18 @@ use futures::{Stream, StreamExt};
 use ratatui::DefaultTerminal;
 use tokio::sync::mpsc::UnboundedReceiver;
 
-use super::action::{Action, action_for};
+use super::action::{Action, action_for, key_label};
 use super::appearance::Appearance;
 use super::prompt::{Confirmation, Prompt, PromptKind};
 use super::state::{AppState, ConnectionState, Notice, NoticeLevel, ViewKind};
 use super::views;
 use crate::i18n::{Message, Phrase};
 use crate::repository::{
-    Error, LibraryRepository, OptionsRepository, PcmSource, PlayerRepository, PlaylistRepository,
-    QueueRepository, Result,
+    Error, LibraryRepository, OptionsRepository, OutputRepository, PcmSource, PlayerRepository,
+    PlaylistRepository, QueueRepository, Result,
 };
 use crate::service::{
-    LibraryService, LyricsLookup, PlaybackService, PlaylistService, QueueService,
+    LibraryService, LyricsLookup, OutputService, PlaybackService, PlaylistService, QueueService,
     RunningVisualizer, STATUS_POLL_INTERVAL, ServerEvent, VisualizerLauncher,
 };
 
@@ -50,6 +51,7 @@ pub trait Backend {
     type Queue: QueueRepository + Send;
     type Library: LibraryRepository + Send;
     type Playlists: PlaylistRepository + Send;
+    type Outputs: OutputRepository + Send;
     /// Fuente de PCM del visualizador.
     type Pcm: PcmSource + Send + 'static;
 }
@@ -59,6 +61,7 @@ pub struct Services<B: Backend> {
     pub queue: QueueService<B::Queue>,
     pub library: LibraryService<B::Library>,
     pub playlists: PlaylistService<B::Playlists>,
+    pub outputs: OutputService<B::Outputs>,
     pub visualizer: VisualizerLauncher<B::Pcm>,
     /// `None` con las letras desactivadas.
     pub lyrics: Option<LyricsLookup>,
@@ -239,7 +242,9 @@ impl<B: Backend> App<B> {
             | Action::AddAll
             | Action::Delete
             | Action::MoveSong(_)
-            | Action::AddToPlaylist => self.perform_in_view(action).await,
+            | Action::AddToPlaylist
+            | Action::NewPartition
+            | Action::MoveOutput => self.perform_in_view(action).await,
             _ => self.perform_playback(action).await,
         }
     }
@@ -252,6 +257,7 @@ impl<B: Backend> App<B> {
             ViewKind::Search => self.search_action(action).await,
             ViewKind::Playlists => self.playlists_action(action).await,
             ViewKind::Lyrics => self.lyrics_action(action).await,
+            ViewKind::Outputs => self.outputs_action(action).await,
             ViewKind::Visualizer => {}
         }
     }
@@ -274,6 +280,11 @@ impl<B: Backend> App<B> {
 
     fn message(&self, message: Message<'_>) -> String {
         self.appearance.texts.message(&message)
+    }
+
+    /// La tecla principal de una acción, para sugerirla en un aviso.
+    fn key(&self, action: Action) -> String {
+        key_label(action, self.appearance.glyphs, self.appearance.texts).unwrap_or_default()
     }
 
     fn notify_info(&mut self, text: String) {
