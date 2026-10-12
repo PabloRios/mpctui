@@ -1,0 +1,40 @@
+//! Cómo se ve la interfaz. Lo arma el composition root a partir de la configuración.
+
+use super::glyphs::Glyphs;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Appearance {
+    pub glyphs: &'static Glyphs,
+    pub progress_bars: ProgressBars,
+}
+
+/// Barras opcionales del panel "ahora suena". La del tema siempre se muestra.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ProgressBars {
+    /// Un segmento por tema del álbum en curso.
+    pub album: bool,
+    /// Un segmento por álbum de la cola.
+    pub queue: bool,
+}
+
+impl ProgressBars {
+    /// Cuántas filas suman al panel.
+    pub fn count(self) -> u16 {
+        u16::from(self.album) + u16::from(self.queue)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn counts_enabled_bars() {
+        assert_eq!(ProgressBars::default().count(), 0);
+        let both = ProgressBars {
+            album: true,
+            queue: true,
+        };
+        assert_eq!(both.count(), 2);
+    }
+}
