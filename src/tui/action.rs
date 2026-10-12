@@ -4,6 +4,7 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use super::glyphs::{ArrowKeys, Glyphs};
 use super::state::ViewKind;
+use crate::domain::MoveDirection;
 use crate::i18n::{Catalog, Phrase};
 
 /// Nombres de teclas que se escriben igual en todos los idiomas.
@@ -23,6 +24,14 @@ pub enum Navigation {
 }
 
 impl Navigation {
+    /// El paso del cursor que acompaña a un tema que se corre un lugar.
+    pub fn following(direction: MoveDirection) -> Self {
+        match direction {
+            MoveDirection::Up => Navigation::Previous,
+            MoveDirection::Down => Navigation::Next,
+        }
+    }
+
     /// El índice al que lleva desde `index`, con páginas de `page` filas. `Last` da
     /// `usize::MAX`: quien llama lo limita al largo de lo que recorre.
     pub fn apply(self, index: usize, page: usize) -> usize {
@@ -55,6 +64,10 @@ pub enum Action {
     Add,
     AddAll,
     Delete,
+    /// Corre el tema seleccionado un lugar (cola o playlist).
+    MoveSong(MoveDirection),
+    /// Abre el selector de playlists para agregar lo seleccionado.
+    AddToPlaylist,
     TogglePause,
     Stop,
     NextSong,
@@ -211,6 +224,21 @@ pub const BINDINGS: &[Binding] = &[
         Phrase::DeleteSelection,
     ),
     plain(
+        &[KeyCode::Char('J')],
+        Action::MoveSong(MoveDirection::Down),
+        Phrase::MoveSong,
+    ),
+    plain(
+        &[KeyCode::Char('K')],
+        Action::MoveSong(MoveDirection::Up),
+        Phrase::MoveSong,
+    ),
+    plain(
+        &[KeyCode::Char('P')],
+        Action::AddToPlaylist,
+        Phrase::AddToPlaylist,
+    ),
+    plain(
         &[KeyCode::Char('p'), KeyCode::Char(' ')],
         Action::TogglePause,
         Phrase::TogglePause,
@@ -337,6 +365,8 @@ impl HelpGroup {
             | Action::Add
             | Action::AddAll
             | Action::Delete
+            | Action::MoveSong(_)
+            | Action::AddToPlaylist
             | Action::ClearQueue
             | Action::SaveQueue
             | Action::ShowPlaying => HelpGroup::Lists,
@@ -538,6 +568,31 @@ mod tests {
                 "{view:?}"
             );
         }
+    }
+
+    #[test]
+    fn shifted_j_and_k_move_the_song_and_plain_ones_navigate() {
+        assert_eq!(
+            action_for(key(KeyCode::Char('J'), KeyModifiers::SHIFT)),
+            Some(Action::MoveSong(MoveDirection::Down))
+        );
+        assert_eq!(
+            action_for(key(KeyCode::Char('K'), KeyModifiers::SHIFT)),
+            Some(Action::MoveSong(MoveDirection::Up))
+        );
+        assert_eq!(
+            action_for(key(KeyCode::Char('k'), KeyModifiers::NONE)),
+            Some(Action::Navigate(Navigation::Previous))
+        );
+        assert_eq!(
+            action_for(key(KeyCode::Char('P'), KeyModifiers::SHIFT)),
+            Some(Action::AddToPlaylist)
+        );
+        let moving = all_entries(&UNICODE)
+            .into_iter()
+            .find(|entry| entry.description == Phrase::MoveSong)
+            .unwrap();
+        assert_eq!(moving.keys, "J K");
     }
 
     #[test]

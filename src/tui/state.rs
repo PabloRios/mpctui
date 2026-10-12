@@ -6,6 +6,7 @@ use ratatui::widgets::TableState;
 
 use super::action::Navigation;
 use super::list::{SelectableList, SelectionPolicy};
+use super::picker::PlaylistPicker;
 use super::prompt::Prompt;
 use crate::domain::{
     Entry, Lyrics, LyricsQuery, PATH_SEPARATOR, PlaylistName, STEREO_CHANNELS, SearchText, Song,
@@ -93,6 +94,10 @@ impl GroupedSongs {
 
     pub fn selected(&self) -> Option<&Song> {
         self.songs.selected()
+    }
+
+    pub fn selected_index(&self) -> Option<usize> {
+        self.songs.selected_index()
     }
 
     pub fn navigate(&mut self, navigation: Navigation) -> bool {
@@ -194,11 +199,20 @@ impl SearchView {
     }
 }
 
+/// Columna con foco en la vista Playlists: los nombres o los temas de la seleccionada.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PlaylistsColumn {
+    #[default]
+    Names,
+    Songs,
+}
+
 #[derive(Debug, Default)]
 pub struct PlaylistsView {
     pub names: SelectableList<PlaylistName>,
     /// Temas de la playlist seleccionada.
     pub preview: GroupedSongs,
+    pub focus: PlaylistsColumn,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -272,6 +286,8 @@ pub struct AppState {
     pub view: ViewKind,
     pub help_visible: bool,
     pub prompt: Option<Prompt>,
+    /// Selector de playlists abierto (`P`).
+    pub picker: Option<PlaylistPicker>,
     pub notice: Option<Notice>,
     pub connection: ConnectionState,
     /// Cuándo se vio por primera vez la actualización de la base en curso.

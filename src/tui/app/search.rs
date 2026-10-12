@@ -18,6 +18,10 @@ impl<B: Backend> App<B> {
                 let song = self.state.search.results.selected().cloned();
                 self.add_songs(song.into_iter().collect()).await;
             }
+            Action::AddToPlaylist => {
+                let song = self.state.search.results.selected().cloned();
+                self.pick_playlist_for_song(song).await;
+            }
             Action::AddAll => {
                 let songs = self.state.search.results.items().to_vec();
                 self.add_songs(songs).await;

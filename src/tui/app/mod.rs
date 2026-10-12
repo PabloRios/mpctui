@@ -4,6 +4,7 @@
 mod browse;
 mod library;
 mod lyrics;
+mod picker;
 mod playback;
 mod playlists;
 mod prompt;
@@ -148,6 +149,9 @@ impl<B: Backend> App<B> {
         if self.state.prompt.is_some() {
             return self.handle_prompt_key(key).await;
         }
+        if self.state.picker.is_some() {
+            return self.handle_picker_key(key).await;
+        }
         if self.state.help_visible {
             self.state.help_visible = false;
             return;
@@ -233,7 +237,9 @@ impl<B: Backend> App<B> {
             | Action::Back
             | Action::Add
             | Action::AddAll
-            | Action::Delete => self.perform_in_view(action).await,
+            | Action::Delete
+            | Action::MoveSong(_)
+            | Action::AddToPlaylist => self.perform_in_view(action).await,
             _ => self.perform_playback(action).await,
         }
     }

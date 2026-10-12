@@ -125,6 +125,10 @@ impl<T: Transport + Send> QueueRepository for MpdClient<T> {
         self.run(Command::new(Verb::Delete).arg(position)).await
     }
 
+    async fn move_song(&mut self, from: u32, to: u32) -> Result<()> {
+        self.run(Command::new(Verb::Move).arg(from).arg(to)).await
+    }
+
     async fn clear(&mut self) -> Result<()> {
         self.run(Command::new(Verb::Clear)).await
     }
@@ -195,6 +199,21 @@ impl<T: Transport + Send> PlaylistRepository for MpdClient<T> {
 
     async fn remove(&mut self, name: &PlaylistName) -> Result<()> {
         self.run(Command::new(Verb::Remove).arg(name)).await
+    }
+
+    async fn add_to_playlist(&mut self, name: &PlaylistName, uri: &str) -> Result<()> {
+        self.run(Command::new(Verb::PlaylistAdd).arg(name).arg(uri))
+            .await
+    }
+
+    async fn delete_from_playlist(&mut self, name: &PlaylistName, position: u32) -> Result<()> {
+        self.run(Command::new(Verb::PlaylistDelete).arg(name).arg(position))
+            .await
+    }
+
+    async fn move_in_playlist(&mut self, name: &PlaylistName, from: u32, to: u32) -> Result<()> {
+        self.run(Command::new(Verb::PlaylistMove).arg(name).arg(from).arg(to))
+            .await
     }
 }
 

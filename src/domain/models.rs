@@ -163,9 +163,39 @@ impl TagFilter {
     }
 }
 
+/// Hacia dónde se corre un tema dentro de una lista (cola o playlist).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MoveDirection {
+    Up,
+    Down,
+}
+
+impl MoveDirection {
+    /// La posición a la que llega el tema de `position` en una lista de `length`
+    /// temas, o `None` si ya está en el borde (o fuera de la lista).
+    pub fn target(self, position: u32, length: usize) -> Option<u32> {
+        let target = match self {
+            MoveDirection::Up => position.checked_sub(1)?,
+            MoveDirection::Down => position.checked_add(1)?,
+        };
+        let in_list = |index: u32| usize::try_from(index).is_ok_and(|index| index < length);
+        (in_list(position) && in_list(target)).then_some(target)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn moving_stops_at_the_edges() {
+        assert_eq!(MoveDirection::Down.target(0, 3), Some(1));
+        assert_eq!(MoveDirection::Down.target(2, 3), None);
+        assert_eq!(MoveDirection::Up.target(2, 3), Some(1));
+        assert_eq!(MoveDirection::Up.target(0, 3), None);
+        assert_eq!(MoveDirection::Down.target(5, 3), None);
+        assert_eq!(MoveDirection::Up.target(0, 0), None);
+    }
 
     fn song_with_track(track: &str) -> Song {
         Song {

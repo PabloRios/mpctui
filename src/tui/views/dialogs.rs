@@ -1,15 +1,18 @@
-//! Diálogos superpuestos y centrados: confirmación y guardar la cola como playlist.
+//! Diálogos superpuestos y centrados: confirmación, nombre de playlist (guardar la cola
+//! o crear una nueva) y selector de playlists.
 
 use ratatui::Frame;
-use ratatui::layout::{Constraint, Rect};
+use ratatui::layout::{Constraint, Layout, Margin, Rect};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Clear, Paragraph};
 
 use super::chrome::{Context, titled_block};
 use super::format::{fit_start, saturating_u16};
 use super::theme;
+use super::widgets::{ItemRows, RowSource, Selection, render_list};
 use crate::i18n::{Message, Phrase};
 use crate::tui::glyphs::Glyphs;
+use crate::tui::picker::{PlaylistChoice, PlaylistPicker};
 use crate::tui::prompt::{Confirmation, DECLINE_KEYS, Prompt, PromptKind};
 use crate::tui::state::AppState;
 
@@ -25,6 +28,13 @@ const BORDERS: u16 = 2;
 const FIELD_OPEN: &str = ": [";
 const FIELD_CLOSE: &str = "]";
 const ANSWERS_GAP: &str = "        ";
+const PICKER_WIDTH: u16 = 44;
+/// Opciones visibles del selector; con más, la lista se desplaza.
+const PICKER_MAX_ROWS: usize = 10;
+/// Bordes, fila en blanco y fila de teclas.
+const PICKER_FIXED_ROWS: usize = 4;
+/// Separación entre una insignia y el nombre.
+const BADGE_GAP: &str = " ";
 
 pub fn render(frame: &mut Frame, area: Rect, state: &AppState, context: &Context<'_>) {
     let Some(prompt) = &state.prompt else {
@@ -32,7 +42,12 @@ pub fn render(frame: &mut Frame, area: Rect, state: &AppState, context: &Context
     };
     match &prompt.kind {
         PromptKind::Search => {}
-        PromptKind::SavePlaylist => save_dialog(frame, area, prompt, context),
+        PromptKind::SavePlaylist => {
+            name_dialog(frame, area, prompt, Phrase::SaveQueueTitle, context);
+        }
+        PromptKind::NewPlaylist(_) => {
+            name_dialog(frame, area, prompt, Phrase::NewPlaylistTitle, context);
+        }
         PromptKind::Confirm(confirmation) => {
             let question = question(confirmation, state, context);
             confirm_dialog(frame, area, question, context);
@@ -102,7 +117,13 @@ fn confirm_dialog(frame: &mut Frame, area: Rect, question: String, context: &Con
 
 /// El campo muestra el final del texto si no entra; un error de validación aparece en
 /// la última fila y el diálogo sigue abierto.
-fn save_dialog(frame: &mut Frame, area: Rect, prompt: &Prompt, context: &Context<'_>) {
+fn name_dialog(
+    frame: &mut Frame,
+    area: Rect,
+    prompt: &Prompt,
+    title: Phrase,
+    context: &Context<'_>,
+) {
     let glyphs = context.glyphs;
     let width = SAVE_WIDTH.min(area.width);
     let inner = usize::from(width.saturating_sub(BORDERS));
@@ -138,6 +159,65 @@ fn save_dialog(frame: &mut Frame, area: Rect, prompt: &Prompt, context: &Context
         )]),
         error,
     ];
-    let title = context.phrase(Phrase::SaveQueueTitle);
-    dialog(frame, area, width, title, rows, glyphs);
+    dialog(frame, area, width, context.phrase(title), rows, glyphs);
+}
+
+/// «Nueva playlist» resaltada arriba y las existentes con su insignia; las teclas, al pie.
+pub fn render_picker(
+    frame: &mut Frame,
+    area: Rect,
+    picker: &mut PlaylistPicker,
+    context: &Context<'_>,
+) {
+    let glyphs = context.glyphs;
+    let visible = picker.choices.items().len().min(PICKER_MAX_ROWS);
+    let height = saturating_u16(visible + PICKER_FIXED_ROWS);
+    let popup = area.centered(
+        Constraint::Length(PICKER_WIDTH.min(area.width)),
+        Constraint::Length(height.min(area.height)),
+    );
+    frame.render_widget(Clear, popup);
+    let title = Line::styled(context.phrase(Phrase::PickerTitle).to_owned(), theme::BOLD);
+    let block = titled_block(title, glyphs);
+    let inner = block.inner(popup);
+    frame.render_widget(block, popup);
+    let [list_area, _, keys_area] = Layout::vertical([
+        Constraint::Fill(1),
+        Constraint::Length(1),
+        Constraint::Length(1),
+    ])
+    .areas(inner.inner(Margin::new(1, 0)));
+    let (choices, table) = picker.choices.parts_mut();
+    let new_playlist = context.phrase(Phrase::NewPlaylistChoice);
+    let rows = choice_rows(choices, new_playlist, glyphs);
+    let selection = Selection {
+        row: table.selected(),
+        focused: true,
+        centered: false,
+    };
+    let mut offset = table.offset();
+    render_list(frame, list_area, glyphs, &rows, selection, &mut offset);
+    *table.offset_mut() = offset;
+    let keys = Line::styled(context.phrase(Phrase::PickerKeys).to_owned(), theme::MUTED);
+    frame
+        .buffer_mut()
+        .set_line(keys_area.x, keys_area.y, &keys, keys_area.width);
+}
+
+fn choice_rows<'a>(
+    choices: &'a [PlaylistChoice],
+    new_playlist: &'a str,
+    glyphs: &'a Glyphs,
+) -> impl RowSource + 'a {
+    ItemRows {
+        items: choices,
+        line: move |choice: &'a PlaylistChoice| match choice {
+            PlaylistChoice::New => Line::styled(new_playlist, theme::ACCENT),
+            PlaylistChoice::Existing(name) => Line::from(vec![
+                Span::styled(glyphs.playlist, theme::MUTED),
+                Span::raw(BADGE_GAP),
+                Span::raw(name.as_str()),
+            ]),
+        },
+    }
 }

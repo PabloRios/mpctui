@@ -5,6 +5,7 @@ use crate::domain::Entry;
 use crate::i18n::Message;
 use crate::tui::action::Action;
 use crate::tui::list::SelectionPolicy;
+use crate::tui::picker::PlaylistAddition;
 
 impl<B: Backend> App<B> {
     pub(super) async fn browse_action(&mut self, action: Action) {
@@ -16,6 +17,12 @@ impl<B: Backend> App<B> {
             Action::Forward => self.enter_selected_directory().await,
             Action::Back => self.go_to_parent_directory().await,
             Action::Add => self.add_selected_entry().await,
+            Action::AddToPlaylist => {
+                if let Some(path) = self.selected_entry_path() {
+                    self.open_playlist_picker(PlaylistAddition::path(path))
+                        .await;
+                }
+            }
             _ => {}
         }
     }
@@ -58,18 +65,20 @@ impl<B: Backend> App<B> {
     }
 
     async fn add_selected_entry(&mut self) {
-        let Some(path) = self
-            .state
-            .browse
-            .entries
-            .selected()
-            .map(|entry| entry.path().to_owned())
-        else {
+        let Some(path) = self.selected_entry_path() else {
             return;
         };
         let result = self.services.queue.add_uri(&path).await;
         if self.report(result).is_some() {
             self.notify_info(self.message(Message::AddedToQueue(&path)));
         }
+    }
+
+    fn selected_entry_path(&self) -> Option<String> {
+        self.state
+            .browse
+            .entries
+            .selected()
+            .map(|entry| entry.path().to_owned())
     }
 }

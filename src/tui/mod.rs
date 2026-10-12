@@ -5,6 +5,7 @@ mod app;
 pub mod appearance;
 pub mod glyphs;
 mod list;
+mod picker;
 mod prompt;
 mod state;
 mod views;

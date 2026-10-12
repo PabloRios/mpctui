@@ -1,4 +1,5 @@
 //! Playlists (`5`): nombres a la izquierda y contenido de la seleccionada a la derecha.
+//! La columna con foco lleva el título entre corchetes y la selección invertida.
 
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
@@ -9,7 +10,7 @@ use crate::domain::PlaylistName;
 use crate::i18n::{Catalog, Message, Phrase};
 use crate::tui::action::Action;
 use crate::tui::glyphs::Glyphs;
-use crate::tui::state::{AppState, GroupedSongs};
+use crate::tui::state::{AppState, GroupedSongs, PlaylistsColumn};
 use crate::tui::views::chrome::{self, Context};
 use crate::tui::views::format::format_duration;
 use crate::tui::views::theme;
@@ -39,13 +40,14 @@ pub fn render(frame: &mut Frame, area: Rect, state: &mut AppState, context: &Con
             .spacing(DIVIDER_WIDTH)
             .areas(area);
     chrome::rule(frame.buffer_mut(), rule_area, context.glyphs, None);
+    let names_focused = playlists.focus == PlaylistsColumn::Names;
     let names_title = panel_title(
         format!(
             "{} ({})",
             context.phrase(Phrase::ViewPlaylists),
             playlists.names.items().len()
         ),
-        true,
+        names_focused,
     );
     draw_line(
         frame,
@@ -55,6 +57,7 @@ pub fn render(frame: &mut Frame, area: Rect, state: &mut AppState, context: &Con
     let preview_title = preview_title(
         playlists.names.selected(),
         &playlists.preview,
+        !names_focused,
         context.texts,
     );
     draw_line(frame, column_row(songs_column, titles_area), &preview_title);
@@ -65,7 +68,7 @@ pub fn render(frame: &mut Frame, area: Rect, state: &mut AppState, context: &Con
         column_row(names_column, lists_area),
         context,
         &mut playlists.names,
-        true,
+        names_focused,
         |names| name_rows(names, glyphs),
     );
     let look = GroupedLook {
@@ -75,7 +78,7 @@ pub fn render(frame: &mut Frame, area: Rect, state: &mut AppState, context: &Con
         },
         now_playing: None,
         highlight: None,
-        selectable: false,
+        selectable: !names_focused,
         header: None,
     };
     draw_grouped(
@@ -104,17 +107,18 @@ fn column_row(column: Rect, band: Rect) -> Rect {
 fn preview_title(
     name: Option<&PlaylistName>,
     preview: &GroupedSongs,
+    focused: bool,
     texts: &dyn Catalog,
 ) -> Line<'static> {
     let Some(name) = name else {
         return Line::default();
     };
     let songs = texts.message(&Message::SongCount(preview.items().len()));
-    let mut text = format!(" {name}: {songs}");
+    let mut text = format!("{name}: {songs}");
     if let Some(total) = preview.timeline().total {
         text.push_str(&format!("  {}", format_duration(total)));
     }
-    Line::from(Span::styled(text, theme::BOLD))
+    Line::from(panel_title(text, focused))
 }
 
 fn name_rows<'a>(names: &'a [PlaylistName], glyphs: &'a Glyphs) -> impl RowSource + 'a {

@@ -2,6 +2,7 @@
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
+use super::picker::PlaylistAddition;
 use crate::domain::{InputError, PlaylistName};
 
 /// Teclas que confirman (español e inglés: valen en los dos idiomas).
@@ -18,6 +19,8 @@ pub enum Confirmation {
 pub enum PromptKind {
     Search,
     SavePlaylist,
+    /// Nombre de una playlist nueva para agregarle lo elegido en el selector.
+    NewPlaylist(PlaylistAddition),
     Confirm(Confirmation),
 }
 
@@ -58,7 +61,9 @@ impl Prompt {
     pub fn handle_key(&mut self, key: KeyEvent) -> PromptOutcome {
         match self.kind {
             PromptKind::Confirm(_) => confirmation_outcome(key.code),
-            PromptKind::Search | PromptKind::SavePlaylist => self.edit(key),
+            PromptKind::Search | PromptKind::SavePlaylist | PromptKind::NewPlaylist(_) => {
+                self.edit(key)
+            }
         }
     }
 

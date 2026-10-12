@@ -176,6 +176,24 @@ async fn manages_stored_playlists() {
 }
 
 #[tokio::test]
+async fn edits_the_queue_and_stored_playlists() {
+    let (address, server) = fake_server(vec![
+        (r#"move "3" "4""#, "OK\n"),
+        (r#"playlistadd "Rock" "a/b.flac""#, "OK\n"),
+        (r#"playlistdelete "Rock" "2""#, "OK\n"),
+        (r#"playlistmove "Rock" "1" "0""#, "OK\n"),
+    ])
+    .await;
+    let mut client = connect_mpd(&address, None).await.unwrap();
+    let rock = PlaylistName::new("Rock").unwrap();
+    client.move_song(3, 4).await.unwrap();
+    client.add_to_playlist(&rock, "a/b.flac").await.unwrap();
+    client.delete_from_playlist(&rock, 2).await.unwrap();
+    client.move_in_playlist(&rock, 1, 0).await.unwrap();
+    server.await.unwrap();
+}
+
+#[tokio::test]
 async fn seeks_relative_and_absolute() {
     let (address, server) = fake_server(vec![
         ("seekcur \"+5\"", "OK\n"),

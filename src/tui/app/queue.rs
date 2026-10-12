@@ -1,9 +1,9 @@
 //! Acciones de la vista de cola.
 
 use super::{App, Backend};
-use crate::domain::Song;
+use crate::domain::{MoveDirection, Song};
 use crate::i18n::Message;
-use crate::tui::action::Action;
+use crate::tui::action::{Action, Navigation};
 use crate::tui::state::ViewKind;
 
 impl<B: Backend> App<B> {
@@ -14,6 +14,11 @@ impl<B: Backend> App<B> {
             }
             Action::Activate => self.play_selected().await,
             Action::Delete => self.delete_selected().await,
+            Action::MoveSong(direction) => self.move_selected(direction).await,
+            Action::AddToPlaylist => {
+                let song = self.state.queue.selected().cloned();
+                self.pick_playlist_for_song(song).await;
+            }
             _ => {}
         }
     }
@@ -43,6 +48,19 @@ impl<B: Backend> App<B> {
         };
         let result = self.services.queue.delete(position).await;
         self.report(result);
+    }
+
+    /// Se mandan posiciones, no identidades: apretar varias veces seguidas corre el
+    /// mismo tema aunque el refresco (por `idle`) todavía no haya llegado.
+    async fn move_selected(&mut self, direction: MoveDirection) {
+        let Some(position) = self.selected_queue_position() else {
+            return;
+        };
+        let length = self.state.queue.items().len();
+        let result = self.services.queue.shift(position, direction, length).await;
+        if let Some(Some(_)) = self.report(result) {
+            self.state.queue.navigate(Navigation::following(direction));
+        }
     }
 
     fn selected_queue_position(&self) -> Option<u32> {

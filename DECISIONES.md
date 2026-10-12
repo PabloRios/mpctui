@@ -279,3 +279,27 @@ están en `DESIGN.md` ni en `DESIGN_EXTRA.md`.
   españolas, para que el modo compacto entre igual.
 - **Los tests de pantalla siguen en español** (fijan `Spanish`) y hay tests propios del
   inglés; el test de glifos ASCII recorre las pantallas en los dos idiomas.
+
+### P1 · Edición de cola y playlists
+
+- **`J`/`K` corren el tema un lugar**, sin "modo mover": más simple y sin estados. El
+  cursor acompaña al tema y el refresco llega por `idle` con `SelectionPolicy::Keep`.
+- **Se mandan posiciones, no identidades** (`move`, no `moveid`): apretar `J` varias veces
+  seguidas corre el mismo tema aunque el refresco no haya llegado, porque el cursor ya
+  está en la posición nueva.
+- **El borde lo decide `MoveDirection::target`** (dominio, pura); el servicio no manda
+  nada si el tema ya está arriba o abajo de todo.
+- **Selector en vez de escribir el nombre** para agregar a una playlist: evita errores de
+  tipeo. «Nueva playlist» va primera para que siempre haya algo que elegir; un nombre
+  que ya existe agrega a esa (así se comporta `playlistadd`).
+- **De a uno, sin marcas**: borrar, mover y agregar actúan sobre lo seleccionado. `P`
+  agrega lo mismo que `a` (tema, álbum, artista, archivo o directorio).
+- **Quitar un tema de una playlist no confirma**, igual que en la cola; borrar la
+  playlist entera sí.
+- **Un artista entero se agrega con `find` + un `playlistadd` por tema**: MPD no tiene
+  `findaddpl`, y `searchaddpl` no distingue mayúsculas.
+- **La vista Playlists tiene foco por columna** (`l`/`h`, como la Biblioteca). Con foco en
+  los nombres todo sigue igual que antes; la línea inferior cambia con el foco.
+- **La playlist elegida se conserva por nombre al recargar**: una nueva puede ordenarse
+  antes y correr los índices.
+

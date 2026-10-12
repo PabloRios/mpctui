@@ -75,6 +75,9 @@ pub fn render(frame: &mut Frame, state: &mut AppState, appearance: Appearance, n
     now_playing::render(frame, panel_area, state, &context);
     footer::render(frame, footer_area, state, &context);
     dialogs::render(frame, area, state, &context);
+    if let Some(picker) = &mut state.picker {
+        dialogs::render_picker(frame, area, picker, &context);
+    }
     if state.help_visible {
         help::render(frame, area, &context);
     }
@@ -118,9 +121,10 @@ mod tests {
     use crate::tui::appearance::ProgressBars;
     use crate::tui::glyphs::{ASCII, UNICODE};
     use crate::tui::list::SelectionPolicy;
+    use crate::tui::picker::{PlaylistAddition, PlaylistPicker};
     use crate::tui::prompt::{Confirmation, Prompt, PromptKind};
     use crate::tui::state::{
-        ConnectionState, LyricsStatus, Notice, NoticeLevel, ViewKind, VisualView,
+        ConnectionState, LyricsStatus, Notice, NoticeLevel, PlaylistsColumn, ViewKind, VisualView,
     };
 
     /// Tamaños de la sección 7 de `DESIGN.md`: completo, compacto y demasiado chico.
@@ -342,7 +346,23 @@ mod tests {
             |state| state.prompt = Some(Prompt::text(PromptKind::Search, "time".into())),
             |state| state.prompt = Some(Prompt::text(PromptKind::SavePlaylist, "x".into())),
             |state| state.prompt = Some(Prompt::confirm(Confirmation::ClearQueue)),
+            |state| state.picker = Some(sample_picker()),
+            |state| {
+                let kind = PromptKind::NewPlaylist(PlaylistAddition::song(&song(1)));
+                state.prompt = Some(Prompt::text(kind, "y".into()));
+            },
+            |state| state.playlists.focus = PlaylistsColumn::Songs,
         ]
+    }
+
+    /// Más playlists de las que entran en el selector, para que se desplace.
+    const PICKER_PLAYLISTS: usize = 14;
+
+    fn sample_picker() -> PlaylistPicker {
+        let names = (0..PICKER_PLAYLISTS)
+            .map(|index| PlaylistName::new(&format!("lista {index:02}")).unwrap())
+            .collect();
+        PlaylistPicker::new(PlaylistAddition::song(&song(1)), names)
     }
 
     /// Con todas las barras opcionales, para que los tests las cubran.
@@ -970,5 +990,71 @@ mod tests {
         state.view = ViewKind::Library;
         let text = screen_text(&render_to_buffer(&mut state, &ASCII, SIZES[0]));
         assert!(text.contains(ASCII.ellipsis));
+    }
+
+    #[test]
+    fn the_picker_offers_a_new_playlist_and_scrolls_the_existing_ones() {
+        let mut state = sample_state();
+        state.picker = Some(sample_picker());
+        let screen = screen_lines(&render_to_buffer(&mut state, &ASCII, SIZES[0]));
+        assert_contains(
+            &screen,
+            &[
+                "Agregar a playlist",
+                "> Nueva playlist",
+                "lista 08",
+                "Enter elige   Esc cancela",
+            ],
+        );
+        assert!(!screen.contains("lista 13"), "{screen}");
+        let picker = state.picker.as_mut().unwrap();
+        picker
+            .choices
+            .navigate(crate::tui::action::Navigation::Last);
+        let screen = screen_lines(&render_to_buffer(&mut state, &ASCII, SIZES[0]));
+        assert!(screen.contains("> = lista 13"), "{screen}");
+    }
+
+    #[test]
+    fn a_new_playlist_asks_for_its_name() {
+        let mut state = sample_state();
+        let kind = PromptKind::NewPlaylist(PlaylistAddition::song(&song(1)));
+        state.prompt = Some(Prompt::text(kind, "viernes".into()));
+        let screen = screen_lines(&render_to_buffer(&mut state, &ASCII, SIZES[0]));
+        assert_contains(&screen, &["Nueva playlist", "Nombre: [viernes"]);
+    }
+
+    #[test]
+    fn playlists_show_which_column_has_the_focus() {
+        let mut state = sample_state();
+        state.view = ViewKind::Playlists;
+        let names = screen_lines(&render_to_buffer(&mut state, &ASCII, SIZES[0]));
+        assert_contains(
+            &names,
+            &["[Playlists (1)]", " domingo: 60 temas", "l editar"],
+        );
+        state.playlists.focus = PlaylistsColumn::Songs;
+        let songs = screen_lines(&render_to_buffer(&mut state, &ASCII, SIZES[0]));
+        assert_contains(
+            &songs,
+            &[
+                "Playlists (1) ",
+                "[domingo: 60 temas",
+                "J bajar",
+                "d quitar",
+                "h volver",
+            ],
+        );
+        assert!(!songs.contains("[Playlists"), "{songs}");
+    }
+
+    #[test]
+    fn the_queue_suggests_moving_and_adding_to_a_playlist() {
+        let mut state = sample_state();
+        let screen = screen_lines(&render_to_buffer(&mut state, &ASCII, SIZES[0]));
+        let footer = screen.lines().last().unwrap();
+        for hint in ["d borrar", "J bajar", "K subir", "P a playlist", "? ayuda"] {
+            assert!(footer.contains(hint), "falta {hint:?} en {footer:?}");
+        }
     }
 }

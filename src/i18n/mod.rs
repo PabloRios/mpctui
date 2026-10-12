@@ -72,6 +72,8 @@ pub enum Phrase {
     CycleSingle,
     Consume,
     ShowPlaying,
+    MoveSong,
+    AddToPlaylist,
     RetryLyrics,
     UpdateDatabase,
     // Secciones y marco de la ayuda.
@@ -114,6 +116,11 @@ pub enum Phrase {
     HintRetry,
     HintPlayFromLine,
     HintFollowSong,
+    HintMoveDown,
+    HintMoveUp,
+    HintEdit,
+    HintRemove,
+    HintToPlaylist,
     /// Teclas de la línea de búsqueda.
     SearchKeys,
     // Diálogos.
@@ -121,6 +128,11 @@ pub enum Phrase {
     ConfirmTitle,
     NameLabel,
     SaveKeys,
+    NewPlaylistTitle,
+    PickerTitle,
+    PickerKeys,
+    /// Primera opción del selector de playlists.
+    NewPlaylistChoice,
     Yes,
     No,
     /// La tecla que se muestra para confirmar (se aceptan las de los dos idiomas).
@@ -298,6 +310,14 @@ pub enum Message<'a> {
     QueueSaved(&'a str),
     PlaylistDeleted(&'a str),
     PlaylistLoaded(&'a str),
+    AddedToPlaylist {
+        what: &'a str,
+        playlist: &'a str,
+    },
+    RemovedFromPlaylist {
+        song: &'a str,
+        playlist: &'a str,
+    },
     LibraryUpdated {
         elapsed: &'a str,
     },

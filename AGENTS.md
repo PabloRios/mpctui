@@ -97,7 +97,8 @@ i18n (textos del usuario) ← tui, main
   - `action.rs`: **tabla única `BINDINGS`** de la que salen `action_for` y la ayuda (`help_entries`). Un atajo nuevo se agrega solo ahí.
   - Las acciones de vista (`Activate`, `Add`, `AddAll`, `Delete`, `Back`, `Forward`, `Navigate`) las interpreta la vista activa.
   - `list.rs`: `SelectableList<T>` con `SelectionPolicy::{Keep, Reset}` (Keep para refrescos, Reset para contenido nuevo). La usan todas las listas.
-  - `prompt.rs`: texto libre y confirmaciones s/n. Las acciones destructivas (vaciar cola, borrar playlist) siempre confirman.
+  - `prompt.rs`: texto libre y confirmaciones s/n. Las acciones destructivas (vaciar cola, borrar playlist) siempre confirman; quitar un tema (de la cola o de una playlist) no.
+  - `picker.rs`: selector de playlists (`P`). `PlaylistAddition` lleva las URI y el nombre para el aviso; la primera opción es «Nueva playlist», que abre el prompt `NewPlaylist`.
   - `views/` solo dibuja a partir de `AppState`, recibiendo un `chrome::Context` (glifos, modo de layout, ancho, instante). Colores en `theme.rs`, textos auxiliares en `format.rs`.
     - **Listas:** todas pasan por `widgets::render_list`, que arma solo las filas visibles a partir de un `RowSource` (cursor, foco, desplazamiento, cabecera fija, barra de desplazamiento). Una lista nueva implementa `RowSource`; no usa `Table`.
     - **Temas agrupados:** `GroupedSongRows` (Cola, Búsqueda, Playlists) intercala separadoras de álbum; la selección sigue siendo un índice de tema y la `Timeline` vive en `state::GroupedSongs`, que la recalcula solo al cambiar los temas.
@@ -164,6 +165,7 @@ i18n (textos del usuario) ← tui, main
 - **Nombres de playlist:** no pueden contener `/` ni saltos de línea.
 - **`idle`:** bloquea la conexión hasta que cambia un subsistema y responde `changed: <subsistema>`. Se mapean `database`, `stored_playlist`, `playlist` (→ `Subsystem::Queue`), `player`, `mixer`, `options` y `update`; el resto se ignora.
 - **`update` y `updating_db`:** `changed: update` llega cuando una actualización de la base **empieza o termina**; para saber cuál, se relee `status`, que trae `updating_db: <id>` solo mientras hay una en curso. MPD no informa progreso ni hora de inicio.
+- **Edición:** `move <desde> <hasta>` corre un tema de la cola. `playlistadd <nombre> <uri>` agrega un archivo o un directorio completo al final de una playlist y la crea si no existe; `playlistdelete <nombre> <pos>` y `playlistmove <nombre> <desde> <hasta>` usan posiciones desde 0. No hay `findaddpl`: para agregar un artista se buscan sus temas con `find` y se agregan de a uno.
 - **`ping`:** responde `OK` sin efectos. Lo usa el vigilante para confirmar la reconexión.
 - **`readcomments <uri>`:** todos los comentarios del archivo, con la clave tal como está en él (comparar sin distinguir mayúsculas). MPD imprime el valor **sin escapar**: una letra embebida multilínea llega partida en varias líneas, incluso vacías. Por eso una línea que no es `OK`, `ACK` ni un par con clave válida para MPD (letras, `_` y `-`) es continuación del valor anterior (`ResponseLine::Continuation`). En MP3 solo expone frames `TXXX`, no `USLT`.
 - **Salida fifo:** MPD escribe PCM crudo, entrelazado, con signo y en el orden de bytes nativo, en el `format` de su `audio_output` fifo. Un FIFO abierto en no bloqueante sin escritor no despierta al lector hasta que alguien escribe; cuando el escritor cierra, la lectura devuelve 0 (fin de archivo).
@@ -216,7 +218,7 @@ tmux capture-pane -t prueba -p        # pantalla
 tmux kill-session -t prueba
 ```
 
-Contra el MPD real solo se envían teclas de lectura: `1`–`7`, `Tab`, `j`/`k`, `g`/`G`, `h`/`l`, `/` + búsqueda, `o` y `?`. **Nunca** `Enter` en la cola, `p`, `s`, `<`, `>`, `+`, `-`, `f`, `b`, `z`, `r`, `y`, `R`, `a`, `A`, `d`, `c`, `S` ni `u`.
+Contra el MPD real solo se envían teclas de lectura: `1`–`7`, `Tab`, `j`/`k`, `g`/`G`, `h`/`l`, `/` + búsqueda, `o` y `?`. **Nunca** `Enter` en la cola, `p`, `s`, `<`, `>`, `+`, `-`, `f`, `b`, `z`, `r`, `y`, `R`, `a`, `A`, `d`, `c`, `S`, `u`, `J`, `K` ni `Enter` en el selector de playlists (`P` + `Esc` sí: solo lo abre y lo cierra).
 
 Checklist antes de dar un cambio por terminado:
 

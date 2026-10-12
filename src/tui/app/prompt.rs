@@ -24,21 +24,33 @@ impl<B: Backend> App<B> {
         }
     }
 
-    async fn submit_prompt(&mut self, mut prompt: Prompt) {
+    async fn submit_prompt(&mut self, prompt: Prompt) {
         match &prompt.kind {
             PromptKind::Search => self.submit_search(&prompt.input).await,
-            // Validación en el borde: si el nombre no sirve, el diálogo sigue abierto.
-            PromptKind::SavePlaylist => match PlaylistName::new(&prompt.input) {
-                Ok(name) => self.save_queue(&name).await,
-                Err(error) => {
-                    prompt.error = Some(error);
-                    self.state.prompt = Some(prompt);
-                }
-            },
+            PromptKind::SavePlaylist | PromptKind::NewPlaylist(_) => {
+                self.submit_playlist_name(prompt).await;
+            }
             PromptKind::Confirm(Confirmation::ClearQueue) => self.clear_queue().await,
             PromptKind::Confirm(Confirmation::RemovePlaylist(name)) => {
                 self.remove_playlist(name).await;
             }
+        }
+    }
+
+    /// Validación en el borde: si el nombre no sirve, el diálogo sigue abierto.
+    async fn submit_playlist_name(&mut self, mut prompt: Prompt) {
+        let name = match PlaylistName::new(&prompt.input) {
+            Ok(name) => name,
+            Err(error) => {
+                prompt.error = Some(error);
+                self.state.prompt = Some(prompt);
+                return;
+            }
+        };
+        match &prompt.kind {
+            PromptKind::SavePlaylist => self.save_queue(&name).await,
+            PromptKind::NewPlaylist(addition) => self.add_to_playlist(&name, addition).await,
+            PromptKind::Search | PromptKind::Confirm(_) => {}
         }
     }
 

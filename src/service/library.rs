@@ -26,6 +26,10 @@ impl<R: LibraryRepository + Send> LibraryService<R> {
             .await
     }
 
+    pub async fn artist_songs(&mut self, artist: &str) -> Result<Vec<Song>> {
+        self.repository.find(&artist_filters(artist)).await
+    }
+
     pub async fn album_songs(&mut self, artist: &str, album: &str) -> Result<Vec<Song>> {
         self.repository.find(&album_filters(artist, album)).await
     }

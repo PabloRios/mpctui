@@ -40,6 +40,8 @@ pub trait QueueRepository {
     /// Agrega todas las canciones que cumplen los filtros.
     fn add_matching(&mut self, filters: &[TagFilter]) -> impl Future<Output = Result<()>> + Send;
     fn delete(&mut self, position: u32) -> impl Future<Output = Result<()>> + Send;
+    /// Lleva el tema de la posición `from` a la posición `to`.
+    fn move_song(&mut self, from: u32, to: u32) -> impl Future<Output = Result<()>> + Send;
     fn clear(&mut self) -> impl Future<Output = Result<()>> + Send;
 }
 
@@ -76,6 +78,25 @@ pub trait PlaylistRepository {
     /// Guarda la cola como playlist nueva.
     fn save(&mut self, name: &PlaylistName) -> impl Future<Output = Result<()>> + Send;
     fn remove(&mut self, name: &PlaylistName) -> impl Future<Output = Result<()>> + Send;
+    /// Agrega un archivo o un directorio completo al final de la playlist; si no existe,
+    /// la crea.
+    fn add_to_playlist(
+        &mut self,
+        name: &PlaylistName,
+        uri: &str,
+    ) -> impl Future<Output = Result<()>> + Send;
+    fn delete_from_playlist(
+        &mut self,
+        name: &PlaylistName,
+        position: u32,
+    ) -> impl Future<Output = Result<()>> + Send;
+    /// Lleva el tema de la posición `from` a la posición `to` dentro de la playlist.
+    fn move_in_playlist(
+        &mut self,
+        name: &PlaylistName,
+        from: u32,
+        to: u32,
+    ) -> impl Future<Output = Result<()>> + Send;
 }
 
 pub trait ChangesRepository {

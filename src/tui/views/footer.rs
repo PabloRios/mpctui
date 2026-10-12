@@ -7,11 +7,12 @@ use ratatui::text::{Line, Span};
 
 use super::chrome::Context;
 use super::theme;
+use crate::domain::MoveDirection;
 use crate::i18n::Phrase;
 use crate::tui::action::Action;
 use crate::tui::glyphs::Glyphs;
 use crate::tui::prompt::PromptKind;
-use crate::tui::state::{AppState, Notice, NoticeLevel, ViewKind};
+use crate::tui::state::{AppState, Notice, NoticeLevel, PlaylistsColumn, ViewKind};
 
 const HINT_GAP: &str = "   ";
 /// Separación entre el borde de la pantalla y el texto.
@@ -35,21 +36,24 @@ pub fn render(frame: &mut Frame, area: Rect, state: &AppState, context: &Context
             let keys = context.phrase(Phrase::SearchKeys);
             Line::styled(format!("{LEADING_SPACE}{keys}"), theme::MUTED)
         }
-        None => hints_line(state.view, context),
+        None => hints_line(state, context),
     };
     frame
         .buffer_mut()
         .set_line(area.x, area.y, &line, area.width);
 }
 
-/// Atajos que sugiere cada vista; la tecla sale de la tabla `BINDINGS`.
-fn view_hints(view: ViewKind) -> &'static [(Action, Phrase)] {
-    match view {
+/// Atajos que sugiere cada vista (en Playlists, según la columna con foco); la tecla
+/// sale de la tabla `BINDINGS`.
+fn view_hints(state: &AppState) -> &'static [(Action, Phrase)] {
+    match state.view {
         ViewKind::Queue => &[
             (Action::Activate, Phrase::HintPlay),
             (Action::Delete, Phrase::HintDelete),
+            (Action::MoveSong(MoveDirection::Down), Phrase::HintMoveDown),
+            (Action::MoveSong(MoveDirection::Up), Phrase::HintMoveUp),
+            (Action::AddToPlaylist, Phrase::HintToPlaylist),
             (Action::ShowPlaying, Phrase::HintShowPlaying),
-            (Action::StartSearch, Phrase::HintSearch),
             (Action::ToggleHelp, Phrase::HintHelp),
         ],
         ViewKind::Library => &[
@@ -69,14 +73,26 @@ fn view_hints(view: ViewKind) -> &'static [(Action, Phrase)] {
             (Action::StartSearch, Phrase::HintSearch),
             (Action::Add, Phrase::HintAdd),
             (Action::AddAll, Phrase::HintAddAll),
+            (Action::AddToPlaylist, Phrase::HintToPlaylist),
             (Action::ToggleHelp, Phrase::HintHelp),
         ],
-        ViewKind::Playlists => &[
-            (Action::Activate, Phrase::HintLoad),
-            (Action::Delete, Phrase::HintDelete),
-            (Action::SaveQueue, Phrase::HintSaveQueue),
-            (Action::ToggleHelp, Phrase::HintHelp),
-        ],
+        ViewKind::Playlists => match state.playlists.focus {
+            PlaylistsColumn::Names => &[
+                (Action::Activate, Phrase::HintLoad),
+                (Action::Forward, Phrase::HintEdit),
+                (Action::Delete, Phrase::HintDelete),
+                (Action::SaveQueue, Phrase::HintSaveQueue),
+                (Action::ToggleHelp, Phrase::HintHelp),
+            ],
+            PlaylistsColumn::Songs => &[
+                (Action::MoveSong(MoveDirection::Down), Phrase::HintMoveDown),
+                (Action::MoveSong(MoveDirection::Up), Phrase::HintMoveUp),
+                (Action::Delete, Phrase::HintRemove),
+                (Action::AddToPlaylist, Phrase::HintToPlaylist),
+                (Action::Back, Phrase::HintBack),
+                (Action::ToggleHelp, Phrase::HintHelp),
+            ],
+        },
         ViewKind::Lyrics => &[
             (Action::TogglePause, Phrase::HintPause),
             (Action::ToggleHelp, Phrase::HintHelp),
@@ -92,11 +108,11 @@ fn view_hints(view: ViewKind) -> &'static [(Action, Phrase)] {
 /// En modo compacto solo se sugiere la ayuda.
 const COMPACT_HINTS: &[(Action, Phrase)] = &[(Action::ToggleHelp, Phrase::HintHelp)];
 
-fn hints_line(view: ViewKind, context: &Context<'_>) -> Line<'static> {
+fn hints_line(state: &AppState, context: &Context<'_>) -> Line<'static> {
     let hints = if context.is_compact() {
         COMPACT_HINTS
     } else {
-        view_hints(view)
+        view_hints(state)
     };
     let mut spans = vec![Span::raw(LEADING_SPACE)];
     for (index, (action, label)) in hints.iter().enumerate() {

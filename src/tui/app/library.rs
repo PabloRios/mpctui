@@ -4,6 +4,7 @@ use super::{App, Backend};
 use crate::i18n::Message;
 use crate::tui::action::{Action, Navigation};
 use crate::tui::list::SelectionPolicy;
+use crate::tui::picker::PlaylistAddition;
 use crate::tui::state::LibraryColumn;
 
 /// Entre el artista y el álbum en el aviso de lo agregado.
@@ -22,6 +23,7 @@ impl<B: Backend> App<B> {
             Action::Activate => library.focus = library.focus.next(),
             Action::Add => self.add_library_selection().await,
             Action::AddAll => self.add_selected_album().await,
+            Action::AddToPlaylist => self.pick_playlist_for_library_selection().await,
             _ => {}
         }
     }
@@ -91,6 +93,38 @@ impl<B: Backend> App<B> {
                 self.add_songs(song.into_iter().collect()).await;
             }
         }
+    }
+
+    /// Lo mismo que agregaría `a`: el artista, el álbum (sus temas ya están en la
+    /// columna Tema) o el tema.
+    async fn pick_playlist_for_library_selection(&mut self) {
+        let library = &self.state.library;
+        let addition = match library.focus {
+            LibraryColumn::Artists => {
+                let Some(artist) = library.selected_artist() else {
+                    return;
+                };
+                let result = self.services.library.artist_songs(&artist).await;
+                let Some(songs) = self.report(result) else {
+                    return;
+                };
+                PlaylistAddition::songs(&songs, artist)
+            }
+            LibraryColumn::Albums => {
+                let Some((artist, album)) = library.selected_album() else {
+                    return;
+                };
+                let label = format!("{artist}{ARTIST_ALBUM_SEPARATOR}{album}");
+                PlaylistAddition::songs(library.songs.items(), label)
+            }
+            LibraryColumn::Songs => {
+                let Some(song) = library.songs.selected() else {
+                    return;
+                };
+                PlaylistAddition::song(song)
+            }
+        };
+        self.open_playlist_picker(addition).await;
     }
 
     async fn add_selected_artist(&mut self) {

@@ -40,7 +40,14 @@ impl<T> SelectableList<T> {
     }
 
     pub fn selected(&self) -> Option<&T> {
-        self.items.get(self.table.selected()?)
+        self.items.get(self.selected_index()?)
+    }
+
+    /// Índice del elemento seleccionado, si hay alguno.
+    pub fn selected_index(&self) -> Option<usize> {
+        self.table
+            .selected()
+            .filter(|index| *index < self.items.len())
     }
 
     /// Elementos y estado de la tabla a la vez, para dibujar sin copiar.

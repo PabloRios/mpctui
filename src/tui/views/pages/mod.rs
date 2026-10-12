@@ -60,7 +60,8 @@ struct GroupedLook<'a> {
     columns: SongColumns,
     now_playing: Option<NowPlaying>,
     highlight: Option<&'a str>,
-    /// Sin selección visible (contenido de una playlist: se navega la otra columna).
+    /// Con selección visible; sin ella cuando se navega otra columna (contenido de una
+    /// playlist con el foco en los nombres).
     selectable: bool,
     /// Fila para la cabecera de columnas, si la vista la muestra.
     header: Option<Rect>,

@@ -72,7 +72,7 @@ mpctui
 | `2` | Biblioteca | Migas de pan y tres columnas: Artista → Álbum → Tema, con la duración relativa de cada tema |
 | `3` | Directorios | La biblioteca por carpetas, con migas de pan desde la raíz |
 | `4` | Búsqueda | Resultados agrupados por álbum, con las coincidencias en negrita y subrayadas |
-| `5` | Playlists | Playlists guardadas y el contenido de la seleccionada |
+| `5` | Playlists | Playlists guardadas y el contenido de la seleccionada. `l` pasa a los temas para editarla y `h` vuelve a los nombres |
 | `6` | Visual | Visualizador en vivo, leyendo la salida fifo de MPD. Apretando `6` otra vez se pasa a la forma siguiente |
 | `7` | Letra | La letra del tema que suena; si viene sincronizada (LRC), sigue la canción |
 
@@ -109,7 +109,9 @@ mpctui
 | `Enter` | Cola: reproducir · Biblioteca/Directorios: entrar o agregar · Búsqueda: agregar · Playlists: cargar · Letra: reproducir desde la línea elegida |
 | `l` / `h` | Columna siguiente/anterior · entrar/subir de directorio · Letra: volver a seguir la canción |
 | `a` / `A` | Agregar la selección / agregar todos (resultados, temas del álbum) |
-| `d` | Borrar de la cola · borrar playlist (pide confirmación) |
+| `d` | Borrar de la cola · borrar playlist (pide confirmación) · con foco en los temas de una playlist, quitar el tema |
+| `J` / `K` | Correr el tema seleccionado un lugar abajo / arriba (cola y temas de una playlist); el cursor lo acompaña |
+| `P` | Agregar la selección a una playlist: elegir una existente o «Nueva playlist» (pide el nombre). Agrega lo mismo que `a`: tema, álbum, artista, archivo o directorio |
 | `p` o `Espacio` | Pausa / reanudar |
 | `s` · `>` · `<` | Detener · siguiente · anterior |
 | `+` `-` · `f` `b` | Volumen ±5 · adelantar/retroceder 5 s |

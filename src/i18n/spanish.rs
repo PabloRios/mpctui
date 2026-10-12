@@ -55,6 +55,8 @@ impl Catalog for Spanish {
             Phrase::CycleSingle => "Single: no, sí, una vez",
             Phrase::Consume => "Consumir",
             Phrase::ShowPlaying => "Ir al tema que suena",
+            Phrase::MoveSong => "Mover el tema abajo / arriba",
+            Phrase::AddToPlaylist => "Agregar a una playlist",
             Phrase::RetryLyrics => "Reintentar la descarga de la letra",
             Phrase::UpdateDatabase => "Actualizar la biblioteca",
             Phrase::HelpNavigation => "Navegación",
@@ -89,6 +91,11 @@ impl Catalog for Spanish {
             Phrase::HintAddAll => "agregar todos",
             Phrase::HintLoad => "cargar",
             Phrase::HintSaveQueue => "guardar cola",
+            Phrase::HintMoveDown => "bajar",
+            Phrase::HintMoveUp => "subir",
+            Phrase::HintEdit => "editar",
+            Phrase::HintRemove => "quitar",
+            Phrase::HintToPlaylist => "a playlist",
             Phrase::HintPause => "pausa",
             Phrase::HintNextStyle => "siguiente forma",
             Phrase::HintRetry => "reintentar",
@@ -99,6 +106,10 @@ impl Catalog for Spanish {
             Phrase::ConfirmTitle => "Confirmar",
             Phrase::NameLabel => "Nombre",
             Phrase::SaveKeys => "Enter guarda   Esc cancela",
+            Phrase::NewPlaylistTitle => "Nueva playlist",
+            Phrase::PickerTitle => "Agregar a playlist",
+            Phrase::PickerKeys => "Enter elige   Esc cancela",
+            Phrase::NewPlaylistChoice => "Nueva playlist",
             Phrase::Yes => "sí",
             Phrase::No => "no",
             Phrase::ConfirmKey => "s",
@@ -254,6 +265,12 @@ impl Catalog for Spanish {
             Message::QueueSaved(name) => format!("Cola guardada como «{name}»"),
             Message::PlaylistDeleted(name) => format!("Playlist «{name}» borrada"),
             Message::PlaylistLoaded(name) => format!("Playlist «{name}» agregada a la cola"),
+            Message::AddedToPlaylist { what, playlist } => {
+                format!("Agregado a «{playlist}»: {what}")
+            }
+            Message::RemovedFromPlaylist { song, playlist } => {
+                format!("Quitado de «{playlist}»: {song}")
+            }
             Message::LibraryUpdated { elapsed } => format!("Biblioteca actualizada ({elapsed})"),
             Message::Failure(error) => failure(error),
             Message::Input(error) => input(error),
