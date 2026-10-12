@@ -8,7 +8,7 @@ use ratatui::text::{Line, Span};
 use unicode_width::UnicodeWidthChar;
 
 use super::theme;
-use crate::domain::{AudioFormat, SampleFormat, Song, Tag};
+use crate::domain::{AudioFormat, STEREO_CHANNELS, SampleFormat, Song, Tag, VisualizerStyle};
 
 const SECONDS_PER_MINUTE: u64 = 60;
 const SECONDS_PER_HOUR: u64 = 60 * SECONDS_PER_MINUTE;
@@ -32,7 +32,9 @@ const HERTZ_PER_KILOHERTZ: u32 = 1_000;
 /// Cifras de la parte decimal de los kHz (`44.1`, `22.05`).
 const KILOHERTZ_DECIMALS: usize = 3;
 const MONO_CHANNELS: u8 = 1;
-const STEREO_CHANNELS: u8 = 2;
+/// Separador decimal de los textos en español (`1,5 s`).
+const DECIMAL_COMMA: &str = ",";
+const DECIMAL_POINT: &str = ".";
 
 /// `m:ss`, o `h:mm:ss` si dura una hora o más.
 pub fn format_duration(duration: Duration) -> String {
@@ -152,6 +154,24 @@ pub fn frequency_tick(hertz: u32) -> String {
     } else {
         format!("{}k", hertz / HERTZ_PER_KILOHERTZ)
     }
+}
+
+/// Nombre de cada forma del visualizador.
+pub fn visualizer_style_name(style: VisualizerStyle) -> &'static str {
+    match style {
+        VisualizerStyle::Bars => "Barras",
+        VisualizerStyle::Mirror => "Espejo estéreo",
+        VisualizerStyle::Wave => "Onda",
+        VisualizerStyle::Waterfall => "Cascada",
+        VisualizerStyle::Vectorscope => "Vectorscopio",
+        VisualizerStyle::Meters => "Medidores",
+    }
+}
+
+/// Segundos con un decimal y coma: `1,5 s`.
+pub fn seconds_with_decimal(duration: Duration) -> String {
+    let seconds = format!("{:.1}", duration.as_secs_f32()).replace(DECIMAL_POINT, DECIMAL_COMMA);
+    format!("{seconds} s")
 }
 
 /// `mono`, `estéreo` o `n canales`.

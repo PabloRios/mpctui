@@ -1,6 +1,7 @@
-//! Tarea del visualizador: lee PCM de la fuente, analiza a `VISUALIZER_FPS` y publica
-//! solo el último cuadro (`watch`), así no se acumula nada si la TUI va más lenta.
-//! Corre solo mientras se la necesita: al soltar `RunningVisualizer` se cancela.
+//! Tarea del visualizador: lee PCM de la fuente, analiza a `VISUALIZER_FPS` la forma
+//! que pide la TUI y publica solo el último cuadro (`watch`), así no se acumula nada si
+//! la TUI va más lenta. Corre solo mientras se la necesita: al soltar
+//! `RunningVisualizer` se cancela.
 
 use std::io;
 use std::time::Duration;
@@ -10,27 +11,25 @@ use tokio::task::JoinHandle;
 use tokio::time::{Instant, MissedTickBehavior};
 
 use super::backoff::Backoff;
-use super::spectrum::{FFT_SIZE, PcmDecoder, SampleWindow, Smoother, SpectrumAnalyzer};
-use crate::domain::{PcmFormat, SpectrumFrame};
+use super::visual::Analysis;
+use crate::domain::{PcmFormat, VisualFrame, VisualRequest};
 use crate::repository::{Error, PcmSource};
 
 pub const VISUALIZER_FPS: u32 = 20;
-/// Sin datos durante este tiempo, se considera que no hay señal.
-pub const SILENCE_TIMEOUT: Duration = Duration::from_millis(250);
 const READ_BUFFER_BYTES: usize = 16 * 1024;
 
 /// Lo que publica el visualizador.
 #[derive(Debug, Clone, PartialEq)]
-pub enum SpectrumState {
-    Frame(SpectrumFrame),
+pub enum VisualState {
+    Frame(VisualFrame),
     /// No se puede abrir la fuente; el motivo es para el usuario (`no existe`).
     Unavailable(String),
 }
 
 /// Antes del primer cuadro: nada que dibujar.
-impl Default for SpectrumState {
+impl Default for VisualState {
     fn default() -> Self {
-        Self::Frame(SpectrumFrame::default())
+        Self::Frame(VisualFrame::default())
     }
 }
 
@@ -38,52 +37,8 @@ pub struct Visualizer<S> {
     source: S,
     format: PcmFormat,
     backoff: Backoff,
-    bands: watch::Receiver<usize>,
-    states: watch::Sender<SpectrumState>,
-}
-
-/// Estado del bucle de lectura y análisis.
-struct Analysis {
-    decoder: PcmDecoder,
-    window: SampleWindow,
-    analyzer: SpectrumAnalyzer,
-    smoother: Smoother,
-    last_frame: Instant,
-    last_data: Option<Instant>,
-}
-
-impl Analysis {
-    fn new(format: PcmFormat) -> Self {
-        Self {
-            decoder: PcmDecoder::new(format),
-            window: SampleWindow::new(FFT_SIZE),
-            analyzer: SpectrumAnalyzer::new(format.sample_rate()),
-            smoother: Smoother::default(),
-            last_frame: Instant::now(),
-            last_data: None,
-        }
-    }
-
-    fn receive(&mut self, bytes: &[u8], now: Instant) {
-        self.decoder.decode(bytes, &mut self.window);
-        self.last_data = Some(now);
-    }
-
-    /// Sin señal, las barras caen hasta cero con su velocidad de caída.
-    fn frame(&mut self, bands: usize, now: Instant) -> SpectrumFrame {
-        let signal = self
-            .last_data
-            .is_some_and(|last| now.saturating_duration_since(last) < SILENCE_TIMEOUT);
-        let targets = if signal {
-            self.analyzer.levels(&self.window.latest(), bands)
-        } else {
-            vec![0.0; bands]
-        };
-        let elapsed = now.saturating_duration_since(self.last_frame);
-        self.last_frame = now;
-        self.smoother.update(&targets, elapsed);
-        self.smoother.frame(signal)
-    }
+    requests: watch::Receiver<VisualRequest>,
+    states: watch::Sender<VisualState>,
 }
 
 impl<S: PcmSource + Send> Visualizer<S> {
@@ -91,14 +46,14 @@ impl<S: PcmSource + Send> Visualizer<S> {
         source: S,
         format: PcmFormat,
         backoff: Backoff,
-        bands: watch::Receiver<usize>,
-        states: watch::Sender<SpectrumState>,
+        requests: watch::Receiver<VisualRequest>,
+        states: watch::Sender<VisualState>,
     ) -> Self {
         Self {
             source,
             format,
             backoff,
-            bands,
+            requests,
             states,
         }
     }
@@ -106,7 +61,7 @@ impl<S: PcmSource + Send> Visualizer<S> {
     /// Corre hasta que nadie escuche. Tras un fin de archivo o un error, vuelve a
     /// abrir la fuente con espera creciente, sin dejar de publicar cuadros.
     pub async fn run(mut self) {
-        let mut analysis = Analysis::new(self.format);
+        let mut analysis = Analysis::new(self.format, Instant::now());
         let mut buffer = vec![0; READ_BUFFER_BYTES];
         let mut frames = tokio::time::interval(Duration::from_secs(1) / VISUALIZER_FPS);
         frames.set_missed_tick_behavior(MissedTickBehavior::Skip);
@@ -124,15 +79,15 @@ impl<S: PcmSource + Send> Visualizer<S> {
                     Err(error) => {
                         unavailable = true;
                         retry_at = Some(Instant::now() + self.backoff.next_delay());
-                        if !self.publish(SpectrumState::Unavailable(describe(&error))) {
+                        if !self.publish(VisualState::Unavailable(describe(&error))) {
                             return;
                         }
                     }
                 },
                 () = sleep_until(retry_at) => retry_at = None,
                 now = frames.tick() => {
-                    let frame = analysis.frame(*self.bands.borrow(), now);
-                    if !unavailable && !self.publish(SpectrumState::Frame(frame)) {
+                    let frame = analysis.frame(*self.requests.borrow(), now);
+                    if !unavailable && !self.publish(VisualState::Frame(frame)) {
                         return;
                     }
                 }
@@ -141,7 +96,7 @@ impl<S: PcmSource + Send> Visualizer<S> {
     }
 
     /// `false` si ya nadie escucha.
-    fn publish(&self, state: SpectrumState) -> bool {
+    fn publish(&self, state: VisualState) -> bool {
         self.states.send(state).is_ok()
     }
 }
@@ -169,7 +124,7 @@ fn describe(error: &Error) -> String {
 /// Abre una fuente nueva cada vez que se lanza el visualizador.
 type SourceOpener<S> = Box<dyn Fn() -> S + Send + Sync>;
 
-/// Lanza el visualizador cuando hace falta (al entrar a la vista Espectro).
+/// Lanza el visualizador cuando hace falta (al entrar a la vista Visual).
 pub struct VisualizerLauncher<S> {
     open_source: SourceOpener<S>,
     /// Qué se lee, para mostrarlo (`/tmp/mpd.fifo`).
@@ -201,20 +156,19 @@ impl<S: PcmSource + Send + 'static> VisualizerLauncher<S> {
         self.format
     }
 
-    pub fn launch(&self, bands: usize) -> RunningVisualizer {
-        let (bands_sender, bands_receiver) = watch::channel(bands);
-        let silent = SpectrumState::Frame(SpectrumFrame::silent(bands));
-        let (states_sender, states_receiver) = watch::channel(silent);
+    pub fn launch(&self, request: VisualRequest) -> RunningVisualizer {
+        let (requests_sender, requests_receiver) = watch::channel(request);
+        let (states_sender, states_receiver) = watch::channel(VisualState::default());
         let visualizer = Visualizer::new(
             (self.open_source)(),
             self.format,
             self.backoff,
-            bands_receiver,
+            requests_receiver,
             states_sender,
         );
         RunningVisualizer {
             task: tokio::spawn(visualizer.run()),
-            bands: bands_sender,
+            requests: requests_sender,
             states: states_receiver,
         }
     }
@@ -223,21 +177,22 @@ impl<S: PcmSource + Send + 'static> VisualizerLauncher<S> {
 /// El visualizador en marcha. Al soltarlo, la tarea se cancela y deja de leer.
 pub struct RunningVisualizer {
     task: JoinHandle<()>,
-    bands: watch::Sender<usize>,
-    states: watch::Receiver<SpectrumState>,
+    requests: watch::Sender<VisualRequest>,
+    states: watch::Receiver<VisualState>,
 }
 
 impl RunningVisualizer {
-    pub fn bands(&self) -> usize {
-        *self.bands.borrow()
+    pub fn request(&self) -> VisualRequest {
+        *self.requests.borrow()
     }
 
-    pub fn set_bands(&self, bands: usize) {
-        self.bands.send_replace(bands);
+    /// Otra forma u otro tamaño: el próximo cuadro ya sale con lo nuevo.
+    pub fn set_request(&self, request: VisualRequest) {
+        self.requests.send_replace(request);
     }
 
     /// Espera el próximo estado publicado; `None` si la tarea terminó.
-    pub async fn next_state(&mut self) -> Option<SpectrumState> {
+    pub async fn next_state(&mut self) -> Option<VisualState> {
         self.states.changed().await.ok()?;
         Some(self.states.borrow_and_update().clone())
     }
@@ -254,8 +209,9 @@ mod tests {
     use std::collections::VecDeque;
 
     use super::*;
+    use crate::domain::{VisualContent, VisualizerStyle};
     use crate::repository::Result;
-    use crate::service::spectrum::sine_pcm;
+    use crate::service::visual::sine_pcm;
 
     /// Fuente en memoria: entrega cada lectura del guion y después espera para siempre.
     struct ScriptedSource {
@@ -276,6 +232,11 @@ mod tests {
     }
 
     const BANDS: usize = 16;
+    const BARS: VisualRequest = VisualRequest {
+        style: VisualizerStyle::Bars,
+        columns: BANDS,
+        rows: 0,
+    };
 
     fn launcher(reads: Vec<Result<Vec<u8>>>) -> VisualizerLauncher<ScriptedSource> {
         let reads = std::sync::Mutex::new(Some(VecDeque::from(reads)));
@@ -295,10 +256,10 @@ mod tests {
     /// El primer cuadro que cumple `wanted`; el primer tick puede llegar antes que los datos.
     async fn frame_where(
         running: &mut RunningVisualizer,
-        wanted: impl Fn(&SpectrumFrame) -> bool,
-    ) -> SpectrumFrame {
+        wanted: impl Fn(&VisualFrame) -> bool,
+    ) -> VisualFrame {
         for _ in 0..FRAMES_TO_WAIT {
-            if let Some(SpectrumState::Frame(frame)) = running.next_state().await
+            if let Some(VisualState::Frame(frame)) = running.next_state().await
                 && wanted(&frame)
             {
                 return frame;
@@ -307,36 +268,54 @@ mod tests {
         panic!("no llegó el cuadro esperado");
     }
 
+    fn band_levels(frame: &VisualFrame) -> &[f32] {
+        match &frame.content {
+            VisualContent::Bars(bands) => &bands.levels,
+            _ => &[],
+        }
+    }
+
     #[tokio::test(start_paused = true)]
     async fn bars_follow_the_signal_and_fall_without_it() {
         let chunk = sine_pcm(1_000.0, 0.5, READ_BUFFER_BYTES / 4);
-        let mut running = launcher(vec![Ok(chunk)]).launch(BANDS);
+        let mut running = launcher(vec![Ok(chunk)]).launch(BARS);
         let frame = frame_where(&mut running, |frame| frame.signal).await;
-        assert_eq!(frame.levels.len(), BANDS);
-        assert!(frame.levels.iter().any(|level| *level > 0.5));
+        assert_eq!(band_levels(&frame).len(), BANDS);
+        assert!(band_levels(&frame).iter().any(|level| *level > 0.5));
         let frame = frame_where(&mut running, |frame| !frame.signal).await;
-        assert!(frame.peaks.iter().any(|peak| *peak > 0.0));
-        let frame = frame_where(&mut running, SpectrumFrame::is_flat).await;
-        assert!(!frame.signal);
+        assert!(!frame.content.is_flat());
+        frame_where(&mut running, |frame| frame.content.is_flat()).await;
     }
 
     #[tokio::test(start_paused = true)]
     async fn a_missing_source_is_explained_and_retried() {
         let missing = io::Error::from(io::ErrorKind::NotFound);
         let chunk = sine_pcm(1_000.0, 0.5, 1_024);
-        let mut running = launcher(vec![Err(missing.into()), Ok(chunk)]).launch(BANDS);
+        let mut running = launcher(vec![Err(missing.into()), Ok(chunk)]).launch(BARS);
         assert_eq!(
             running.next_state().await,
-            Some(SpectrumState::Unavailable("no existe".into()))
+            Some(VisualState::Unavailable("no existe".into()))
         );
         frame_where(&mut running, |frame| frame.signal).await;
     }
 
     #[tokio::test(start_paused = true)]
-    async fn band_count_can_change_while_running() {
-        let mut running = launcher(Vec::new()).launch(BANDS);
-        running.set_bands(BANDS * 2);
-        assert_eq!(running.bands(), BANDS * 2);
-        frame_where(&mut running, |frame| frame.levels.len() == BANDS * 2).await;
+    async fn the_request_can_change_while_running() {
+        let mut running = launcher(Vec::new()).launch(BARS);
+        let wider = VisualRequest {
+            columns: BANDS * 2,
+            ..BARS
+        };
+        running.set_request(wider);
+        assert_eq!(running.request(), wider);
+        frame_where(&mut running, |frame| band_levels(frame).len() == BANDS * 2).await;
+        running.set_request(VisualRequest {
+            style: VisualizerStyle::Meters,
+            ..BARS
+        });
+        frame_where(&mut running, |frame| {
+            frame.content.style() == VisualizerStyle::Meters
+        })
+        .await;
     }
 }

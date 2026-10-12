@@ -6,7 +6,7 @@ mod library;
 mod playlists;
 mod queue;
 mod search;
-mod spectrum;
+mod visual;
 
 use ratatui::Frame;
 use ratatui::layout::{Margin, Rect};
@@ -27,11 +27,9 @@ pub fn render(frame: &mut Frame, area: Rect, state: &mut AppState, context: &Con
         ViewKind::Browse => browse::render(frame, area, state, context),
         ViewKind::Search => search::render(frame, area, state, context),
         ViewKind::Playlists => playlists::render(frame, area, state, context),
-        ViewKind::Spectrum => spectrum::render(frame, area, state, context),
+        ViewKind::Visualizer => visual::render(frame, area, state, context),
     }
 }
-
-pub use spectrum::band_count;
 
 /// Dibuja una lista simple (una fila por elemento) conservando su desplazamiento.
 fn draw_list<'a, T, S: RowSource>(

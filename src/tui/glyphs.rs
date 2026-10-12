@@ -19,6 +19,32 @@ pub struct Junctions {
 
 /// Cuadros del spinner de reconexión.
 pub const SPINNER_FRAMES: usize = 4;
+/// Primer carácter braille (sin puntos). Un punto encendido suma su bit: es el único
+/// glifo que se calcula en lugar de escribirse.
+pub const BRAILLE_BASE: u32 = 0x2800;
+
+/// Cómo se dibujan los puntos de la Onda y del Vectorscopio.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Plot {
+    /// Puntos braille de 2 × 4 por celda (`BRAILLE_BASE` + bits).
+    Braille,
+    /// Una celda de texto por columna, con sub-niveles verticales.
+    Cells(CellPlot),
+}
+
+/// Puntos en celdas de texto (juego ASCII).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CellPlot {
+    /// Sub-niveles de una celda, de arriba a abajo.
+    pub levels: &'static [&'static str],
+    /// Une un salto vertical que ocupa más de un sub-nivel.
+    pub join: &'static str,
+    /// Guías del Vectorscopio hacia L (arriba a la izquierda) y hacia R.
+    pub guide_left: &'static str,
+    pub guide_right: &'static str,
+    /// Densidad de puntos del Vectorscopio por celda: vacío y después de menos a más.
+    pub density: &'static [&'static str],
+}
 
 /// Un glifo por rol. Ver la tabla 2.1 de `DESIGN.md`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -59,6 +85,21 @@ pub struct Glyphs {
     /// cantidad de niveles por celda sale de la longitud.
     pub spectrum_levels: &'static [&'static str],
     pub spectrum_peak: &'static str,
+    /// Medias celdas del Espejo: el canal L crece hacia arriba y el R hacia abajo.
+    pub mirror_up: &'static [&'static str],
+    pub mirror_down: &'static [&'static str],
+    pub plot: Plot,
+    /// Sombreado de la Cascada: vacío y después de menos a más intensidad.
+    pub shades: &'static [&'static str],
+    /// Fracciones horizontales de las barras de los Medidores, de menor a celda llena.
+    pub meter_eighths: &'static [&'static str],
+    pub meter_peak: &'static str,
+    pub scale_tick: &'static str,
+    pub correlation_center: &'static str,
+    pub correlation_marker: &'static str,
+    /// Indicador de la forma activa del visualizador.
+    pub page_active: &'static str,
+    pub page_inactive: &'static str,
     pub message_info: &'static str,
     pub message_error: &'static str,
     /// Cursor al final del texto que se está escribiendo.
@@ -106,6 +147,17 @@ pub const UNICODE: Glyphs = Glyphs {
     spinner: ["◐", "◓", "◑", "◒"],
     spectrum_levels: &[" ", "▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"],
     spectrum_peak: "▔",
+    mirror_up: &[" ", "▄", "█"],
+    mirror_down: &[" ", "▀", "█"],
+    plot: Plot::Braille,
+    shades: &[" ", "░", "▒", "▓", "█"],
+    meter_eighths: &["▏", "▎", "▍", "▌", "▋", "▊", "▉", "█"],
+    meter_peak: "│",
+    scale_tick: "┴",
+    correlation_center: "┼",
+    correlation_marker: "●",
+    page_active: "●",
+    page_inactive: "○",
     message_info: "·",
     message_error: "✖",
     input_cursor: "_",
@@ -159,6 +211,23 @@ pub const ASCII: Glyphs = Glyphs {
     spinner: ["|", "/", "-", "\\"],
     spectrum_levels: &[" ", ".", ":", "#"],
     spectrum_peak: "-",
+    mirror_up: &[" ", ".", "#"],
+    mirror_down: &[" ", "'", "#"],
+    plot: Plot::Cells(CellPlot {
+        levels: &["'", "-", "."],
+        join: "|",
+        guide_left: "\\",
+        guide_right: "/",
+        density: &[" ", ".", "+", "#"],
+    }),
+    shades: &[" ", ".", ":", "-", "=", "+", "*", "#", "%", "@"],
+    meter_eighths: &["#"],
+    meter_peak: "|",
+    scale_tick: "+",
+    correlation_center: "+",
+    correlation_marker: "o",
+    page_active: "*",
+    page_inactive: ".",
     message_info: "(i)",
     message_error: "(x)",
     input_cursor: "_",
@@ -234,6 +303,12 @@ mod tests {
             glyphs.connected,
             glyphs.disconnected,
             glyphs.spectrum_peak,
+            glyphs.meter_peak,
+            glyphs.scale_tick,
+            glyphs.correlation_center,
+            glyphs.correlation_marker,
+            glyphs.page_active,
+            glyphs.page_inactive,
             glyphs.message_info,
             glyphs.message_error,
             glyphs.input_cursor,
@@ -256,7 +331,20 @@ mod tests {
             junction.cross,
         ];
         symbols.extend(glyphs.spinner);
-        symbols.extend(glyphs.spectrum_levels);
+        for set in [
+            glyphs.spectrum_levels,
+            glyphs.mirror_up,
+            glyphs.mirror_down,
+            glyphs.shades,
+            glyphs.meter_eighths,
+        ] {
+            symbols.extend(set);
+        }
+        if let Plot::Cells(cells) = glyphs.plot {
+            symbols.extend(cells.levels);
+            symbols.extend(cells.density);
+            symbols.extend([cells.join, cells.guide_left, cells.guide_right]);
+        }
         symbols
     }
 
@@ -286,6 +374,25 @@ mod tests {
         }
         assert_eq!(UNICODE.spectrum_levels.len(), 9);
         assert_eq!(ASCII.spectrum_levels.len(), 4);
+    }
+
+    #[test]
+    fn level_sets_start_empty() {
+        for glyphs in [UNICODE, ASCII] {
+            for set in [glyphs.mirror_up, glyphs.mirror_down, glyphs.shades] {
+                assert_eq!(set[0], " ");
+            }
+        }
+        assert_eq!(UNICODE.meter_eighths.len(), 8);
+        assert_eq!(UNICODE.meter_eighths.last(), Some(&UNICODE.scroll_thumb));
+        assert_eq!(ASCII.shades.len(), 10);
+    }
+
+    #[test]
+    fn braille_base_is_the_empty_braille_cell() {
+        assert_eq!(char::from_u32(BRAILLE_BASE), Some('\u{2800}'));
+        let full = char::from_u32(BRAILLE_BASE + u32::from(u8::MAX)).unwrap();
+        assert_eq!(Span::raw(full.to_string()).width(), 1);
     }
 
     #[test]

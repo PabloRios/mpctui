@@ -9,7 +9,7 @@ mod playback;
 mod playlists;
 mod progress;
 mod queue;
-mod spectrum;
+mod visual;
 mod visualizer;
 
 pub use backoff::Backoff;
@@ -20,10 +20,7 @@ pub use playback::{PlaybackService, PlayerSnapshot, STATUS_POLL_INTERVAL};
 pub use playlists::PlaylistService;
 pub use progress::PlaybackClock;
 pub use queue::QueueService;
-pub use spectrum::{
-    CEIL_DB, FFT_SIZE, FLOOR_DB, PcmDecoder, SampleWindow, Smoother, SpectrumAnalyzer,
-};
+pub use visual::{CEIL_DB, FFT_SIZE, FLOOR_DB, SILENCE_TIMEOUT};
 pub use visualizer::{
-    RunningVisualizer, SILENCE_TIMEOUT, SpectrumState, VISUALIZER_FPS, Visualizer,
-    VisualizerLauncher,
+    RunningVisualizer, VISUALIZER_FPS, VisualState, Visualizer, VisualizerLauncher,
 };

@@ -13,7 +13,7 @@ use super::format::{countdown, format_duration, songs_count};
 use super::gauges::{MeterCell, meter, meter_line};
 use super::theme;
 use super::widgets::{millis, spread};
-use crate::tui::action::{Action, key_label};
+use crate::tui::action::{key_label, view_action};
 use crate::tui::state::{AppState, ConnectionState, ViewKind};
 
 const APPLICATION_NAME: &str = "mpctui";
@@ -166,7 +166,7 @@ pub fn render_tabs(frame: &mut Frame, area: Rect, state: &AppState, context: &Co
         if index > 0 {
             tabs.push(Span::raw(" "));
         }
-        let key = key_label(Action::ShowView(view), context.glyphs).unwrap_or_default();
+        let key = key_label(view_action(view), context.glyphs).unwrap_or_default();
         let label = format!("{key} {}", view_title(view, context.is_compact()));
         tabs.push(if view == state.view {
             Span::styled(format!("[{label}]"), theme::FOCUSED)
@@ -208,8 +208,7 @@ pub fn view_title(view: ViewKind, abbreviated: bool) -> &'static str {
         (ViewKind::Search, true) => "Búsq.",
         (ViewKind::Playlists, false) => "Playlists",
         (ViewKind::Playlists, true) => "Playl.",
-        (ViewKind::Spectrum, false) => "Espectro",
-        (ViewKind::Spectrum, true) => "Espec.",
+        (ViewKind::Visualizer, _) => "Visual",
     }
 }
 

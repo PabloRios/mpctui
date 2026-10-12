@@ -1,6 +1,6 @@
 # mpctui
 
-Cliente de terminal para [MPD](https://www.musicpd.org/) (Music Player Daemon), escrito en Rust. Al estilo de ncmpcpp: cola, biblioteca, navegador de directorios, búsqueda, playlists guardadas y visualizador de espectro, con actualización en vivo cuando algo cambia en el servidor.
+Cliente de terminal para [MPD](https://www.musicpd.org/) (Music Player Daemon), escrito en Rust. Al estilo de ncmpcpp: cola, biblioteca, navegador de directorios, búsqueda, playlists guardadas y un visualizador con seis formas, con actualización en vivo cuando algo cambia en el servidor.
 
 ## Requisitos
 
@@ -30,6 +30,7 @@ album_progress = false    # barra de progreso del álbum en el panel (oculta por
 queue_progress = false    # barra de progreso de la cola en el panel (oculta por defecto)
 visualizer_fifo = "/tmp/mpd.fifo"   # salida fifo de MPD que lee el visualizador
 visualizer_format = "44100:16:2"    # debe coincidir con el format de esa salida
+visualizer_style = "bars"           # forma con la que arranca: bars, mirror, wave, waterfall, vectorscope o meters
 ```
 
 **Variables de entorno** (las mismas que usa `mpc`):
@@ -40,13 +41,13 @@ visualizer_format = "44100:16:2"    # debe coincidir con el format de esa salida
 | `MPD_PORT` | `6600` | Puerto TCP |
 | `MPCTUI_GLYPHS` | `ascii` | Fuerza el juego de glifos (`auto`, `unicode` o `ascii`) |
 
-Si la configuración es inválida (puerto no numérico, host vacío, campo desconocido en el TOML, contraseña con saltos de línea, `glyphs` distinto de `auto`/`unicode`/`ascii`, `album_progress` o `queue_progress` que no sean `true`/`false`, `visualizer_fifo` vacío, `visualizer_format` que no sea de 16 bits, 1 o 2 canales y entre 8000 y 192000 Hz), mpctui no arranca y explica el motivo. Que el FIFO no exista no es un error de configuración: la vista Espectro explica cómo crearlo.
+Si la configuración es inválida (puerto no numérico, host vacío, campo desconocido en el TOML, contraseña con saltos de línea, `glyphs` distinto de `auto`/`unicode`/`ascii`, `album_progress` o `queue_progress` que no sean `true`/`false`, `visualizer_fifo` vacío, `visualizer_format` que no sea de 16 bits, 1 o 2 canales y entre 8000 y 192000 Hz, `visualizer_style` desconocido, o `mirror`/`vectorscope` con un FIFO de un canal), mpctui no arranca y explica el motivo. Que el FIFO no exista no es un error de configuración: la vista Visual explica cómo crearlo.
 
 ### Glifos: Unicode o ASCII
 
 mpctui dibuja con símbolos Unicode (`▶ ⏸ ▸ ♪ ≡`, bordes `┌─┐`) y tiene un juego ASCII equivalente (`|> || > ~ =`, bordes `+-|`) con el mismo layout. Con `glyphs = "auto"` usa ASCII si el locale (`LC_ALL`, `LC_CTYPE` o `LANG`, el primero no vacío) no es UTF-8, o si `TERM` es `linux` (consola virtual) o `dumb`. En cualquier otro caso usa Unicode.
 
-> **Ancho ambiguo:** varios símbolos (`▶ ■ ● ○ ◐ ▸ ♪ ≡ □`, y los bloques `▁…█` y `▔` del espectro) tienen ancho "ambiguo" en Unicode. Si la terminal está configurada para dibujarlos en dos columnas (común con locales CJK), las columnas se desalinean. Lo mismo pasa si la fuente no tiene alguno de los símbolos, o si la terminal muestra `⏸` como emoji. En esos casos, usar `glyphs = "ascii"` o `MPCTUI_GLYPHS=ascii`.
+> **Ancho ambiguo:** varios símbolos (`▶ ■ ● ○ ◐ ▸ ♪ ≡ □`, y los bloques `▁…█`, `▔`, `▄`, `▀`, `░▒▓` y `▏…▉` del visualizador) tienen ancho "ambiguo" en Unicode. Si la terminal está configurada para dibujarlos en dos columnas (común con locales CJK), las columnas se desalinean. Lo mismo pasa si la fuente no tiene alguno de los símbolos, o si la terminal muestra `⏸` como emoji. El braille de la Onda y el Vectorscopio no tiene ancho ambiguo, pero puede faltar en la fuente. En esos casos, usar `glyphs = "ascii"` o `MPCTUI_GLYPHS=ascii`.
 
 ## Uso
 
@@ -63,7 +64,7 @@ mpctui
 | `3` | Directorios | La biblioteca por carpetas, con migas de pan desde la raíz |
 | `4` | Búsqueda | Resultados agrupados por álbum, con las coincidencias en negrita y subrayadas |
 | `5` | Playlists | Playlists guardadas y el contenido de la seleccionada |
-| `6` | Espectro | Visualizador de espectro en vivo, leyendo la salida fifo de MPD |
+| `6` | Visual | Visualizador en vivo, leyendo la salida fifo de MPD. Apretando `6` otra vez se pasa a la forma siguiente |
 
 `Tab` / `Shift+Tab` recorren las vistas.
 
@@ -77,7 +78,15 @@ mpctui
   - **cola:** un segmento por álbum, mostrando los álbumes cercanos al actual. Oculta por defecto; se activa con `queue_progress = true`.
 
   Cada barra activada suma una fila al panel. Si falta la duración de algún tema, las barras del álbum y de la cola cuentan temas en lugar de tiempo. Debajo van el volumen, los modos con su tecla (`z ● aleatorio`) y la posición en la cola.
-- **Espectro:** una barra por banda (entre 8 y 64, según el ancho) en escala logarítmica de 40 Hz a 16 kHz, con picos que se sostienen medio segundo y caen. El color va por altura: verde abajo, amarillo al medio y rojo arriba. En pausa o detenido, las barras caen a cero y se lee `sin señal`. En modo compacto las barras son de una columna, sin título ni eje. El FIFO solo se lee mientras la vista está activa.
+- **Visual:** la fila de título muestra la forma activa, el indicador `● ○ ○ ○ ○ ○  1/6` y, a la derecha, los datos de la forma. `6` desde otra vista entra con la última forma usada; estando en el visualizador pasa a la siguiente, en ciclo:
+  - **Barras:** una barra por banda (entre 8 y 64, según el ancho) en escala logarítmica de 40 Hz a 16 kHz, con picos que se sostienen medio segundo y caen. El color va por altura: verde abajo, amarillo al medio y rojo arriba.
+  - **Espejo estéreo:** el canal L crece hacia arriba y el R hacia abajo desde un eje central con las frecuencias.
+  - **Onda:** osciloscopio de unos 23 ms que arranca en un cruce por cero ascendente, así un sonido periódico se ve quieto (`sincronizado`; si no hay cruce, `libre`). Escala fija de -1 a +1.
+  - **Cascada:** espectrograma con una banda por fila (agudos arriba) y el tiempo hacia la izquierda, 10 columnas por segundo. La intensidad va en sombreado.
+  - **Vectorscopio:** cada par L/R como punto en ejes M/S (un tema mono es una línea vertical), con escala automática y la correlación debajo.
+  - **Medidores:** RMS (300 ms) y pico retenido (1,5 s) por canal en dBFS, con escala de -60 a 0 y la correlación.
+
+  Con un FIFO de un canal, Espejo y Vectorscopio salen del ciclo y los Medidores muestran una sola barra. En pausa o detenido las formas caen a cero y se lee `sin señal`. En modo compacto se ocultan la fila de título, los ejes y las escalas. El FIFO solo se lee mientras la vista está activa, y solo se calcula la forma que se ve.
 - **Línea inferior:** los atajos más útiles de la vista activa. Los avisos y errores la reemplazan durante 5 segundos.
 - **Tamaño:** desde 100 × 28 se ve todo. Desde 60 × 16 hay un modo compacto: panel de 3 filas, pestañas abreviadas y, por debajo de 80 columnas, sin columna Álbum. Más chica, mpctui muestra el mínimo necesario y el tamaño actual.
 
@@ -108,7 +117,7 @@ mpctui
 
 ### Visualizador
 
-La vista Espectro lee el PCM que MPD escribe en una salida fifo. Si no existe, la vista muestra qué agregar en `mpd.conf`:
+La vista Visual lee el PCM que MPD escribe en una salida fifo. Si no existe, la vista muestra qué agregar en `mpd.conf`:
 
 ```
 audio_output {
@@ -119,7 +128,7 @@ audio_output {
 }
 ```
 
-Con otra ruta o formato, configurar `visualizer_fifo` y `visualizer_format`. Para ajustar la sensibilidad con música real: `cargo run --example spectrum_smoke` lee el FIFO durante 3 segundos e imprime el nivel máximo de cada banda (no envía comandos a MPD).
+Con otra ruta o formato, configurar `visualizer_fifo` y `visualizer_format`; la forma con la que arranca se elige con `visualizer_style`. Para ajustar la sensibilidad con música real: `cargo run --example spectrum_smoke` lee el FIFO 3 segundos con Barras y otros 3 con Medidores, e imprime el nivel máximo de cada banda, el RMS y el pico por canal y la correlación (no envía comandos a MPD).
 
 ## Log
 
@@ -134,5 +143,5 @@ cargo fmt
 cargo clippy --all-targets -- -D warnings
 cargo test
 cargo run --example smoke            # prueba de solo lectura contra un MPD real
-cargo run --example spectrum_smoke   # niveles del espectro leyendo el FIFO (solo lectura)
+cargo run --example spectrum_smoke   # bandas, RMS, pico y correlación leyendo el FIFO (solo lectura)
 ```

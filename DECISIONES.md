@@ -77,3 +77,45 @@ están en `DESIGN.md` ni en `DESIGN_EXTRA.md`.
   `BINDINGS`, con una tecla por acción, así que no aparece el `1..6 vistas` del mockup.
 - **Resumen de la cola en las pestañas:** con seis pestañas a 100 columnas ya no entra y
   se oculta, como ya preveía la regla de D5. El mockup lo mostraba sin el `cola:`.
+
+### E5 · Ciclo y formas del visualizador
+
+- **La pestaña se llama `Visual`** (igual en modo compacto), como en el mockup.
+- **La ayuda dice `Visualizador / otra forma`:** `Visualizador / siguiente forma` no entra en
+  la columna de la ayuda a 100 columnas y se cortaba. La línea inferior de la vista 6
+  sugiere `6 siguiente forma`, y el aviso al cambiar es el del diseño.
+- **`view_action(vista)`:** la pestaña 6 busca su tecla en `ShowVisualizer`, no en
+  `ShowView`. Las demás vistas no cambian.
+- **Dónde va cada cosa:** la vista en `tui/views/pages/visual/` (las vistas viven en `pages/`)
+  y el análisis en `service/visual/`. Barras y Espejo no tienen módulo propio en el servicio:
+  son el analizador de bandas más `Smoother`, que ya está en `bands.rs` (KISS).
+- **`VisualRequest` lo calcula la vista al dibujar,** no una función aparte con el tamaño de
+  la terminal: cada forma conoce su área exacta (márgenes, ejes, puntos por celda). La vista
+  lo deja en `state.visual.request` y la app se lo pasa al visualizador. En lugar de
+  `width`/`height`, lleva `columns` (bandas o columnas de datos) y `rows` (bandas de la
+  Cascada), que es lo que necesita el servicio.
+- **`VisualFrame` = `VisualContent` + `signal`,** en lugar de una variante `Silent`. La vista
+  muestra `sin señal` cuando no hay señal y la forma ya no tiene nada que dibujar, igual que
+  hacían las barras.
+- **Sin señal se vacía la ventana de muestras:** todas las formas ven silencio con la misma
+  regla. Las barras caen con su velocidad de caída y la Cascada sigue avanzando con
+  columnas vacías.
+- **Un cuadro de otra forma no se dibuja:** durante el cambio de forma (un cuadro, 50 ms) la
+  vista muestra solo el título.
+- **Glifos:** `scope_guides` y `scope_density` del diseño quedaron dentro de
+  `Plot::Cells` (`CellPlot`), porque solo existen en ASCII. En braille, las guías son puntos
+  calculados. `BRAILLE_BASE` vive en `glyphs.rs`.
+- **`HeldPeak` es compartido:** lo usan las barras (0,5 s y 0,5 alturas/s) y los Medidores.
+- **Valores que el diseño no fijaba:** el pico de los Medidores cae a 20 dB/s;
+  `VECTORSCOPE_GAIN_DECAY` es 0,5 por segundo; por debajo de 1e-4 de amplitud el
+  Vectorscopio no dibuja puntos; la línea de correlación mide 41 celdas y se acorta si no
+  entra. Se ajustan con música real.
+- **Medidores en el piso:** el número se muestra como `—` en lugar de `-60.0`.
+- **Onda continua:** cada columna incluye la última muestra de la anterior, así la línea no
+  se corta cuando la señal salta entre columnas.
+- **Cascada:** si cambia la cantidad de bandas (otra altura), el historial se descarta. Las
+  etiquetas de tiempo terminan en la columna de ese instante; por eso `-1 s` queda a 10
+  columnas de `ahora`.
+- **Espejo en modo compacto:** sin letras `L`/`R` ni etiquetas; queda la línea del eje.
+- **`spectrum_smoke`:** lee 3 s con Barras y otros 3 s con Medidores, porque el servicio
+  solo calcula la forma activa.

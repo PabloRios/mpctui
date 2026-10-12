@@ -1,11 +1,14 @@
 //! Cómo se ve la interfaz. Lo arma el composition root a partir de la configuración.
 
 use super::glyphs::Glyphs;
+use crate::domain::VisualizerStyle;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Appearance {
     pub glyphs: &'static Glyphs,
     pub progress_bars: ProgressBars,
+    /// Forma con la que arranca el visualizador.
+    pub visualizer_style: VisualizerStyle,
 }
 
 /// Barras opcionales del panel "ahora suena". La del tema siempre se muestra.

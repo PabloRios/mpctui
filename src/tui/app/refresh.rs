@@ -56,7 +56,7 @@ impl<B: Backend> App<B> {
     /// Recarga los datos de la vista activa conservando la selección.
     pub(super) async fn load_view(&mut self) {
         match self.state.view {
-            ViewKind::Queue | ViewKind::Search | ViewKind::Spectrum => {}
+            ViewKind::Queue | ViewKind::Search | ViewKind::Visualizer => {}
             ViewKind::Library => self.reload_library().await,
             ViewKind::Browse => {
                 let path = self.state.browse.path.clone();

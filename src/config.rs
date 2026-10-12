@@ -7,7 +7,7 @@ use std::{env, fs, io};
 use directories::ProjectDirs;
 use serde::Deserialize;
 
-use crate::domain::{InputError, Password, PcmFormat};
+use crate::domain::{InputError, Password, PcmFormat, VisualizerStyle};
 use crate::repository::mpd::{Address, DEFAULT_HOST, DEFAULT_PORT};
 
 const APPLICATION_NAME: &str = "mpctui";
@@ -25,6 +25,15 @@ const ASCII_TERMINALS: [&str; 2] = ["linux", "dumb"];
 /// Salida fifo de MPD que lee el visualizador, y su formato (el `format` de `mpd.conf`).
 const DEFAULT_VISUALIZER_FIFO: &str = "/tmp/mpd.fifo";
 const DEFAULT_VISUALIZER_FORMAT: &str = "44100:16:2";
+/// Nombres de `visualizer_style`, en inglés como los de `glyphs`.
+const VISUALIZER_STYLE_NAMES: [(&str, VisualizerStyle); 6] = [
+    ("bars", VisualizerStyle::Bars),
+    ("mirror", VisualizerStyle::Mirror),
+    ("wave", VisualizerStyle::Wave),
+    ("waterfall", VisualizerStyle::Waterfall),
+    ("vectorscope", VisualizerStyle::Vectorscope),
+    ("meters", VisualizerStyle::Meters),
+];
 /// Como en `mpc`: `MPD_HOST=contraseña@host`.
 const PASSWORD_SEPARATOR: char = '@';
 
@@ -94,6 +103,8 @@ pub struct FileConfig {
     pub visualizer_fifo: Option<String>,
     /// Formato de esa salida: `frecuencia:16:canales`.
     pub visualizer_format: Option<String>,
+    /// Forma con la que arranca el visualizador (`bars`, `mirror`, `wave`…).
+    pub visualizer_style: Option<String>,
 }
 
 /// Variables de entorno relevantes, leídas sin interpretar.
@@ -123,6 +134,7 @@ pub struct Settings {
     pub queue_progress: bool,
     pub visualizer_fifo: PathBuf,
     pub visualizer_format: PcmFormat,
+    pub visualizer_style: VisualizerStyle,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -146,6 +158,10 @@ pub enum ConfigError {
     EmptyVisualizerFifo,
     #[error("visualizer_format inválido: {0}")]
     InvalidVisualizerFormat(InputError),
+    #[error("visualizer_style debe ser {choices}, no {0:?}", choices = visualizer_style_choices())]
+    InvalidVisualizerStyle(String),
+    #[error("visualizer_style = {0:?} necesita dos canales y visualizer_format tiene uno")]
+    StereoStyleWithMonoFifo(String),
 }
 
 pub(crate) fn project_directories() -> Option<ProjectDirs> {
@@ -207,6 +223,10 @@ pub fn resolve(file: FileConfig, environment: Environment) -> Result<Settings, C
             .unwrap_or(DEFAULT_VISUALIZER_FORMAT),
     )
     .map_err(ConfigError::InvalidVisualizerFormat)?;
+    let visualizer_style = match file.visualizer_style {
+        Some(name) => visualizer_style(&name, visualizer_format)?,
+        None => VisualizerStyle::default(),
+    };
     Ok(Settings {
         address: Address::new(host, port),
         password,
@@ -215,7 +235,30 @@ pub fn resolve(file: FileConfig, environment: Environment) -> Result<Settings, C
         queue_progress: file.queue_progress.unwrap_or_default(),
         visualizer_fifo: PathBuf::from(visualizer_fifo),
         visualizer_format,
+        visualizer_style,
     })
+}
+
+/// La forma por su nombre; una estéreo con un FIFO de un canal no se puede mostrar.
+fn visualizer_style(name: &str, format: PcmFormat) -> Result<VisualizerStyle, ConfigError> {
+    let style = VISUALIZER_STYLE_NAMES
+        .iter()
+        .find(|(candidate, _)| *candidate == name)
+        .map(|(_, style)| *style)
+        .ok_or_else(|| ConfigError::InvalidVisualizerStyle(name.to_owned()))?;
+    if !style.is_available(format.channels()) {
+        return Err(ConfigError::StereoStyleWithMonoFifo(name.to_owned()));
+    }
+    Ok(style)
+}
+
+/// `"bars", "mirror", …`, para el mensaje de error.
+fn visualizer_style_choices() -> String {
+    VISUALIZER_STYLE_NAMES
+        .iter()
+        .map(|(name, _)| format!("{name:?}"))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 /// `auto` elige Unicode salvo que el locale no sea UTF-8 o la terminal no tenga los
@@ -438,6 +481,34 @@ mod tests {
                 InputError::UnsupportedBits(24)
             ))
         ));
+    }
+
+    #[test]
+    fn visualizer_style_defaults_to_bars() {
+        let settings = resolve(FileConfig::default(), Environment::default()).unwrap();
+        assert_eq!(settings.visualizer_style, VisualizerStyle::Bars);
+        let file: FileConfig = toml::from_str("visualizer_style = \"waterfall\"").unwrap();
+        let settings = resolve(file, Environment::default()).unwrap();
+        assert_eq!(settings.visualizer_style, VisualizerStyle::Waterfall);
+    }
+
+    #[test]
+    fn invalid_visualizer_styles_fail_fast() {
+        let resolve_toml =
+            |raw: &str| resolve(toml::from_str(raw).unwrap(), Environment::default());
+        let error = resolve_toml("visualizer_style = \"radial\"").unwrap_err();
+        assert!(matches!(error, ConfigError::InvalidVisualizerStyle(_)));
+        assert!(error.to_string().contains("\"meters\""), "{error}");
+        assert!(matches!(
+            resolve_toml("visualizer_format = \"44100:16:1\"\nvisualizer_style = \"mirror\""),
+            Err(ConfigError::StereoStyleWithMonoFifo(_))
+        ));
+        let mono_meters =
+            resolve_toml("visualizer_format = \"44100:16:1\"\nvisualizer_style = \"meters\"");
+        assert_eq!(
+            mono_meters.unwrap().visualizer_style,
+            VisualizerStyle::Meters
+        );
     }
 
     #[test]

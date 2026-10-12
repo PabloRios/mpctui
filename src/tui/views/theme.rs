@@ -29,6 +29,17 @@ pub const MODE_OFF: Style = Style::new().add_modifier(Modifier::DIM);
 pub const SPECTRUM_LOW: Style = Style::new().fg(Color::Green);
 pub const SPECTRUM_MIDDLE: Style = Style::new().fg(Color::Yellow);
 pub const SPECTRUM_HIGH: Style = Style::new().fg(Color::Red);
+/// Puntos de la Onda y del Vectorscopio.
+pub const SCOPE: Style = Style::new().fg(Color::Cyan);
+/// Guías del Vectorscopio: quedan detrás de la señal.
+pub const SCOPE_GUIDE: Style = MUTED;
+/// Intensidad de la Cascada, de baja a alta: el sombreado ya la transmite.
+pub const WATERFALL_SHADES: [Style; 4] = [
+    Style::new().fg(Color::DarkGray),
+    Style::new().fg(Color::Cyan),
+    Style::new().fg(Color::Yellow),
+    Style::new().fg(Color::Red),
+];
 /// Texto que coincide con la búsqueda.
 pub const MATCH: Style = Style::new()
     .add_modifier(Modifier::BOLD)

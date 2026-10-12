@@ -8,9 +8,10 @@ use super::action::Navigation;
 use super::list::{SelectableList, SelectionPolicy};
 use super::prompt::Prompt;
 use crate::domain::{
-    Entry, PATH_SEPARATOR, PlaylistName, SearchText, Song, Tag, Timeline, timeline,
+    Entry, PATH_SEPARATOR, PlaylistName, STEREO_CHANNELS, SearchText, Song, Tag, Timeline,
+    VisualRequest, VisualizerStyle, timeline,
 };
-use crate::service::{LIBRARY_ROOT, PlaybackClock, PlayerSnapshot, SpectrumState};
+use crate::service::{LIBRARY_ROOT, PlaybackClock, PlayerSnapshot, VisualState};
 
 /// Cuánto reemplaza un aviso a los atajos de la línea inferior.
 pub const MESSAGE_DURATION: Duration = Duration::from_secs(5);
@@ -23,7 +24,7 @@ pub enum ViewKind {
     Browse,
     Search,
     Playlists,
-    Spectrum,
+    Visualizer,
 }
 
 impl ViewKind {
@@ -33,7 +34,7 @@ impl ViewKind {
         ViewKind::Browse,
         ViewKind::Search,
         ViewKind::Playlists,
-        ViewKind::Spectrum,
+        ViewKind::Visualizer,
     ];
 
     pub fn index(self) -> usize {
@@ -232,14 +233,33 @@ impl Notice {
     }
 }
 
-/// Visualizador de espectro: lo último que publicó y qué fuente lee.
-#[derive(Debug, Default)]
-pub struct SpectrumView {
-    pub state: SpectrumState,
+/// Visualizador: lo último que publicó, la forma activa y qué fuente lee.
+#[derive(Debug)]
+pub struct VisualView {
+    pub state: VisualState,
+    /// Forma activa; se conserva al salir de la vista.
+    pub style: VisualizerStyle,
+    /// Lo que pidió el último dibujado según el área; la app se lo pasa al visualizador.
+    pub request: Option<VisualRequest>,
     /// Ruta del FIFO (`/tmp/mpd.fifo`).
     pub source: String,
     /// Formato que se espera en el FIFO (`44100:16:2`).
     pub format: String,
+    /// Canales del FIFO: con uno, las formas estéreo salen del ciclo.
+    pub channels: u8,
+}
+
+impl Default for VisualView {
+    fn default() -> Self {
+        Self {
+            state: VisualState::default(),
+            style: VisualizerStyle::default(),
+            request: None,
+            source: String::new(),
+            format: String::new(),
+            channels: STEREO_CHANNELS,
+        }
+    }
 }
 
 /// Estado de la conexión con el servidor, según el vigilante de cambios.
@@ -279,7 +299,7 @@ pub struct AppState {
     pub browse: BrowseView,
     pub search: SearchView,
     pub playlists: PlaylistsView,
-    pub spectrum: SpectrumView,
+    pub visual: VisualView,
 }
 
 impl AppState {
@@ -299,9 +319,9 @@ mod tests {
     #[test]
     fn views_cycle_in_both_directions() {
         assert_eq!(ViewKind::Queue.next(), ViewKind::Library);
-        assert_eq!(ViewKind::Playlists.next(), ViewKind::Spectrum);
-        assert_eq!(ViewKind::Spectrum.next(), ViewKind::Queue);
-        assert_eq!(ViewKind::Queue.previous(), ViewKind::Spectrum);
+        assert_eq!(ViewKind::Playlists.next(), ViewKind::Visualizer);
+        assert_eq!(ViewKind::Visualizer.next(), ViewKind::Queue);
+        assert_eq!(ViewKind::Queue.previous(), ViewKind::Visualizer);
     }
 
     #[test]

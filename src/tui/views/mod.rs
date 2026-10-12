@@ -24,7 +24,7 @@ use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::text::Line;
 use ratatui::widgets::Paragraph;
 
-pub(crate) use self::format::format_duration;
+pub(crate) use self::format::{format_duration, visualizer_style_name};
 
 use self::chrome::{Context, titled_block};
 use self::layout::{COMPACT_MIN_HEIGHT, COMPACT_MIN_WIDTH, LayoutMode, layout_mode};
@@ -36,8 +36,6 @@ const FOOTER_ROWS: u16 = 1;
 const TABS_ROWS: u16 = 1;
 const RULE_ROWS: u16 = 1;
 const APPLICATION_NAME: &str = "mpctui";
-/// Bordes izquierdo y derecho del marco.
-const FRAME_BORDERS: u16 = 2;
 
 pub fn render(frame: &mut Frame, state: &mut AppState, appearance: Appearance, now: Instant) {
     let glyphs = appearance.glyphs;
@@ -79,14 +77,6 @@ pub fn render(frame: &mut Frame, state: &mut AppState, appearance: Appearance, n
     }
 }
 
-/// Bandas que dibuja la vista Espectro en una terminal de este tamaño. La app la usa
-/// para pedirle al visualizador la cantidad justa.
-pub fn spectrum_bands(terminal: Rect) -> usize {
-    let mode = layout_mode(terminal.width, terminal.height);
-    let body = terminal.width.saturating_sub(FRAME_BORDERS);
-    pages::band_count(body, mode == LayoutMode::Compact)
-}
-
 /// Aviso con el mínimo y el tamaño actual.
 fn render_too_small(frame: &mut Frame, area: Rect, glyphs: &Glyphs) {
     let lines = vec![
@@ -111,15 +101,16 @@ mod tests {
 
     use super::*;
     use crate::domain::{
-        AudioFormat, Entry, PlayState, PlaylistName, SampleFormat, SearchText, Song, SpectrumFrame,
-        Status, Volume,
+        AudioFormat, BandFrame, ChannelLevel, Entry, PlayState, PlaylistName, SampleFormat,
+        SampleRange, ScopePoint, SearchText, Song, Status, VisualContent, VisualFrame,
+        VisualizerStyle, Volume,
     };
-    use crate::service::{PlaybackClock, PlayerSnapshot, SpectrumState};
+    use crate::service::{PlaybackClock, PlayerSnapshot, VisualState};
     use crate::tui::appearance::ProgressBars;
     use crate::tui::glyphs::{ASCII, UNICODE};
     use crate::tui::list::SelectionPolicy;
     use crate::tui::prompt::{Confirmation, Prompt, PromptKind};
-    use crate::tui::state::{ConnectionState, Notice, NoticeLevel, SpectrumView, ViewKind};
+    use crate::tui::state::{ConnectionState, Notice, NoticeLevel, ViewKind, VisualView};
 
     /// Tamaños de la sección 7 de `DESIGN.md`: completo, compacto y demasiado chico.
     const SIZES: [(u16, u16); 3] = [(100, 30), (72, 16), (40, 10)];
@@ -143,9 +134,14 @@ mod tests {
     }
 
     const SPECTRUM_BANDS: usize = 32;
+    /// Columnas y filas de los cuadros de ejemplo de la Onda y la Cascada.
+    const WAVE_COLUMNS: usize = 200;
+    const WATERFALL_COLUMNS: usize = 90;
+    const WATERFALL_BANDS: usize = 14;
+    const SCOPE_POINTS: usize = 600;
 
     /// Graves altos que bajan hacia los agudos, con picos por encima.
-    fn sample_spectrum() -> SpectrumFrame {
+    fn sample_bands() -> BandFrame {
         let levels: Vec<f32> = (0..SPECTRUM_BANDS)
             .map(|band| 1.0 - band as f32 / SPECTRUM_BANDS as f32)
             .collect();
@@ -153,11 +149,73 @@ mod tests {
             .iter()
             .map(|level| (level + 0.15).min(0.99))
             .collect();
-        SpectrumFrame {
-            levels,
-            peaks,
-            signal: true,
+        BandFrame { levels, peaks }
+    }
+
+    /// Un cuadro de ejemplo de cada forma.
+    fn sample_content(style: VisualizerStyle) -> VisualContent {
+        match style {
+            VisualizerStyle::Bars => VisualContent::Bars(sample_bands()),
+            VisualizerStyle::Mirror => {
+                let mut right = sample_bands();
+                right.levels.reverse();
+                VisualContent::Mirror {
+                    left: sample_bands(),
+                    right,
+                }
+            }
+            VisualizerStyle::Wave => VisualContent::Wave {
+                columns: (0..WAVE_COLUMNS)
+                    .map(|column| {
+                        let value = (column as f32 * 0.2).sin() * 0.8;
+                        SampleRange {
+                            low: value - 0.05,
+                            high: value + 0.05,
+                        }
+                    })
+                    .collect(),
+                synced: true,
+                span: Duration::from_millis(23),
+            },
+            VisualizerStyle::Waterfall => VisualContent::Waterfall {
+                columns: (0..WATERFALL_COLUMNS)
+                    .map(|column| {
+                        (0..WATERFALL_BANDS)
+                            .map(|band| ((column + band) % 10) as f32 / 10.0)
+                            .collect()
+                    })
+                    .collect(),
+            },
+            VisualizerStyle::Vectorscope => VisualContent::Vectorscope {
+                points: (0..SCOPE_POINTS)
+                    .map(|index| ScopePoint {
+                        side: (index as f32 * 0.37).sin() * 0.3,
+                        mid: (index as f32 * 0.11).cos() * 0.8,
+                    })
+                    .collect(),
+                correlation: 0.62,
+            },
+            VisualizerStyle::Meters => VisualContent::Meters {
+                channels: vec![
+                    ChannelLevel {
+                        rms: -9.4,
+                        peak: -3.1,
+                    },
+                    ChannelLevel {
+                        rms: -11.2,
+                        peak: -4.6,
+                    },
+                ],
+                correlation: Some(0.62),
+            },
         }
+    }
+
+    fn sample_frame(style: VisualizerStyle) -> VisualState {
+        VisualState::Frame(VisualFrame {
+            content: sample_content(style),
+            signal: true,
+        })
     }
 
     fn songs() -> Vec<Song> {
@@ -219,10 +277,11 @@ mod tests {
             .search
             .results
             .set_items(songs(), SelectionPolicy::Reset);
-        state.spectrum = SpectrumView {
-            state: SpectrumState::Frame(sample_spectrum()),
+        state.visual = VisualView {
+            state: sample_frame(VisualizerStyle::Bars),
             source: "/tmp/mpd.fifo".into(),
             format: "44100:16:2".into(),
+            ..VisualView::default()
         };
         let names = vec![PlaylistName::new("domingo").unwrap()];
         state
@@ -279,6 +338,7 @@ mod tests {
         let appearance = Appearance {
             glyphs,
             progress_bars,
+            visualizer_style: VisualizerStyle::default(),
         };
         let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
         terminal
@@ -287,14 +347,31 @@ mod tests {
         terminal.backend().buffer().clone()
     }
 
+    /// Cada vista; el visualizador, una vez por forma.
+    fn every_view() -> Vec<(ViewKind, VisualizerStyle)> {
+        let mut views: Vec<_> = ViewKind::ALL
+            .into_iter()
+            .filter(|view| *view != ViewKind::Visualizer)
+            .map(|view| (view, VisualizerStyle::default()))
+            .collect();
+        views.extend(
+            VisualizerStyle::ALL
+                .into_iter()
+                .map(|style| (ViewKind::Visualizer, style)),
+        );
+        views
+    }
+
     /// Todas las pantallas: cada vista, con cada superposición y en cada tamaño.
     fn every_screen(glyphs: &'static Glyphs) -> Vec<Buffer> {
         let mut screens = Vec::new();
-        for view in ViewKind::ALL {
+        for (view, style) in every_view() {
             for overlay in overlays() {
                 for size in SIZES {
                     let mut state = sample_state();
                     state.view = view;
+                    state.visual.style = style;
+                    state.visual.state = sample_frame(style);
                     overlay(&mut state);
                     screens.push(render_to_buffer(&mut state, glyphs, size));
                 }
@@ -399,60 +476,284 @@ mod tests {
         assert!(header.contains(" (x) sin conexión, reintento en 5 s [###-----] -+"));
     }
 
-    fn spectrum_screen(glyphs: &'static Glyphs, size: (u16, u16), state: SpectrumState) -> String {
+    fn visual_screen(
+        glyphs: &'static Glyphs,
+        size: (u16, u16),
+        style: VisualizerStyle,
+        state: VisualState,
+    ) -> String {
         let mut sample = sample_state();
-        sample.view = ViewKind::Spectrum;
-        sample.spectrum.state = state;
+        sample.view = ViewKind::Visualizer;
+        sample.visual.style = style;
+        sample.visual.state = state;
         screen_lines(&render_to_buffer(&mut sample, glyphs, size))
     }
 
-    #[test]
-    fn spectrum_view_draws_bars_peaks_and_axis() {
-        let frame = SpectrumState::Frame(sample_spectrum());
-        let screen = spectrum_screen(&UNICODE, SIZES[0], frame.clone());
-        assert!(screen.contains("[6 Espectro]"));
-        assert!(screen.contains("32 bandas  40 Hz - 16 kHz  /tmp/mpd.fifo"));
-        for expected in [
-            UNICODE.spectrum_levels[8],
-            UNICODE.spectrum_peak,
-            " 1k ",
-            "16k",
-        ] {
-            assert!(screen.contains(expected), "falta {expected:?}:\n{screen}");
+    /// La vista completa de una forma con su cuadro de ejemplo.
+    fn style_screen(glyphs: &'static Glyphs, style: VisualizerStyle) -> String {
+        visual_screen(glyphs, SIZES[0], style, sample_frame(style))
+    }
+
+    fn assert_contains(screen: &str, expected: &[&str]) {
+        for text in expected {
+            assert!(screen.contains(text), "falta {text:?}:\n{screen}");
         }
-        let ascii = spectrum_screen(&ASCII, SIZES[0], frame);
-        assert!(ascii.contains("## ##") && ascii.contains(" 63 "), "{ascii}");
     }
 
     #[test]
-    fn spectrum_view_without_signal_says_so() {
-        let silent = SpectrumState::Frame(SpectrumFrame::silent(SPECTRUM_BANDS));
-        let screen = spectrum_screen(&ASCII, SIZES[0], silent);
-        assert!(screen.contains("sin señal"));
-        assert!(!screen.contains("## ##"));
+    fn bars_draw_levels_peaks_and_axis() {
+        let screen = style_screen(&UNICODE, VisualizerStyle::Bars);
+        assert_contains(
+            &screen,
+            &[
+                "[6 Visual]",
+                "Visualizador: Barras  ● ○ ○ ○ ○ ○  1/6",
+                "32 bandas  40 Hz - 16 kHz",
+                UNICODE.spectrum_levels[8],
+                UNICODE.spectrum_peak,
+                " 1k ",
+                "16k",
+            ],
+        );
+        let ascii = style_screen(&ASCII, VisualizerStyle::Bars);
+        assert_contains(&ascii, &["* . . . . .  1/6", "## ##", " 63 "]);
     }
 
     #[test]
-    fn spectrum_view_explains_a_missing_fifo() {
-        let missing = SpectrumState::Unavailable("no existe".into());
-        let screen = spectrum_screen(&ASCII, SIZES[0], missing);
-        assert!(screen.contains("No se puede leer /tmp/mpd.fifo (no existe)."));
-        assert!(screen.contains("format \"44100:16:2\""));
-        assert!(screen.contains("visualizer_fifo y visualizer_format"));
+    fn mirror_draws_each_channel_on_its_side() {
+        let screen = style_screen(&UNICODE, VisualizerStyle::Mirror);
+        assert_contains(
+            &screen,
+            &[
+                "Visualizador: Espejo estéreo  ○ ● ○ ○ ○ ○  2/6",
+                "bandas por canal  L arriba, R abajo",
+                "─ 1k ─",
+                "██ ██",
+            ],
+        );
+        let lines: Vec<&str> = screen.lines().collect();
+        let axis = lines
+            .iter()
+            .position(|line| line.contains("─ 1k ─"))
+            .unwrap();
+        assert!(lines[axis - 1].contains("██") && lines[axis + 1].contains("██"));
+        assert!(lines[..axis].iter().any(|line| line.starts_with("│ L ")));
+        assert!(lines[axis..].iter().any(|line| line.starts_with("│ R ")));
+        let ascii = style_screen(&ASCII, VisualizerStyle::Mirror);
+        assert_contains(&ascii, &["- 1k -", "## ##"]);
+    }
+
+    #[test]
+    fn wave_draws_points_with_its_scale() {
+        let screen = style_screen(&UNICODE, VisualizerStyle::Wave);
+        assert_contains(
+            &screen,
+            &[
+                "Visualizador: Onda",
+                "3/6",
+                "23 ms  sincronizado",
+                "│ +1",
+                "│ -1",
+            ],
+        );
+        let braille = |character: char| ('\u{2801}'..='\u{28FF}').contains(&character);
+        assert!(screen.chars().any(braille));
+        let ascii = style_screen(&ASCII, VisualizerStyle::Wave);
+        assert!(!ascii.chars().any(braille));
+        assert_contains(&ascii, &["|"]);
+    }
+
+    #[test]
+    fn waterfall_shades_bands_over_time() {
+        let screen = style_screen(&UNICODE, VisualizerStyle::Waterfall);
+        assert_contains(
+            &screen,
+            &[
+                "Visualizador: Cascada",
+                "4/6",
+                "bandas  últimos 9 s",
+                "16k",
+                " 63",
+                "-1 s",
+                " ahora │",
+                "▓",
+            ],
+        );
+        let ascii = style_screen(&ASCII, VisualizerStyle::Waterfall);
+        assert_contains(&ascii, &["%", "#", "-3 s"]);
+    }
+
+    #[test]
+    fn vectorscope_draws_points_guides_and_correlation() {
+        let screen = style_screen(&UNICODE, VisualizerStyle::Vectorscope);
+        assert_contains(
+            &screen,
+            &[
+                "Visualizador: Vectorscopio",
+                "5/6",
+                "M/S  600 muestras",
+                "correlación +0.62",
+                " M ",
+                UNICODE.correlation_center,
+            ],
+        );
+        let ascii = style_screen(&ASCII, VisualizerStyle::Vectorscope);
+        assert_contains(&ascii, &["\\", "/", "#", "-1 ", " +1"]);
+    }
+
+    #[test]
+    fn meters_draw_levels_scale_and_legend() {
+        let screen = style_screen(&UNICODE, VisualizerStyle::Meters);
+        assert_contains(
+            &screen,
+            &[
+                "Visualizador: Medidores  ○ ○ ○ ○ ○ ●  6/6",
+                "RMS y pico por canal",
+                "-9.4 dB  pico   -3.1",
+                "-11.2 dB  pico   -4.6",
+                "┴",
+                "dBFS",
+                "-60",
+                "correlación +0.62",
+                "barra = RMS (300 ms)   │ = pico retenido 1,5 s",
+                "█",
+            ],
+        );
+        let ascii = style_screen(&ASCII, VisualizerStyle::Meters);
+        assert_contains(&ascii, &["####", "+--", "pico retenido 1,5 s"]);
+    }
+
+    #[test]
+    fn mono_fifos_count_four_styles_and_one_meter() {
+        let mut sample = sample_state();
+        sample.view = ViewKind::Visualizer;
+        sample.visual.channels = 1;
+        sample.visual.style = VisualizerStyle::Meters;
+        sample.visual.state = VisualState::Frame(VisualFrame {
+            content: VisualContent::Meters {
+                channels: vec![ChannelLevel {
+                    rms: -9.4,
+                    peak: -3.1,
+                }],
+                correlation: None,
+            },
+            signal: true,
+        });
+        let screen = screen_lines(&render_to_buffer(&mut sample, &ASCII, SIZES[0]));
+        assert_contains(&screen, &[". . . *  4/4", "|  M  "]);
+        assert!(!screen.contains("correlación") && !screen.contains("|  R  "));
+    }
+
+    #[test]
+    fn a_frame_of_another_style_is_not_drawn() {
+        let screen = visual_screen(
+            &ASCII,
+            SIZES[0],
+            VisualizerStyle::Wave,
+            sample_frame(VisualizerStyle::Bars),
+        );
+        assert_contains(&screen, &["Visualizador: Onda"]);
+        assert!(!screen.contains("bandas") && !screen.contains("## ##"));
+    }
+
+    /// Lo que publica cada forma cuando ya no queda nada que dibujar.
+    fn flat_content(style: VisualizerStyle) -> VisualContent {
+        let zeros = BandFrame {
+            levels: vec![0.0; SPECTRUM_BANDS],
+            peaks: vec![0.0; SPECTRUM_BANDS],
+        };
+        match style {
+            VisualizerStyle::Bars => VisualContent::Bars(zeros),
+            VisualizerStyle::Mirror => VisualContent::Mirror {
+                left: zeros.clone(),
+                right: zeros,
+            },
+            VisualizerStyle::Wave => VisualContent::Wave {
+                columns: vec![SampleRange::default(); WAVE_COLUMNS],
+                synced: false,
+                span: Duration::from_millis(23),
+            },
+            VisualizerStyle::Waterfall => VisualContent::Waterfall {
+                columns: vec![vec![0.0; WATERFALL_BANDS]; WATERFALL_COLUMNS],
+            },
+            VisualizerStyle::Vectorscope => VisualContent::Vectorscope {
+                points: Vec::new(),
+                correlation: 0.0,
+            },
+            VisualizerStyle::Meters => VisualContent::Meters {
+                channels: vec![ChannelLevel::SILENT; 2],
+                correlation: Some(0.0),
+            },
+        }
+    }
+
+    #[test]
+    fn visual_view_without_signal_says_so() {
+        for style in VisualizerStyle::ALL {
+            let silent = VisualState::Frame(VisualFrame {
+                content: flat_content(style),
+                signal: false,
+            });
+            let screen = visual_screen(&ASCII, SIZES[0], style, silent);
+            assert_contains(&screen, &["sin señal"]);
+        }
+    }
+
+    #[test]
+    fn visual_view_explains_a_missing_fifo() {
+        let missing = VisualState::Unavailable("no existe".into());
+        let screen = visual_screen(&ASCII, SIZES[0], VisualizerStyle::Bars, missing);
+        assert_contains(
+            &screen,
+            &[
+                "No se puede leer /tmp/mpd.fifo (no existe).",
+                "format \"44100:16:2\"",
+                "visualizer_fifo y visualizer_format",
+            ],
+        );
         assert!(screen.lines().any(|line| line.ends_with("sin señal |")));
+        assert!(
+            screen
+                .lines()
+                .any(|line| line.starts_with("| Visualizador "))
+        );
     }
 
     #[test]
-    fn compact_spectrum_hides_the_title_and_axis() {
-        let screen = spectrum_screen(&UNICODE, SIZES[1], SpectrumState::Frame(sample_spectrum()));
-        assert!(screen.contains(UNICODE.spectrum_levels[8]));
-        assert!(!screen.contains("bandas") && !screen.contains("16k"));
+    fn compact_styles_hide_titles_and_axes() {
+        let compact = |style| visual_screen(&UNICODE, SIZES[1], style, sample_frame(style));
+        let bars = compact(VisualizerStyle::Bars);
+        assert!(bars.contains(UNICODE.spectrum_levels[8]));
+        assert!(!bars.contains("bandas") && !bars.contains("16k"));
+        let mirror = compact(VisualizerStyle::Mirror);
+        assert!(mirror.contains("────") && !mirror.contains(" 1k "));
+        assert!(!compact(VisualizerStyle::Wave).contains("+1"));
+        assert!(!compact(VisualizerStyle::Waterfall).contains("ahora"));
+        assert!(!compact(VisualizerStyle::Vectorscope).contains("correlación"));
+        let meters = compact(VisualizerStyle::Meters);
+        assert!(meters.contains("-9.4 dB") && !meters.contains("dBFS"));
     }
 
     #[test]
-    fn spectrum_bands_depend_on_the_terminal() {
-        assert_eq!(spectrum_bands(Rect::new(0, 0, 100, 30)), 32);
-        assert_eq!(spectrum_bands(Rect::new(0, 0, 72, 16)), 64);
+    fn the_view_asks_for_the_resolution_it_draws() {
+        let mut sample = sample_state();
+        sample.view = ViewKind::Visualizer;
+        render_to_buffer(&mut sample, &UNICODE, SIZES[0]);
+        let request = sample.visual.request.unwrap();
+        assert_eq!(
+            (request.style, request.columns),
+            (VisualizerStyle::Bars, 32)
+        );
+        sample.visual.style = VisualizerStyle::Wave;
+        render_to_buffer(&mut sample, &UNICODE, SIZES[0]);
+        assert_eq!(sample.visual.request.unwrap().columns, 2 * (96 - 3));
+        render_to_buffer(&mut sample, &ASCII, SIZES[0]);
+        assert_eq!(sample.visual.request.unwrap().columns, 96 - 3);
+        sample.visual.style = VisualizerStyle::Waterfall;
+        render_to_buffer(&mut sample, &ASCII, SIZES[1]);
+        let compact = sample.visual.request.unwrap();
+        assert_eq!(compact.columns, 72 - 4);
+        assert!(compact.rows > 0);
     }
 
     #[test]

@@ -9,7 +9,7 @@ mod prompt;
 mod queue;
 mod refresh;
 mod search;
-mod spectrum;
+mod visual;
 
 use std::io;
 use std::time::{Duration, Instant};
@@ -65,7 +65,7 @@ pub struct App<B: Backend> {
     server_events: UnboundedReceiver<ServerEvent>,
     appearance: Appearance,
     state: AppState,
-    /// Solo mientras la vista Espectro está activa.
+    /// Solo mientras la vista Visual está activa.
     visualizer: Option<RunningVisualizer>,
 }
 
@@ -77,8 +77,11 @@ impl<B: Backend> App<B> {
         server: String,
     ) -> Self {
         let mut state = AppState::new(server);
-        state.spectrum.source = services.visualizer.source_label().to_owned();
-        state.spectrum.format = services.visualizer.format().to_string();
+        let format = services.visualizer.format();
+        state.visual.source = services.visualizer.source_label().to_owned();
+        state.visual.format = format.to_string();
+        state.visual.channels = format.channels();
+        state.visual.style = appearance.visualizer_style;
         Self {
             services,
             server_events,
@@ -100,20 +103,18 @@ impl<B: Backend> App<B> {
         self.resynchronize().await;
         let mut tick = tokio::time::interval(TICK_INTERVAL);
         while self.state.running {
-            let area = terminal
-                .draw(|frame| {
-                    views::render(frame, &mut self.state, self.appearance, Instant::now());
-                })?
-                .area;
-            self.sync_visualizer(area);
+            terminal.draw(|frame| {
+                views::render(frame, &mut self.state, self.appearance, Instant::now());
+            })?;
+            self.sync_visualizer();
             tokio::select! {
                 event = terminal_events.next() => match event {
                     Some(event) => self.handle_terminal_event(event?).await,
                     None => self.state.running = false,
                 },
                 Some(event) = self.server_events.recv() => self.handle_server_event(event).await,
-                Some(spectrum) = spectrum::next_state(&mut self.visualizer) => {
-                    self.state.spectrum.state = spectrum;
+                Some(visual) = visual::next_state(&mut self.visualizer) => {
+                    self.state.visual.state = visual;
                 }
                 _ = tick.tick() => self.handle_tick().await,
             }
@@ -196,6 +197,7 @@ impl<B: Backend> App<B> {
         match action {
             Action::Quit => self.state.running = false,
             Action::ShowView(view) => self.show_view(view).await,
+            Action::ShowVisualizer => self.show_visualizer().await,
             Action::NextView => self.show_view(self.state.view.next()).await,
             Action::PreviousView => self.show_view(self.state.view.previous()).await,
             Action::ToggleHelp => self.state.help_visible = !self.state.help_visible,
@@ -225,7 +227,7 @@ impl<B: Backend> App<B> {
             ViewKind::Browse => self.browse_action(action).await,
             ViewKind::Search => self.search_action(action).await,
             ViewKind::Playlists => self.playlists_action(action).await,
-            ViewKind::Spectrum => {}
+            ViewKind::Visualizer => {}
         }
     }
 

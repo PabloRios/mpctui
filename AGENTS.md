@@ -10,7 +10,7 @@ Base de conocimiento para cualquier agente o persona que trabaje en este reposit
 - **Stack:** Rust edition 2024, `tokio` (async), `ratatui` + `crossterm` (TUI), `thiserror`/`anyhow` (errores), `serde` + `toml` (config), `directories`, `tracing` (log a archivo: la terminal es de la TUI).
 - **Cliente de MPD propio:** no se usa ningún crate de MPD; el protocolo de texto está implementado en `src/repository/mpd/`.
 - **MVP:** cola + controles, biblioteca (Artista → Álbum → Tema y por directorios), búsqueda, playlists guardadas.
-- **Estado:** MVP completo, más los extras de `DESIGN_EXTRA.md` (formato de audio, actualización de la base, cuenta regresiva de reconexión y visualizador de espectro). El detalle por fases está en `PLAN.md`; la guía de uso, en `README.md`; las decisiones e ideas pendientes, en `DECISIONES.md`.
+- **Estado:** MVP completo, más los extras de `DESIGN_EXTRA.md` (formato de audio, actualización de la base, cuenta regresiva de reconexión y visualizador con seis formas). El detalle por fases está en `PLAN.md`; la guía de uso, en `README.md`; las decisiones e ideas pendientes, en `DECISIONES.md`.
 
 ---
 
@@ -61,7 +61,7 @@ domain  ←  repository  ←  service  ←  tui
                  ↑ factory (composition root) arma todo
 ```
 
-- **`src/domain/`:** modelos compartidos (`Song`, `Status`, `AudioFormat`, `PlayState`, `SingleMode`, `Entry`, `Subsystem`, `Tag`, `TagFilter`), entradas validadas, la línea de tiempo (`timeline()`: tramos consecutivos del mismo álbum y offsets de cada tema) y el espectro (`SpectrumFrame`, `band_edges`/`band_centers` logarítmicos de 40 Hz a 16 kHz). No depende de ninguna otra capa ni conoce MPD.
+- **`src/domain/`:** modelos compartidos (`Song`, `Status`, `AudioFormat`, `PlayState`, `SingleMode`, `Entry`, `Subsystem`, `Tag`, `TagFilter`), entradas validadas, la línea de tiempo (`timeline()`: tramos consecutivos del mismo álbum y offsets de cada tema) las bandas del espectro (`band_edges`/`band_centers` logarítmicos de 40 Hz a 16 kHz) y el visualizador (`visual.rs`: `VisualizerStyle` y su ciclo, `VisualRequest`, `VisualFrame` con un `VisualContent` por forma). No depende de ninguna otra capa ni conoce MPD.
 - **`src/repository/`:**
   - `traits.rs` define los contratos y `error.rs` el error de acceso a datos.
   - `fifo.rs`: `FifoPcmSource` implementa `PcmSource` sobre la salida fifo de MPD. Abre en modo no bloqueante en la primera lectura y, tras un fin de archivo (`Ok(0)`), vuelve a abrir en la siguiente. **No** va en `mpd/`: no es el protocolo de MPD.
@@ -77,12 +77,12 @@ domain  ←  repository  ←  service  ←  tui
   - `QueueService`, `LibraryService` y `PlaylistService`.
   - `ChangeWatcher`: loop de `idle` que emite `ServerEvent`. Es la **única fuente del estado de conexión**: si se corta, emite `Disconnected { attempt, retry_at, delay, reason }`, espera con `Backoff` exponencial (1 s → 30 s), emite `Connecting` y prueba con `ping` (no con `idle`, que bloquearía); al responder, `Connected`. `retry_at` es `tokio::time::Instant` para testear con `start_paused`.
   - `update_transition` (`database_update.rs`): decide si la actualización de la base empezó o terminó comparando dos `Status` sucesivos.
-  - `spectrum.rs`: análisis en funciones puras (`PcmDecoder` con cuadros partidos, `SampleWindow`, Hann, FFT con `rustfft`, bandas, dB, `Smoother` con picos).
-  - `Visualizer` (`visualizer.rs`): tarea que lee la `PcmSource`, analiza a 20 FPS y publica el último cuadro por `watch`. `VisualizerLauncher` la lanza con una fuente nueva; `RunningVisualizer` la cancela al soltarse (`Drop` → `abort`).
+  - `visual/`: análisis en funciones puras. `pcm.rs` (`PcmDecoder` con cuadros partidos, `StereoWindow` de pares L/R), `bands.rs` (Hann, FFT con `rustfft`, bandas, dB, `Smoother`), `levels.rs` (RMS, pico, correlación), `peak.rs` (`HeldPeak`) y un módulo por forma. `Analysis` calcula solo la forma pedida y se reinicia al cambiar de forma; sin señal vacía la ventana, así todas las formas caen a cero.
+  - `Visualizer` (`visualizer.rs`): tarea que lee la `PcmSource`, analiza a 20 FPS la forma del último `VisualRequest` y publica el último cuadro por `watch`. `VisualizerLauncher` la lanza con una fuente nueva; `RunningVisualizer` la cancela al soltarse (`Drop` → `abort`).
   - `PlaybackClock`: interpola el progreso.
   - Reciben entradas ya validadas y nunca tocan la terminal.
 - **`src/tui/`:**
-  - `app/` contiene `App<B: Backend>`. Corre el loop `tokio::select!` (teclas, `ServerEvent`, tick de 1 s) y tiene un submódulo por vista (`queue`, `library`, `browse`, `search`, `playlists`), más `playback`, `prompt` y `refresh`.
+  - `app/` contiene `App<B: Backend>`. Corre el loop `tokio::select!` (teclas, `ServerEvent`, tick de 1 s) y tiene un submódulo por vista (`queue`, `library`, `browse`, `search`, `playlists`, `visual`), más `playback`, `prompt` y `refresh`.
   - `action.rs`: **tabla única `BINDINGS`** de la que salen `action_for` y la ayuda (`help_entries`). Un atajo nuevo se agrega solo ahí.
   - Las acciones de vista (`Activate`, `Add`, `AddAll`, `Delete`, `Back`, `Forward`, `Navigate`) las interpreta la vista activa.
   - `list.rs`: `SelectableList<T>` con `SelectionPolicy::{Keep, Reset}` (Keep para refrescos, Reset para contenido nuevo). La usan todas las listas.
@@ -93,21 +93,21 @@ domain  ←  repository  ←  service  ←  tui
     - **Marco:** `chrome::rule` dibuja `├──┤` y `chrome::divider` une solo los cruces (`┬ ┼ ┴`) mirando los símbolos ya dibujados.
     - **Barras:** `gauges.rs` devuelve `BarCell`/`MeterCell` y una tabla las traduce a glifo + estilo. Las tres barras del panel son la misma función con distintos pesos.
     - **Tamaño:** `layout::layout_mode` decide completo, compacto o aviso en cada dibujado.
-    - **Espectro:** `pages/spectrum.rs` dibuja barras por sub-celdas (la cantidad de niveles sale de `glyphs.spectrum_levels`), picos, colores por tercio y eje. `views::spectrum_bands(area)` dice cuántas bandas entran; la app la usa en `sync_visualizer`, después de cada dibujado, para lanzar, ajustar o cancelar el visualizador.
-  - `glyphs.rs`: juegos `UNICODE` y `ASCII` (mismo layout). Es el **único lugar con glifos literales**: las vistas piden el glifo por su rol (`glyphs.cursor`, `glyphs.border`) y reciben `&Glyphs` inyectado desde `App`. Los anchos se miden con `Span::width()`/`unicode-width`, nunca con `.len()`, y se trunca con `format::fit_line`. El diseño visual completo está en `DESIGN.md`.
+    - **Visualizador:** `pages/visual/` tiene un archivo por forma más lo compartido (`columns.rs` para las barras, `canvas.rs` para los puntos braille o ASCII, `correlation.rs`). Cada forma dice qué resolución necesita (`request`) según su área; al dibujar, la vista lo deja en `state.visual.request` y la app lo usa en `sync_visualizer` para lanzar, ajustar o cancelar el visualizador. Un cuadro de otra forma no se dibuja.
+  - `glyphs.rs`: juegos `UNICODE` y `ASCII` (mismo layout). Es el **único lugar con glifos literales**: las vistas piden el glifo por su rol (`glyphs.cursor`, `glyphs.border`) y reciben `&Glyphs` inyectado desde `App`. Los anchos se miden con `Span::width()`/`unicode-width`, nunca con `.len()`, y se trunca con `format::fit_line`. La única excepción a los glifos literales es el braille, que se calcula como `BRAILLE_BASE` + bits en `pages/visual/canvas.rs`; lo propio del modo ASCII de la Onda y el Vectorscopio está en `Plot::Cells`. El diseño visual completo está en `DESIGN.md`.
   - La TUI construye las entradas validadas (`SearchText`, `PlaylistName`) a partir de lo que tipea el usuario.
 - **`src/config.rs` (borde de entrada):**
   - `resolve(FileConfig, Environment) -> Settings` es pura y testeable.
   - Precedencia: defecto < `~/.config/mpctui/config.toml` < `MPD_HOST`/`MPD_PORT`/`MPCTUI_GLYPHS`. `MPD_HOST` admite `contraseña@host`.
   - `glyphs = "auto"` se resuelve con `resolve_glyph_mode` (pura): ASCII si el locale no es UTF-8 o `TERM` es `linux`/`dumb`.
-  - `visualizer_fifo` (`/tmp/mpd.fifo`) y `visualizer_format` (`44100:16:2`, validado como `PcmFormat`). Vacío o inválido no arranca; un FIFO inexistente no es error de configuración (la vista lo explica).
+  - `visualizer_fifo` (`/tmp/mpd.fifo`), `visualizer_format` (`44100:16:2`, validado como `PcmFormat`) y `visualizer_style` (`bars` por defecto; una forma estéreo con FIFO mono es error). Vacío o inválido no arranca; un FIFO inexistente no es error de configuración (la vista lo explica). La forma inicial viaja en `Appearance`.
   - `album_progress` / `queue_progress` (bool, `false` por defecto) muestran las barras opcionales del panel. La factory los convierte en `tui::appearance::ProgressBars` dentro de `Appearance` (junto con los glifos), que se inyecta en `App`; la TUI no conoce `Settings`.
   - El TOML usa `deny_unknown_fields`.
 - **`src/logging.rs`:** `tracing` a `~/.local/state/mpctui/mpctui.log`, nivel INFO.
 - **`src/factory.rs`:**
   - `MpdBackend` fija los tipos concretos del trait `Backend`.
   - `build_app` abre **una conexión por servicio + una para `idle`**. Así ningún servicio espera a otro, e `idle` bloquea su propia conexión.
-  - `visualizer_launcher` arma el `VisualizerLauncher<FifoPcmSource>` con un backoff corto (50 ms → 1 s) para que el espectro reaparezca rápido al reanudar.
+  - `visualizer_launcher` arma el `VisualizerLauncher<FifoPcmSource>` con un backoff corto (50 ms → 1 s) para que el visualizador reaparezca rápido al reanudar.
 
 ### Async en traits
 
@@ -165,7 +165,7 @@ domain  ←  repository  ←  service  ←  tui
   - Protocolo informado: **0.23.5**; el binario instalado es 0.23.14.
 - **Config de MPD:** `~/.config/mpd/mpd.conf`.
   - `music_directory ~/Music`; playlists en `~/Music/playlists`.
-  - Salidas: pulse, alsa `hw:1,3`, alsa dmix NVidia y **FIFO `/tmp/mpd.fifo` (44100:16:2)**, que lee la vista Espectro. Leerla es solo lectura y se puede probar contra el servidor real (`cargo run --example spectrum_smoke`).
+  - Salidas: pulse, alsa `hw:1,3`, alsa dmix NVidia y **FIFO `/tmp/mpd.fifo` (44100:16:2)**, que lee la vista Visual. Leerla es solo lectura y se puede probar contra el servidor real (`cargo run --example spectrum_smoke`).
   - La salida `alsa hw:1,3 BLOCKING` apunta a un dispositivo que no existe: MPD registra una excepción en `~/Music/.mpd/log` cada vez que arranca un tema. Es ruido del entorno, no un problema de mpctui.
 - **Biblioteca real (referencia):** unos 1229 temas en cola, 223 artistas, 43 entradas en la raíz y 0 playlists guardadas.
 - **`mpc`** está instalado: sirve para comparar resultados (`mpc status`, `mpc lsplaylists`).

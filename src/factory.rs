@@ -65,6 +65,7 @@ pub async fn build_app(settings: &Settings) -> Result<App<MpdBackend>> {
             album: settings.album_progress,
             queue: settings.queue_progress,
         },
+        visualizer_style: settings.visualizer_style,
     };
     let server = settings.address.to_string();
     Ok(App::new(services, receiver, appearance, server))

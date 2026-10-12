@@ -21,6 +21,8 @@ pub enum Navigation {
 pub enum Action {
     Quit,
     ShowView(ViewKind),
+    /// Entra al visualizador o, si ya está, pasa a la forma siguiente.
+    ShowVisualizer,
     NextView,
     PreviousView,
     ToggleHelp,
@@ -74,7 +76,7 @@ const fn control(keys: &'static [KeyCode], action: Action, description: &'static
     }
 }
 
-/// Las cinco vistas comparten descripción: la ayuda las muestra en una sola línea.
+/// Las vistas de listas comparten descripción: la ayuda las muestra en una sola línea.
 const GO_TO_VIEW: &str = "Ir a la vista";
 
 pub const BINDINGS: &[Binding] = &[
@@ -112,8 +114,8 @@ pub const BINDINGS: &[Binding] = &[
     ),
     plain(
         &[KeyCode::Char('6')],
-        Action::ShowView(ViewKind::Spectrum),
-        GO_TO_VIEW,
+        Action::ShowVisualizer,
+        "Visualizador / otra forma",
     ),
     plain(&[KeyCode::Tab], Action::NextView, "Vista siguiente"),
     plain(&[KeyCode::BackTab], Action::PreviousView, "Vista anterior"),
@@ -225,6 +227,14 @@ pub const BINDINGS: &[Binding] = &[
     ),
 ];
 
+/// La acción que abre cada vista: la del visualizador además cambia de forma.
+pub fn view_action(view: ViewKind) -> Action {
+    match view {
+        ViewKind::Visualizer => Action::ShowVisualizer,
+        other => Action::ShowView(other),
+    }
+}
+
 /// Shift no se distingue: ya viene codificado en el carácter (`G`, `R`, `?`…).
 pub fn action_for(key: KeyEvent) -> Option<Action> {
     let control = key.modifiers.contains(KeyModifiers::CONTROL);
@@ -266,6 +276,7 @@ impl HelpGroup {
     fn of(action: Action) -> Self {
         match action {
             Action::ShowView(_)
+            | Action::ShowVisualizer
             | Action::NextView
             | Action::PreviousView
             | Action::Navigate(_)
@@ -413,6 +424,22 @@ mod tests {
     }
 
     #[test]
+    fn six_opens_the_visualizer_and_cycles_its_styles() {
+        assert_eq!(
+            action_for(key(KeyCode::Char('6'), KeyModifiers::NONE)),
+            Some(Action::ShowVisualizer)
+        );
+        assert_eq!(view_action(ViewKind::Visualizer), Action::ShowVisualizer);
+        assert_eq!(
+            view_action(ViewKind::Queue),
+            Action::ShowView(ViewKind::Queue)
+        );
+        for view in ViewKind::ALL {
+            assert!(key_label(view_action(view), &UNICODE).is_some(), "{view:?}");
+        }
+    }
+
+    #[test]
     fn control_changes_meaning() {
         assert_eq!(
             action_for(key(KeyCode::Char('c'), KeyModifiers::NONE)),
@@ -453,7 +480,7 @@ mod tests {
             .iter()
             .find(|entry| entry.description == GO_TO_VIEW)
             .unwrap();
-        assert_eq!(views.keys, "1 2 3 4 5 6");
+        assert_eq!(views.keys, "1 2 3 4 5");
         let quit = entries
             .iter()
             .find(|entry| entry.description == "Salir")
