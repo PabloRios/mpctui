@@ -61,6 +61,8 @@ pub struct Services<B: Backend> {
     pub visualizer: VisualizerLauncher<B::Pcm>,
     /// `None` con las letras desactivadas.
     pub lyrics: Option<LyricsLookup>,
+    /// Buscar la letra de cada tema aunque la vista Letra no esté activa.
+    pub lyrics_in_background: bool,
 }
 
 pub struct App<B: Backend> {
@@ -107,11 +109,12 @@ impl<B: Backend> App<B> {
         self.resynchronize().await;
         let mut tick = tokio::time::interval(TICK_INTERVAL);
         while self.state.running {
+            // Antes de dibujar, para que un tema nuevo no muestre la letra del anterior.
+            self.sync_lyrics();
             terminal.draw(|frame| {
                 views::render(frame, &mut self.state, self.appearance, Instant::now());
             })?;
             self.sync_visualizer();
-            self.sync_lyrics();
             let next_lyrics_line = self.next_lyrics_line();
             tokio::select! {
                 event = terminal_events.next() => match event {

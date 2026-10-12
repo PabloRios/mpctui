@@ -52,6 +52,7 @@ pub fn render(frame: &mut Frame, state: &mut AppState, appearance: Appearance, n
         width: area.width,
         now,
         progress_bars: appearance.progress_bars,
+        lyrics_line: appearance.lyrics_line,
     };
     let [frame_area, footer_area] =
         Layout::vertical([Constraint::Fill(1), Constraint::Length(FOOTER_ROWS)]).areas(area);
@@ -376,6 +377,7 @@ mod tests {
             texts,
             progress_bars,
             visualizer_style: VisualizerStyle::default(),
+            lyrics_line: true,
         };
         let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
         terminal

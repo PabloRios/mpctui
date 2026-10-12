@@ -38,6 +38,8 @@ enabled = true                                         # false: sin vista 7 ni b
 sources = ["cache", "song_folder", "tags", "lrclib"]   # orden de búsqueda
 directory = "~/.lyrics"                                # caché (la misma de ncmpcpp y ncmpc)
 music_directory = "~/Music"                            # raíz de la biblioteca; la necesita song_folder
+fetch_in_background = false                            # buscar la letra aunque la vista 7 no esté abierta
+now_playing_line = false                               # línea actual de la letra en el panel, tras el título
 ```
 
 **Variables de entorno** (las mismas que usa `mpc`):
@@ -152,7 +154,9 @@ La vista Letra prueba las fuentes de `lyrics.sources` en orden y muestra la prim
 
 Si LRCLIB dice que el tema es instrumental, la vista muestra `Instrumental`.
 
-> **Privacidad:** con `lrclib` en `sources`, mpctui envía a lrclib.net el artista, el título, el álbum y la duración de cada tema cuya letra no encuentra en las fuentes anteriores. Para no usar la red, sacar `lrclib` de la lista.
+Por defecto, la letra se busca solo con la vista Letra abierta. Con `fetch_in_background = true` se busca la de cada tema apenas empieza, así ya está lista al abrir la vista. Con `now_playing_line = true`, el panel "ahora suena" muestra la línea que se está cantando después del título (`♪ Time · Ticking away the moments…`), también en el modo compacto; como la necesita siempre, también busca la letra de cada tema. Solo se muestra con letras sincronizadas; si no entra, se recorta antes que el artista y el título.
+
+> **Privacidad:** con `lrclib` en `sources`, mpctui envía a lrclib.net el artista, el título, el álbum y la duración de cada tema cuya letra no encuentra en las fuentes anteriores. Con `fetch_in_background` o `now_playing_line`, eso pasa con cada tema que suena, aunque no se abra la vista Letra. Para no usar la red, sacar `lrclib` de la lista.
 
 Los archivos `.lrc` pueden tener varias marcas por línea, metadatos (`[ar:…]`) y `[offset:…]`; las marcas por palabra del formato extendido se descartan. Un archivo sin marcas de tiempo se muestra como texto.
 

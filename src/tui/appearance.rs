@@ -13,6 +13,8 @@ pub struct Appearance {
     pub progress_bars: ProgressBars,
     /// Forma con la que arranca el visualizador.
     pub visualizer_style: VisualizerStyle,
+    /// Línea actual de la letra en el panel "ahora suena".
+    pub lyrics_line: bool,
 }
 
 /// Barras opcionales del panel "ahora suena". La del tema siempre se muestra.

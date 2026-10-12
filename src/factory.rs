@@ -56,6 +56,7 @@ pub async fn build_app(settings: &Settings) -> Result<App<MpdBackend>> {
         playlists: PlaylistService::new(connect().await?),
         visualizer: visualizer_launcher(settings),
         lyrics: lyrics_lookup(settings).await?,
+        lyrics_in_background: settings.lyrics.fetch_in_background,
     };
     let (sender, receiver) = mpsc::unbounded_channel();
     let backoff = Backoff::new(WATCHER_FIRST_RETRY, WATCHER_MAXIMUM_RETRY);
@@ -69,6 +70,7 @@ pub async fn build_app(settings: &Settings) -> Result<App<MpdBackend>> {
             queue: settings.queue_progress,
         },
         visualizer_style: settings.visualizer_style,
+        lyrics_line: settings.lyrics.enabled && settings.lyrics.now_playing_line,
     };
     let server = settings.address.to_string();
     Ok(App::new(services, receiver, appearance, server))

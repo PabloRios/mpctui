@@ -154,6 +154,10 @@ pub struct LyricsFileConfig {
     pub directory: Option<String>,
     /// Raíz de la biblioteca de MPD, para buscar junto a cada tema.
     pub music_directory: Option<String>,
+    /// Buscar la letra de cada tema aunque la vista Letra no esté activa.
+    pub fetch_in_background: Option<bool>,
+    /// Mostrar la línea actual de la letra en el panel "ahora suena".
+    pub now_playing_line: Option<bool>,
 }
 
 /// Variables de entorno relevantes, leídas sin interpretar.
@@ -198,6 +202,8 @@ pub struct LyricsSettings {
     pub sources: Vec<LyricsSource>,
     pub directory: PathBuf,
     pub music_directory: Option<PathBuf>,
+    pub fetch_in_background: bool,
+    pub now_playing_line: bool,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -377,6 +383,8 @@ fn resolve_lyrics(
         sources,
         directory,
         music_directory,
+        fetch_in_background: file.fetch_in_background.unwrap_or_default(),
+        now_playing_line: file.now_playing_line.unwrap_or_default(),
     })
 }
 
@@ -740,6 +748,18 @@ mod tests {
             Some(PathBuf::from("/home/prueba/Music"))
         );
         assert_eq!(with_music.lyrics.sources, LyricsSource::ALL);
+    }
+
+    #[test]
+    fn lyrics_are_fetched_only_for_their_view_unless_configured() {
+        let defaults = resolve_with_home("").unwrap().lyrics;
+        assert!(!defaults.fetch_in_background);
+        assert!(!defaults.now_playing_line);
+        let raw = "[lyrics]\nfetch_in_background = true\nnow_playing_line = true";
+        let configured = resolve_with_home(raw).unwrap().lyrics;
+        assert!(configured.fetch_in_background);
+        assert!(configured.now_playing_line);
+        assert!(toml::from_str::<FileConfig>("[lyrics]\nnow_playing_line = \"si\"").is_err());
     }
 
     #[test]

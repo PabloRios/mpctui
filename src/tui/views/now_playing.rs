@@ -1,4 +1,5 @@
-//! Panel "ahora suena": tema, barras del tema, del álbum y de la cola, volumen y modos.
+//! Panel "ahora suena": tema (con la línea actual de la letra, si se configuró), barras
+//! del tema, del álbum y de la cola, volumen y modos.
 //! Completo (5 filas) o compacto (3 filas).
 
 use std::time::Duration;
@@ -25,7 +26,7 @@ use crate::i18n::{Catalog, Phrase};
 use crate::tui::action::Action;
 use crate::tui::appearance::ProgressBars;
 use crate::tui::glyphs::Glyphs;
-use crate::tui::state::AppState;
+use crate::tui::state::{AppState, LyricsStatus};
 
 /// Tema, barra del tema y controles; las barras del álbum y de la cola son opcionales.
 pub const FULL_BASE_ROWS: u16 = 3;
@@ -41,6 +42,8 @@ const MODE_GAP: &str = "  ";
 /// Peso de un tema en el modo por cantidad (cuando falta alguna duración).
 const COUNT_MODE_WEIGHT: u64 = 1_000;
 const ARTIST_ALBUM_SEPARATOR: &str = " - ";
+/// Entre el título y la línea actual de la letra.
+const LYRIC_SEPARATOR: &str = " · ";
 
 pub fn rows(mode: LayoutMode, bars: ProgressBars) -> u16 {
     match mode {
@@ -124,6 +127,8 @@ struct Playback<'a> {
     duration: Option<Duration>,
     queue: &'a [Song],
     timeline: &'a Timeline,
+    /// Línea de la letra que se canta ahora, si el panel la muestra.
+    lyric: Option<&'a str>,
 }
 
 impl<'a> Playback<'a> {
@@ -143,6 +148,7 @@ impl<'a> Playback<'a> {
             duration: state.clock.duration(),
             queue,
             timeline: state.queue.timeline(),
+            lyric: current_lyric(state, context),
         }
     }
 
@@ -174,6 +180,39 @@ impl<'a> Playback<'a> {
             .unwrap_or(COUNT_MODE_WEIGHT)
             .min(COUNT_MODE_WEIGHT - 1)
     }
+}
+
+/// La línea de la letra sincronizada que empezó y todavía no terminó, si el panel la
+/// muestra. Detenido, antes de la primera línea o en una línea vacía, nada.
+fn current_lyric<'a>(state: &'a AppState, context: &Context<'_>) -> Option<&'a str> {
+    if !context.lyrics_line || state.player.status.state == PlayState::Stop {
+        return None;
+    }
+    let LyricsStatus::Found(lyrics) = &state.lyrics.status else {
+        return None;
+    };
+    let index = lyrics.current_line(state.clock.elapsed_at(context.now))?;
+    let text = lyrics.lines.get(index)?.text.trim();
+    (!text.is_empty()).then_some(text)
+}
+
+/// `♪ título` y, si hay, ` · línea de la letra`, con cada parte ya recortada.
+fn title_spans(
+    title: Line<'static>,
+    lyric: Option<Line<'static>>,
+    glyphs: &Glyphs,
+) -> Vec<Span<'static>> {
+    let mut spans = vec![Span::styled(now_playing_prefix(glyphs), theme::ACCENT)];
+    spans.extend(title.spans);
+    if let Some(lyric) = lyric {
+        spans.push(Span::styled(LYRIC_SEPARATOR, theme::MUTED));
+        spans.extend(lyric.spans);
+    }
+    spans
+}
+
+fn now_playing_prefix(glyphs: &Glyphs) -> String {
+    format!("{} ", glyphs.now_playing)
 }
 
 /// Contenido de una barra: segmentos, o desconocida (stream).
@@ -398,11 +437,12 @@ fn full_lines(playback: &Playback<'_>, width: u16, context: &Context<'_>) -> Vec
     lines
 }
 
-/// `♪ título` a la izquierda y `artista - álbum (año)` a la derecha. Si no entra, se
-/// trunca primero el álbum, después el artista y por último el título.
+/// `♪ título · línea de la letra` a la izquierda y `artista - álbum (año)` a la
+/// derecha. Si no entra, se trunca primero el álbum, después la letra, el artista y
+/// por último el título.
 fn song_line(playback: &Playback<'_>, width: u16, context: &Context<'_>) -> Line<'static> {
     let glyphs = context.glyphs;
-    let prefix = format!("{} ", glyphs.now_playing);
+    let prefix = now_playing_prefix(glyphs);
     let Some(song) = playback.song else {
         let nothing = context.phrase(Phrase::NothingPlaying);
         return Line::styled(format!("{prefix}{nothing}"), theme::MUTED);
@@ -425,19 +465,33 @@ fn song_line(playback: &Playback<'_>, width: u16, context: &Context<'_>) -> Line
     } else {
         ARTIST_ALBUM_SEPARATOR
     };
-    let fixed = Span::raw(&prefix).width() + MIN_GAP + Span::raw(separator).width();
-    let budget = usize::from(width).saturating_sub(fixed);
+    let lyric_separator = if playback.lyric.is_some() {
+        LYRIC_SEPARATOR
+    } else {
+        ""
+    };
+    let lyric = playback.lyric.unwrap_or_default().to_owned();
     let measure = |text: &str| Span::raw(text).width();
-    let [album_width, artist_width, title_width] = shrink_in_order(
-        [measure(&album), measure(&artist), measure(&title)],
+    let fixed = measure(&prefix) + MIN_GAP + measure(separator) + measure(lyric_separator);
+    let budget = usize::from(width).saturating_sub(fixed);
+    let [album_width, lyric_width, artist_width, title_width] = shrink_in_order(
+        [
+            measure(&album),
+            measure(&lyric),
+            measure(&artist),
+            measure(&title),
+        ],
         budget,
         measure(glyphs.ellipsis),
     );
     let fit = |text: String, width: usize, style| {
         owned(fit_line(Line::styled(text, style), width, glyphs.ellipsis))
     };
-    let mut left = vec![Span::styled(prefix, theme::ACCENT)];
-    left.extend(fit(title, title_width, theme::BOLD).spans);
+    let lyric = playback
+        .lyric
+        .is_some()
+        .then(|| fit(lyric, lyric_width, theme::CURRENT_LYRIC));
+    let left = title_spans(fit(title, title_width, theme::BOLD), lyric, glyphs);
     let mut right = fit(artist, artist_width, theme::PLAIN).spans;
     right.push(Span::raw(separator));
     right.extend(fit(album, album_width, theme::MUTED).spans);
@@ -601,26 +655,7 @@ fn compact_lines(playback: &Playback<'_>, width: u16, context: &Context<'_>) -> 
     bar.extend(draw_bar(&song_bar(playback, texts).content, bar_width, glyphs, live).spans);
     bar.push(Span::raw(times));
 
-    let song = match playback.song {
-        Some(song) => {
-            let artist = song.artist.as_deref().unwrap_or_default();
-            let separator = if artist.is_empty() {
-                ""
-            } else {
-                ARTIST_ALBUM_SEPARATOR
-            };
-            format!(
-                "{} {}{separator}{artist}",
-                glyphs.now_playing,
-                song.display_title()
-            )
-        }
-        None => format!(
-            "{} {}",
-            glyphs.now_playing,
-            context.phrase(Phrase::NothingPlaying)
-        ),
-    };
+    let song = compact_song_line(playback, context);
     let album_number = current_album(playback)
         .map(|(index, run)| song_number(index, run, texts))
         .unwrap_or_default();
@@ -630,17 +665,35 @@ fn compact_lines(playback: &Playback<'_>, width: u16, context: &Context<'_>) -> 
         volume_percent(playback.status, texts),
         queue_position(playback)
     );
-    let details = spread(
-        Line::from(song),
-        Line::styled(numbers, theme::MUTED),
-        width,
-        glyphs,
-    );
+    let details = spread(song, Line::styled(numbers, theme::MUTED), width, glyphs);
     vec![
         Line::from(bar),
         owned(details),
         Line::from(modes_spans(playback.status, context, true)),
     ]
+}
+
+/// `♪ título - artista`; con una línea de la letra, `♪ título · línea` (la letra
+/// reemplaza al artista).
+fn compact_song_line(playback: &Playback<'_>, context: &Context<'_>) -> Line<'static> {
+    let glyphs = context.glyphs;
+    let prefix = now_playing_prefix(glyphs);
+    let Some(song) = playback.song else {
+        let nothing = context.phrase(Phrase::NothingPlaying);
+        return Line::raw(format!("{prefix}{nothing}"));
+    };
+    let title = song.display_title().to_owned();
+    if let Some(lyric) = playback.lyric {
+        let lyric = Line::styled(lyric.to_owned(), theme::CURRENT_LYRIC);
+        return Line::from(title_spans(Line::raw(title), Some(lyric), glyphs));
+    }
+    let artist = song.artist.as_deref().unwrap_or_default();
+    let separator = if artist.is_empty() {
+        ""
+    } else {
+        ARTIST_ALBUM_SEPARATOR
+    };
+    Line::raw(format!("{prefix}{title}{separator}{artist}"))
 }
 
 /// Copia los textos para que la línea no dependa de textos armados en el momento.
@@ -655,9 +708,131 @@ fn owned(line: Line<'_>) -> Line<'static> {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Instant;
+
     use super::*;
-    use crate::domain::{AudioFormat, SampleFormat};
+    use crate::domain::{AudioFormat, LyricLine, Lyrics, LyricsSource, SampleFormat};
     use crate::i18n::Spanish;
+    use crate::service::PlaybackClock;
+    use crate::tui::glyphs::ASCII;
+
+    fn lyrics_context(mode: LayoutMode, lyrics_line: bool, now: Instant) -> Context<'static> {
+        Context {
+            glyphs: &ASCII,
+            texts: &Spanish,
+            mode,
+            width: 100,
+            now,
+            progress_bars: ProgressBars::default(),
+            lyrics_line,
+        }
+    }
+
+    /// En pausa a los 15 s de Time, con la letra sincronizada: suena «Ticking away».
+    fn singing(lyrics: Lyrics, now: Instant) -> AppState {
+        let mut state = AppState::default();
+        let status = Status {
+            state: PlayState::Pause,
+            elapsed: Some(Duration::from_secs(15)),
+            duration: Some(Duration::from_secs(400)),
+            ..Status::default()
+        };
+        state.clock = PlaybackClock::new(&status, now);
+        state.player.status = status;
+        state.player.current_song = Some(Song {
+            file: "time.flac".into(),
+            title: Some("Time".into()),
+            artist: Some("Pink Floyd".into()),
+            album: Some("The Dark Side of the Moon".into()),
+            ..Song::default()
+        });
+        state.lyrics.status = LyricsStatus::Found(lyrics);
+        state
+    }
+
+    fn lyrics(synced: bool) -> Lyrics {
+        let line = |seconds, text: &str| LyricLine {
+            time: synced.then(|| Duration::from_secs(seconds)),
+            text: text.into(),
+        };
+        Lyrics {
+            lines: vec![
+                line(0, ""),
+                line(10, "Ticking away the moments"),
+                line(20, "That make up a dull day"),
+            ],
+            source: LyricsSource::Cache,
+        }
+    }
+
+    fn song_text(state: &AppState, context: &Context<'_>, width: u16) -> String {
+        let playback = Playback::from_state(state, context);
+        if context.is_compact() {
+            compact_song_line(&playback, context).to_string()
+        } else {
+            song_line(&playback, width, context).to_string()
+        }
+    }
+
+    #[test]
+    fn the_current_lyric_follows_the_title() {
+        let now = Instant::now();
+        let state = singing(lyrics(true), now);
+        let full = lyrics_context(LayoutMode::Full, true, now);
+        let text = song_text(&state, &full, 100);
+        assert!(
+            text.starts_with("~ Time · Ticking away the moments "),
+            "{text}"
+        );
+        assert!(
+            text.ends_with("Pink Floyd - The Dark Side of the Moon"),
+            "{text}"
+        );
+        let compact = lyrics_context(LayoutMode::Compact, true, now);
+        let text = song_text(&state, &compact, 100);
+        assert_eq!(text, "~ Time · Ticking away the moments");
+    }
+
+    #[test]
+    fn without_a_current_lyric_the_song_line_is_unchanged() {
+        let now = Instant::now();
+        let hidden = lyrics_context(LayoutMode::Full, false, now);
+        let shown = lyrics_context(LayoutMode::Full, true, now);
+        let plain = singing(lyrics(false), now);
+        let expected = song_text(&plain, &hidden, 100);
+        assert!(!expected.contains("Ticking"), "{expected}");
+        assert_eq!(
+            song_text(&singing(lyrics(true), now), &hidden, 100),
+            expected
+        );
+        assert_eq!(song_text(&plain, &shown, 100), expected);
+        let mut intro = singing(lyrics(true), now);
+        intro.clock = PlaybackClock::new(
+            &Status {
+                elapsed: Some(Duration::from_secs(5)),
+                ..intro.player.status.clone()
+            },
+            now,
+        );
+        assert_eq!(song_text(&intro, &shown, 100), expected);
+        let mut stopped = singing(lyrics(true), now);
+        stopped.player.status.state = PlayState::Stop;
+        assert!(!song_text(&stopped, &shown, 100).contains("Ticking"));
+    }
+
+    #[test]
+    fn the_lyric_is_cut_after_the_album_and_before_the_artist() {
+        let now = Instant::now();
+        let state = singing(lyrics(true), now);
+        let full = lyrics_context(LayoutMode::Full, true, now);
+        let text = song_text(&state, &full, 50);
+        assert_eq!(text.chars().count(), 50, "{text}");
+        assert!(text.starts_with("~ Time · Ticking"), "{text}");
+        assert!(text.ends_with("Pink Floyd - ..."), "{text}");
+        let narrow = song_text(&state, &full, 30);
+        assert!(narrow.contains("Pink Floyd"), "{narrow}");
+        assert!(!narrow.contains("Ticking away"), "{narrow}");
+    }
 
     #[test]
     fn shrinking_follows_priority() {

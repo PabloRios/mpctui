@@ -79,3 +79,13 @@ directory = "~/.lyrics"
 # Raíz de la biblioteca de MPD (su music_directory). Solo la usa "song_folder":
 # por TCP, MPD no informa dónde está la música.
 # music_directory = "~/Music"
+
+# true: busca la letra de cada tema que empieza aunque la vista 7 no esté abierta,
+# así ya está lista al abrirla. Con "lrclib" en sources, cada tema que suena se
+# consulta en lrclib.net (si no está en las fuentes anteriores).
+fetch_in_background = false
+
+# true: muestra la línea actual de una letra sincronizada en el panel "ahora
+# suena", después del título. Implica buscar la letra de cada tema, como
+# fetch_in_background.
+now_playing_line = false

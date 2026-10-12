@@ -238,6 +238,7 @@ mod tests {
             width: 100,
             now,
             progress_bars: ProgressBars::default(),
+            lyrics_line: false,
         }
     }
 

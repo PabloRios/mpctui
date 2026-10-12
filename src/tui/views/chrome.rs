@@ -27,6 +27,8 @@ pub struct Context<'a> {
     pub width: u16,
     pub now: Instant,
     pub progress_bars: ProgressBars,
+    /// Línea actual de la letra en el panel "ahora suena".
+    pub lyrics_line: bool,
 }
 
 impl Context<'_> {

@@ -194,6 +194,27 @@ están en `DESIGN.md` ni en `DESIGN_EXTRA.md`.
   sonaba (`Soulsavers - You Will Miss me when I Burn.lrc`), que es el comportamiento
   esperado de la caché.
 
+### L3 · Letras fuera de la vista
+
+- **Dos opciones de `[lyrics]`, `false` por defecto:** `fetch_in_background` busca la letra
+  de cada tema aunque la vista 7 no esté activa; `now_playing_line` muestra la línea actual
+  en el panel "ahora suena". La segunda implica buscar siempre (si no, la línea solo
+  aparecería con la vista 7 abierta). Con `enabled = false` se ignoran, igual que `sources`.
+- **Dónde viajan:** `Appearance.lyrics_line` (cómo se ve el panel; la factory ya lo cruza
+  con `enabled`) y `Services.lyrics_in_background` (cuándo se usa el servicio). La
+  decisión vive en dos funciones puras de `tui/app/lyrics.rs` (`needs_lyrics`,
+  `shows_current_line`).
+- **Ubicación en el panel:** después del título, `♪ Time · Ticking away…`. Al recortar se
+  pierde primero el álbum, después la letra, el artista y el título. En compacto, la
+  línea reemplaza al artista. Solo letras sincronizadas: sin sincronizar, antes de la
+  primera línea, en una línea vacía o detenido, la fila queda como siempre.
+- **`sync_lyrics` antes de dibujar:** antes iba después, y un tema nuevo podía mostrar
+  hasta el próximo evento (≤ 1 s) la letra del anterior. Con la línea siempre a la vista
+  en el panel, eso se notaba.
+- **Privacidad:** con cualquiera de las dos y `lrclib` en las fuentes, se consulta cada
+  tema que suena (si no está en las fuentes anteriores); la memoria de la sesión evita
+  repetir pedidos.
+
 
 ### I1 · Interfaz en inglés y español
 
