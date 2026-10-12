@@ -91,6 +91,8 @@ impl Catalog for Spanish {
             Phrase::HintPause => "pausa",
             Phrase::HintNextStyle => "siguiente forma",
             Phrase::HintRetry => "reintentar",
+            Phrase::HintPlayFromLine => "reproducir desde acá",
+            Phrase::HintFollowSong => "seguir la canción",
             Phrase::SearchKeys => "Enter busca   Tab cambia el campo   Esc cancela",
             Phrase::SaveQueueTitle => "Guardar cola como playlist",
             Phrase::ConfirmTitle => "Confirmar",

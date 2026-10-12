@@ -1,11 +1,13 @@
 //! Implementación de los repositorios sobre el protocolo de MPD.
 
+use std::time::Duration;
+
 use super::parse::{
     parse_entries, parse_playlist_names, parse_songs, parse_status, parse_subsystems, values_of,
 };
 use super::protocol::{Command, FilterOperator, Pair, filter_expression};
 use super::transport::Transport;
-use super::vocabulary::{Verb, flag, keys, single_mode_argument, tag_name};
+use super::vocabulary::{SEEK_DECIMALS, Verb, flag, keys, single_mode_argument, tag_name};
 use crate::domain::{
     Entry, PlaylistName, SearchText, SingleMode, Song, Status, Subsystem, Tag, TagFilter, Volume,
 };
@@ -74,6 +76,11 @@ impl<T: Transport + Send> PlayerRepository for MpdClient<T> {
     async fn seek_relative(&mut self, offset_seconds: i32) -> Result<()> {
         let offset = format!("{offset_seconds:+}");
         self.run(Command::new(Verb::SeekCurrent).arg(offset)).await
+    }
+
+    async fn seek_to(&mut self, position: Duration) -> Result<()> {
+        let seconds = format!("{:.SEEK_DECIMALS$}", position.as_secs_f64());
+        self.run(Command::new(Verb::SeekCurrent).arg(seconds)).await
     }
 }
 

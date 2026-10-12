@@ -176,6 +176,19 @@ async fn manages_stored_playlists() {
 }
 
 #[tokio::test]
+async fn seeks_relative_and_absolute() {
+    let (address, server) = fake_server(vec![
+        ("seekcur \"+5\"", "OK\n"),
+        ("seekcur \"75.500\"", "OK\n"),
+    ])
+    .await;
+    let mut client = connect_mpd(&address, None).await.unwrap();
+    client.seek_relative(5).await.unwrap();
+    client.seek_to(Duration::from_millis(75_500)).await.unwrap();
+    server.await.unwrap();
+}
+
+#[tokio::test]
 async fn waits_for_changes() {
     let (address, server) =
         fake_server(vec![("idle", "changed: player\nchanged: mixer\nOK\n")]).await;

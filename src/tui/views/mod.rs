@@ -868,6 +868,36 @@ mod tests {
     }
 
     #[test]
+    fn a_chosen_lyric_line_is_centered_and_inverted() {
+        let following = lyrics_screen(&UNICODE, SIZES[0], LyricsStatus::Found(sample_lyrics(true)));
+        let row_of = |screen: &str, text: &str| screen.lines().position(|line| line.contains(text));
+        let middle = row_of(&following, "número 13 ").unwrap();
+        let mut sample = sample_state();
+        sample.view = ViewKind::Lyrics;
+        sample.lyrics.status = LyricsStatus::Found(sample_lyrics(true));
+        sample.lyrics.cursor = Some(25);
+        let buffer = render_to_buffer(&mut sample, &UNICODE, SIZES[0]);
+        let screen = screen_lines(&buffer);
+        assert_contains(
+            &screen,
+            &["Enter reproducir desde acá", "h seguir la canción"],
+        );
+        assert!(!screen.contains("sincronizada · caché"));
+        assert!(!following.contains("reproducir desde acá"));
+        assert_eq!(row_of(&screen, "número 25 "), Some(middle));
+        let row = u16::try_from(middle).unwrap();
+        let column = (0..buffer.area.width)
+            .find(|column| buffer[(*column, row)].symbol() == "L")
+            .unwrap();
+        let style = buffer[(column, row)].style();
+        assert!(
+            style
+                .add_modifier
+                .contains(ratatui::style::Modifier::REVERSED)
+        );
+    }
+
+    #[test]
     fn plain_lyrics_scroll_from_the_top() {
         let mut sample = sample_state();
         sample.view = ViewKind::Lyrics;

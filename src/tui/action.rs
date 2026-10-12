@@ -22,6 +22,21 @@ pub enum Navigation {
     Last,
 }
 
+impl Navigation {
+    /// El índice al que lleva desde `index`, con páginas de `page` filas. `Last` da
+    /// `usize::MAX`: quien llama lo limita al largo de lo que recorre.
+    pub fn apply(self, index: usize, page: usize) -> usize {
+        match self {
+            Navigation::Next => index.saturating_add(1),
+            Navigation::Previous => index.saturating_sub(1),
+            Navigation::PageDown => index.saturating_add(page),
+            Navigation::PageUp => index.saturating_sub(page),
+            Navigation::First => 0,
+            Navigation::Last => usize::MAX,
+        }
+    }
+}
+
 /// Acciones del usuario. Las de vista (`Activate`, `Add`, `Delete`…) las interpreta
 /// la vista activa.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -462,6 +477,16 @@ mod tests {
             action_for(key(KeyCode::Char('x'), KeyModifiers::NONE)),
             None
         );
+    }
+
+    #[test]
+    fn navigation_moves_by_lines_and_pages() {
+        assert_eq!(Navigation::Next.apply(3, 10), 4);
+        assert_eq!(Navigation::Previous.apply(0, 10), 0);
+        assert_eq!(Navigation::PageDown.apply(3, 10), 13);
+        assert_eq!(Navigation::PageUp.apply(3, 10), 0);
+        assert_eq!(Navigation::First.apply(7, 10), 0);
+        assert_eq!(Navigation::Last.apply(7, 10), usize::MAX);
     }
 
     #[test]

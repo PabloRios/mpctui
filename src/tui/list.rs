@@ -67,15 +67,7 @@ impl<T> SelectableList<T> {
     /// Mueve la selección; devuelve `true` si cambió.
     pub fn navigate(&mut self, navigation: Navigation) -> bool {
         let previous = self.table.selected();
-        let current = previous.unwrap_or(0);
-        let target = match navigation {
-            Navigation::Next => current.saturating_add(1),
-            Navigation::Previous => current.saturating_sub(1),
-            Navigation::PageDown => current.saturating_add(PAGE_SIZE),
-            Navigation::PageUp => current.saturating_sub(PAGE_SIZE),
-            Navigation::First => 0,
-            Navigation::Last => usize::MAX,
-        };
+        let target = navigation.apply(previous.unwrap_or(0), PAGE_SIZE);
         self.select_clamped(target);
         self.table.selected() != previous
     }

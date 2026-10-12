@@ -78,6 +78,22 @@ impl<R: PlayerRepository + OptionsRepository + Send> PlaybackService<R> {
         self.repository.seek_relative(offset_seconds).await
     }
 
+    /// Deja sonando el tema actual desde `position`: en pausa reanuda y detenido
+    /// arranca (MPD no salta con el reproductor detenido, así que primero arranca).
+    pub async fn play_from(&mut self, state: PlayState, position: Duration) -> Result<()> {
+        match state {
+            PlayState::Play => self.repository.seek_to(position).await,
+            PlayState::Pause => {
+                self.repository.seek_to(position).await?;
+                self.repository.set_pause(false).await
+            }
+            PlayState::Stop => {
+                self.repository.play(None).await?;
+                self.repository.seek_to(position).await
+            }
+        }
+    }
+
     pub async fn toggle_random(&mut self, enabled: bool) -> Result<()> {
         self.repository.set_random(!enabled).await
     }
@@ -140,6 +156,9 @@ mod tests {
         async fn seek_relative(&mut self, offset_seconds: i32) -> Result<()> {
             self.record(format!("seek {offset_seconds}"))
         }
+        async fn seek_to(&mut self, position: Duration) -> Result<()> {
+            self.record(format!("seek to {position:?}"))
+        }
     }
 
     impl OptionsRepository for RecordingPlayer {
@@ -167,6 +186,20 @@ mod tests {
             service.repository.calls,
             ["pause true", "pause false", "play None"]
         );
+    }
+
+    #[tokio::test]
+    async fn playing_from_a_position_always_leaves_it_playing() {
+        let position = Duration::from_millis(75_500);
+        let mut service = PlaybackService::new(RecordingPlayer::default());
+        service.play_from(PlayState::Play, position).await.unwrap();
+        assert_eq!(service.repository.calls, ["seek to 75.5s"]);
+        let mut service = PlaybackService::new(RecordingPlayer::default());
+        service.play_from(PlayState::Pause, position).await.unwrap();
+        assert_eq!(service.repository.calls, ["seek to 75.5s", "pause false"]);
+        let mut service = PlaybackService::new(RecordingPlayer::default());
+        service.play_from(PlayState::Stop, position).await.unwrap();
+        assert_eq!(service.repository.calls, ["play None", "seek to 75.5s"]);
     }
 
     #[test]

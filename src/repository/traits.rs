@@ -2,6 +2,7 @@
 //! nunca de la implementación concreta.
 
 use std::future::Future;
+use std::time::Duration;
 
 use super::error::Result;
 use crate::domain::{
@@ -21,6 +22,8 @@ pub trait PlayerRepository {
     fn set_volume(&mut self, volume: Volume) -> impl Future<Output = Result<()>> + Send;
     /// Desplaza el tema actual; negativo va hacia atrás.
     fn seek_relative(&mut self, offset_seconds: i32) -> impl Future<Output = Result<()>> + Send;
+    /// Lleva el tema actual a `position`.
+    fn seek_to(&mut self, position: Duration) -> impl Future<Output = Result<()>> + Send;
 }
 
 pub trait OptionsRepository {

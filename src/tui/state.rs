@@ -367,6 +367,8 @@ pub struct LyricsView {
     pub status: LyricsStatus,
     /// Primera línea visible de una letra sin sincronizar.
     pub scroll: usize,
+    /// Línea elegida en una letra sincronizada; `None` sigue la canción.
+    pub cursor: Option<usize>,
 }
 
 #[cfg(test)]

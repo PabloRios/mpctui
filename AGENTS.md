@@ -83,7 +83,7 @@ i18n (textos del usuario) ← tui, main
     - `reconnect.rs`: trait `Connector` + `ReconnectingTransport`, que reabre la conexión y reintenta **una vez** si se cortó (`Error::is_disconnection`). Un `ACK` no reconecta.
     - `client.rs`: `MpdClient<T: Transport>` implementa todos los traits de repositorio.
 - **`src/service/`:** lógica de negocio sobre los traits del repositorio.
-  - `PlaybackService`: alterna pausa según el estado, pasos de volumen y ciclo de single.
+  - `PlaybackService`: alterna pausa según el estado, pasos de volumen, ciclo de single y `play_from` (salta a un momento y deja sonando: en pausa reanuda, detenido arranca).
   - `QueueService`, `LibraryService` y `PlaylistService`.
   - `ChangeWatcher`: loop de `idle` que emite `ServerEvent`. Es la **única fuente del estado de conexión**: si se corta, emite `Disconnected { attempt, retry_at, delay, reason }`, espera con `Backoff` exponencial (1 s → 30 s), emite `Connecting` y prueba con `ping` (no con `idle`, que bloquearía); al responder, `Connected`. `retry_at` es `tokio::time::Instant` para testear con `start_paused`.
   - `update_transition` (`database_update.rs`): decide si la actualización de la base empezó o terminó comparando dos `Status` sucesivos.

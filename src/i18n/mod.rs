@@ -111,6 +111,8 @@ pub enum Phrase {
     HintPause,
     HintNextStyle,
     HintRetry,
+    HintPlayFromLine,
+    HintFollowSong,
     /// Teclas de la línea de búsqueda.
     SearchKeys,
     // Diálogos.

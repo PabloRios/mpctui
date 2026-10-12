@@ -91,6 +91,8 @@ impl Catalog for English {
             Phrase::HintPause => "pause",
             Phrase::HintNextStyle => "next style",
             Phrase::HintRetry => "retry",
+            Phrase::HintPlayFromLine => "play from here",
+            Phrase::HintFollowSong => "follow the song",
             Phrase::SearchKeys => "Enter searches   Tab changes the field   Esc cancels",
             Phrase::SaveQueueTitle => "Save queue as playlist",
             Phrase::ConfirmTitle => "Confirm",

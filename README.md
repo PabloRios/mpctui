@@ -105,9 +105,9 @@ mpctui
 
 | Teclas | Acción |
 |---|---|
-| `j` `k` / `↓` `↑` | Moverse; `g`/`G` principio/final; `AvPág`/`RePág` o `Ctrl+d`/`Ctrl+u` por páginas |
-| `Enter` | Cola: reproducir · Biblioteca/Directorios: entrar o agregar · Búsqueda: agregar · Playlists: cargar |
-| `l` / `h` | Columna siguiente/anterior · entrar/subir de directorio |
+| `j` `k` / `↓` `↑` | Moverse; `g`/`G` principio/final; `AvPág`/`RePág` o `Ctrl+d`/`Ctrl+u` por páginas. En Letra sincronizada, eligen una línea |
+| `Enter` | Cola: reproducir · Biblioteca/Directorios: entrar o agregar · Búsqueda: agregar · Playlists: cargar · Letra: reproducir desde la línea elegida |
+| `l` / `h` | Columna siguiente/anterior · entrar/subir de directorio · Letra: volver a seguir la canción |
 | `a` / `A` | Agregar la selección / agregar todos (resultados, temas del álbum) |
 | `d` | Borrar de la cola · borrar playlist (pide confirmación) |
 | `p` o `Espacio` | Pausa / reanudar |
@@ -152,6 +152,8 @@ La vista Letra prueba las fuentes de `lyrics.sources` en orden y muestra la prim
 | `song_folder` | Junto al archivo del tema, con su mismo nombre: `Album/01 Tema.lrc` al lado de `Album/01 Tema.flac`. Necesita `music_directory`, porque MPD no informa dónde está la música si se conecta por TCP |
 | `tags` | La letra embebida en el archivo (`LYRICS` o `UNSYNCEDLYRICS`, en FLAC y Ogg). En MP3, MPD no expone la letra (`USLT`) |
 | `lrclib` | [lrclib.net](https://lrclib.net): gratis y sin registro, muchas letras sincronizadas. Pide la coincidencia exacta (artista, título, álbum y duración) y, si no hay, busca por artista y título y elige un resultado con una duración parecida (±2 s), prefiriendo los sincronizados. Lo descargado se guarda en la caché si `cache` está en `sources`; lo que no encontró se recuerda hasta cerrar mpctui, para no volver a pedirlo |
+
+En una letra sincronizada, `j`/`k` (y `g`/`G`, páginas) eligen una línea: la vista deja de seguir la canción y la centra invertida. `Enter` hace sonar el tema desde que empieza esa línea (si estaba en pausa reanuda; si estaba detenido, arranca) y vuelve a seguir la canción; `h` vuelve sin saltar.
 
 Si LRCLIB dice que el tema es instrumental, la vista muestra `Instrumental`. Si no encontró la letra y alguna fuente falló (sin red, LRCLIB no respondió a tiempo…), la vista muestra el último error y `Ctrl+r` vuelve a buscar en todas las fuentes. Los errores no se recuerdan, así que el reintento vuelve a consultar LRCLIB.
 

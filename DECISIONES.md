@@ -222,6 +222,29 @@ están en `DESIGN.md` ni en `DESIGN_EXTRA.md`.
   `LyricsLookup` (el `watch` marca el cambio aunque el valor sea igual). La tecla se
   sugiere debajo del error, no en la línea inferior: solo tiene sentido en ese estado.
 
+### L4 · Letra sincronizada navegable
+
+- **Cursor aparte del seguimiento:** `LyricsView.cursor: Option<usize>`; `None` sigue la
+  canción. Con cursor, la vista centra la línea elegida (invertida, como la selección de
+  las listas) y la que suena conserva su glifo y su color, así se ven las dos. Una línea
+  vacía elegida muestra el glifo de la música para que se vea dónde está el cursor.
+- **Punto de partida:** el primer `j`/`k` parte de la línea que suena; antes de la
+  primera, elige la primera (o la última con `G`).
+- **`Enter` siempre deja sonando** (pedido del usuario): en reproducción salta, en pausa
+  salta y reanuda, detenido arranca y salta. Es lógica de negocio:
+  `PlaybackService::play_from(estado, momento)`. Detenido, `seekcur` falla en MPD, así
+  que primero `play` y después `seekcur`.
+- **`seekcur` absoluto con milésimas** (`seekcur "75.500"`, `SEEK_DECIMALS`): MPD acepta
+  fracciones y las marcas LRC llegan a centésimas.
+- **Vuelta al seguimiento:** después de un `Enter` que salió bien, con `h` (`Back`) o al
+  cambiar de tema o de letra. Sin timeout. Si el salto falla, el cursor queda.
+- **Sin refresco manual:** el salto dispara `changed: player` por `idle` y la app relee el
+  estado y el reloj.
+- **`Navigation::apply`:** el `match` de navegación estaba duplicado en `SelectableList` y
+  en el desplazamiento de la letra; ahora lo usan los dos y el cursor de la letra.
+- **Sugerencia en el título y no en la línea inferior:** solo tiene sentido con una línea
+  elegida; la línea inferior es fija por vista.
+
 
 ### I1 · Interfaz en inglés y español
 

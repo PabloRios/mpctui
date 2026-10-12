@@ -113,6 +113,8 @@ pub mod keys {
 pub const FLAG_ON: &str = "1";
 pub const FLAG_OFF: &str = "0";
 pub const SINGLE_ONESHOT: &str = "oneshot";
+/// Decimales de los segundos de `seekcur` absoluto: MPD acepta fracciones.
+pub const SEEK_DECIMALS: usize = 3;
 /// Volumen que informa MPD cuando no hay mixer.
 pub const VOLUME_UNAVAILABLE: &str = "-1";
 /// Separa los campos de `audio`: `44100:16:2` o `dsd64:2`.

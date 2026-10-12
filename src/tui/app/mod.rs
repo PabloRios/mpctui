@@ -244,7 +244,7 @@ impl<B: Backend> App<B> {
             ViewKind::Browse => self.browse_action(action).await,
             ViewKind::Search => self.search_action(action).await,
             ViewKind::Playlists => self.playlists_action(action).await,
-            ViewKind::Lyrics => self.lyrics_action(action),
+            ViewKind::Lyrics => self.lyrics_action(action).await,
             ViewKind::Visualizer => {}
         }
     }

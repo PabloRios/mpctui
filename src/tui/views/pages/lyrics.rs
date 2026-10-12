@@ -1,6 +1,7 @@
 //! Letra (`7`): la del tema que suena. Una sincronizada mantiene la línea actual
-//! centrada (las ya cantadas, apagadas); una sin sincronizar se recorre con las teclas
-//! de navegación. Mientras busca o si no hay letra, lo dice en el centro.
+//! centrada (las ya cantadas, apagadas) o, si se eligió una con las teclas de
+//! navegación, la elegida; una sin sincronizar se recorre con esas teclas. Mientras
+//! busca o si no hay letra, lo dice en el centro.
 
 use std::time::Instant;
 
@@ -28,6 +29,8 @@ const DETAIL_SEPARATOR: &str = " · ";
 const LRCLIB_NAME: &str = "LRCLIB";
 /// Entre el cursor de la línea actual y su texto.
 const CURSOR_GAP: &str = " ";
+/// Entre las sugerencias de teclas del título.
+const HINT_GAP: &str = "   ";
 
 pub fn render(frame: &mut Frame, area: Rect, state: &mut AppState, context: &Context<'_>) {
     let title_rows = if context.is_compact() { 0 } else { TITLE_ROWS };
@@ -66,7 +69,16 @@ pub fn render(frame: &mut Frame, area: Rect, state: &mut AppState, context: &Con
             draw_not_found(frame, body, rows);
         }
         LyricsStatus::Found(lyrics) if lyrics.is_synced() => {
-            draw_synced(frame, body, lyrics, &state.clock, context.now, glyphs);
+            let cursor = state.lyrics.cursor;
+            draw_synced(
+                frame,
+                body,
+                lyrics,
+                cursor,
+                &state.clock,
+                context.now,
+                glyphs,
+            );
         }
         LyricsStatus::Found(lyrics) => {
             let scroll = &mut state.lyrics.scroll;
@@ -76,7 +88,8 @@ pub fn render(frame: &mut Frame, area: Rect, state: &mut AppState, context: &Con
     }
 }
 
-/// `Letra: Time — Pink Floyd` y, a la derecha, `sincronizada · caché`.
+/// `Letra: Time — Pink Floyd` y, a la derecha, `sincronizada · caché` o, con una línea
+/// elegida, qué hacer con ella.
 fn draw_title(frame: &mut Frame, area: Rect, state: &AppState, context: &Context<'_>) {
     let title = context.phrase(Phrase::ViewLyrics);
     let mut left = title.to_owned();
@@ -85,6 +98,7 @@ fn draw_title(frame: &mut Frame, area: Rect, state: &AppState, context: &Context
         left = format!("{title}: {}{TITLE_SEPARATOR}{artist}", song.display_title());
     }
     let details = match &state.lyrics.status {
+        LyricsStatus::Found(_) if state.lyrics.cursor.is_some() => cursor_hints(context),
         LyricsStatus::Found(lyrics) => {
             let timing = context.phrase(if lyrics.is_synced() {
                 Phrase::Synced
@@ -92,17 +106,37 @@ fn draw_title(frame: &mut Frame, area: Rect, state: &AppState, context: &Context
                 Phrase::PlainText
             });
             let source = source_name(lyrics.source, context);
-            format!("{timing}{DETAIL_SEPARATOR}{source}")
+            Line::styled(format!("{timing}{DETAIL_SEPARATOR}{source}"), theme::MUTED)
         }
-        _ => String::new(),
+        _ => Line::default(),
     };
     let line = spread(
         Line::styled(left, theme::BOLD),
-        Line::styled(details, theme::MUTED),
+        details,
         area.width,
         context.glyphs,
     );
     draw_line(frame, area, &line);
+}
+
+/// `Enter reproducir desde acá   h seguir la canción`, con las teclas resaltadas.
+fn cursor_hints(context: &Context<'_>) -> Line<'static> {
+    let hints = [
+        (Action::Activate, Phrase::HintPlayFromLine),
+        (Action::Back, Phrase::HintFollowSong),
+    ];
+    let mut spans = Vec::new();
+    for (index, (action, hint)) in hints.into_iter().enumerate() {
+        if index > 0 {
+            spans.push(Span::raw(HINT_GAP));
+        }
+        spans.push(Span::styled(context.key(action), theme::ACCENT));
+        spans.push(Span::styled(
+            format!(" {}", context.phrase(hint)),
+            theme::MUTED,
+        ));
+    }
+    Line::from(spans)
 }
 
 /// LRCLIB es un nombre propio: no se traduce.
@@ -156,17 +190,20 @@ fn draw_not_found(frame: &mut Frame, area: Rect, rows: [Option<Line<'static>>; 3
     }
 }
 
-/// La línea actual en el medio; antes de la primera, la primera espera en el medio.
+/// La línea elegida o, si no hay, la actual en el medio; antes de la primera, la
+/// primera espera en el medio. La elegida va invertida (una vacía muestra el glifo de
+/// la música, para que se vea dónde está).
 fn draw_synced(
     frame: &mut Frame,
     area: Rect,
     lyrics: &Lyrics,
+    cursor: Option<usize>,
     clock: &PlaybackClock,
     now: Instant,
     glyphs: &Glyphs,
 ) {
     let current = lyrics.current_line(clock.elapsed_at(now));
-    let anchor = current.unwrap_or_default();
+    let anchor = cursor.or(current).unwrap_or_default();
     let middle = usize::from(area.height / 2);
     for row in 0..usize::from(area.height) {
         let Some(index) = (anchor + row).checked_sub(middle) else {
@@ -181,7 +218,17 @@ fn draw_synced(
             _ => theme::PLAIN,
         };
         let is_current = current == Some(index);
-        draw_centered(frame, area, row, &line.text, style, is_current, glyphs);
+        let (text, style) = if cursor == Some(index) {
+            let text = if line.text.trim().is_empty() {
+                glyphs.now_playing
+            } else {
+                &line.text
+            };
+            (text, style.patch(theme::SELECTED_ROW))
+        } else {
+            (line.text.as_str(), style)
+        };
+        draw_centered(frame, area, row, text, style, is_current, glyphs);
     }
 }
 
