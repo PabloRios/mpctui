@@ -4,8 +4,9 @@ use std::io;
 
 use super::{Catalog, Message, Phrase, counted, seconds_with_decimal};
 use crate::config::{
-    COLORS_VARIABLE, ConfigError, GLYPHS_VARIABLE, PORT_VARIABLE, color_choices, glyph_choices,
-    language_choices, lyrics_source_choices, theme_choices, visualizer_style_choices,
+    COLORS_VARIABLE, ConfigError, GLYPHS_VARIABLE, PORT_VARIABLE, TIMEOUT_VARIABLE, color_choices,
+    glyph_choices, language_choices, lyrics_source_choices, theme_choices,
+    visualizer_style_choices,
 };
 use crate::domain::{
     InputError, MAX_VOLUME, PATH_SEPARATOR, PCM_BITS, PCM_MAX_CHANNELS, PCM_MAX_SAMPLE_RATE,
@@ -348,6 +349,7 @@ fn failure(error: &Error) -> String {
         Error::Ack(ack) => format!("MPD: {ack}"),
         Error::Protocol(detail) => format!("respuesta inválida de MPD: {detail}"),
         Error::Closed => "la conexión con MPD se cerró".to_owned(),
+        Error::Timeout => "MPD no respondió a tiempo".to_owned(),
         Error::Http { service, failure } => format!("{service}: {}", http(failure)),
     }
 }
@@ -404,6 +406,9 @@ fn config(error: &ConfigError) -> String {
             format!("{PORT_VARIABLE} no es un puerto válido: {value:?}")
         }
         ConfigError::EmptyHost => "el host de MPD no puede estar vacío".to_owned(),
+        ConfigError::InvalidTimeout(value) => format!(
+            "{TIMEOUT_VARIABLE} debe ser una cantidad entera de segundos mayor que 0, no {value:?}"
+        ),
         ConfigError::InvalidPassword(error) => {
             format!("contraseña de MPD inválida: {}", input(error))
         }

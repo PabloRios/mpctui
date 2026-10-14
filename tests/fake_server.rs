@@ -7,7 +7,9 @@ use mpctui::domain::{
     Subsystem, Tag, TagFilter, Volume,
 };
 use mpctui::factory::{connect_following, connect_mpd};
-use mpctui::repository::mpd::{Address, SharedPartition};
+use mpctui::repository::mpd::{
+    Address, AddressCandidates, ConnectionSettings, SharedPartition, first_reachable,
+};
 use mpctui::repository::{
     ChangesRepository, EmbeddedLyricsRepository, Error, LibraryRepository, OutputRepository,
     PartitionSelection, PlayerRepository, PlaylistRepository, QueueRepository,
@@ -50,7 +52,9 @@ async fn reads_status() {
          bitrate: 245\naudio: 48000:f:2\nOK\n",
     )])
     .await;
-    let mut client = connect_mpd(&address, None).await.unwrap();
+    let mut client = connect_mpd(&address, &ConnectionSettings::default())
+        .await
+        .unwrap();
     let status = client.status().await.unwrap();
     assert_eq!(status.state, PlayState::Pause);
     assert_eq!(status.volume, Some(Volume::new(80).unwrap()));
@@ -72,7 +76,11 @@ async fn authenticates_and_survives_ack() {
     ])
     .await;
     let password = Password::new("secreto").unwrap();
-    let mut client = connect_mpd(&address, Some(&password)).await.unwrap();
+    let connection = ConnectionSettings {
+        password: Some(password),
+        ..ConnectionSettings::default()
+    };
+    let mut client = connect_mpd(&address, &connection).await.unwrap();
     match client.play(Some(99)).await {
         Err(Error::Ack(ack)) => {
             assert_eq!(ack.code, 2);
@@ -96,7 +104,9 @@ async fn reads_queue_and_current_song() {
         ("currentsong", "OK\n"),
     ])
     .await;
-    let mut client = connect_mpd(&address, None).await.unwrap();
+    let mut client = connect_mpd(&address, &ConnectionSettings::default())
+        .await
+        .unwrap();
     let queue = client.queue().await.unwrap();
     assert_eq!(queue.len(), 2);
     assert_eq!(queue[0].title.as_deref(), Some("Uno"));
@@ -128,7 +138,9 @@ async fn browses_lists_and_searches_library() {
         ),
     ])
     .await;
-    let mut client = connect_mpd(&address, None).await.unwrap();
+    let mut client = connect_mpd(&address, &ConnectionSettings::default())
+        .await
+        .unwrap();
 
     let entries = client.browse("Rock").await.unwrap();
     assert!(matches!(&entries[0], Entry::Directory { path } if path == "Rock/Viejo"));
@@ -163,7 +175,9 @@ async fn manages_stored_playlists() {
         (r#"save "Mi lista""#, "OK\n"),
     ])
     .await;
-    let mut client = connect_mpd(&address, None).await.unwrap();
+    let mut client = connect_mpd(&address, &ConnectionSettings::default())
+        .await
+        .unwrap();
     assert_eq!(
         client.playlists().await.unwrap(),
         [PlaylistName::new("Rock").unwrap()]
@@ -184,7 +198,9 @@ async fn edits_the_queue_and_stored_playlists() {
         (r#"playlistmove "Rock" "1" "0""#, "OK\n"),
     ])
     .await;
-    let mut client = connect_mpd(&address, None).await.unwrap();
+    let mut client = connect_mpd(&address, &ConnectionSettings::default())
+        .await
+        .unwrap();
     let rock = PlaylistName::new("Rock").unwrap();
     client.move_song(3, 4).await.unwrap();
     client.add_to_playlist(&rock, "a/b.flac").await.unwrap();
@@ -228,7 +244,9 @@ async fn lists_partitions_with_their_own_outputs() {
          attribute: dop=0\nOK\n",
     ));
     let (address, server) = fake_server(script).await;
-    let repository = connect_mpd(&address, None).await.unwrap();
+    let repository = connect_mpd(&address, &ConnectionSettings::default())
+        .await
+        .unwrap();
     let mut service = OutputService::new(repository, SharedPartition::default());
     let partitions = service.overview().await.unwrap();
     let owned: Vec<(&str, Vec<&str>)> = partitions
@@ -268,7 +286,9 @@ async fn manages_partitions_and_outputs() {
         "ACK [56@3] {delpartition} partition is busy\n",
     ));
     let (address, server) = fake_server(script).await;
-    let mut client = connect_mpd(&address, None).await.unwrap();
+    let mut client = connect_mpd(&address, &ConnectionSettings::default())
+        .await
+        .unwrap();
     let cocina = PartitionName::new("cocina").unwrap();
     client.create_partition(&cocina).await.unwrap();
     client.move_output("pulse audio", &cocina).await.unwrap();
@@ -297,7 +317,9 @@ async fn following_connections_enter_the_partition_in_use() {
     ])
     .await;
     let partition = SharedPartition::default();
-    let mut client = connect_following(&address, None, &partition).await.unwrap();
+    let mut client = connect_following(&address, &ConnectionSettings::default(), &partition)
+        .await
+        .unwrap();
     assert!(client.queue().await.unwrap().is_empty());
     partition.select(PartitionName::new("cocina").unwrap());
     assert_eq!(client.queue().await.unwrap().len(), 1);
@@ -318,7 +340,9 @@ async fn seeks_relative_and_absolute() {
         ("seekcur \"75.500\"", "OK\n"),
     ])
     .await;
-    let mut client = connect_mpd(&address, None).await.unwrap();
+    let mut client = connect_mpd(&address, &ConnectionSettings::default())
+        .await
+        .unwrap();
     client.seek_relative(5).await.unwrap();
     client.seek_to(Duration::from_millis(75_500)).await.unwrap();
     server.await.unwrap();
@@ -328,7 +352,9 @@ async fn seeks_relative_and_absolute() {
 async fn waits_for_changes() {
     let (address, server) =
         fake_server(vec![("idle", "changed: player\nchanged: mixer\nOK\n")]).await;
-    let mut client = connect_mpd(&address, None).await.unwrap();
+    let mut client = connect_mpd(&address, &ConnectionSettings::default())
+        .await
+        .unwrap();
     assert_eq!(
         client.wait_for_changes().await.unwrap(),
         [Subsystem::Player, Subsystem::Mixer]
@@ -345,7 +371,9 @@ async fn database_update_starts_and_finishes() {
         ("status", "state: play\nOK\n"),
     ])
     .await;
-    let mut client = connect_mpd(&address, None).await.unwrap();
+    let mut client = connect_mpd(&address, &ConnectionSettings::default())
+        .await
+        .unwrap();
     let mut previous = Status::default();
     let mut transitions = Vec::new();
     for _ in 0..2 {
@@ -368,7 +396,9 @@ async fn database_update_starts_and_finishes() {
 #[tokio::test]
 async fn requests_a_database_update() {
     let (address, server) = fake_server(vec![("update", "updating_db: 4\nOK\n")]).await;
-    let mut client = connect_mpd(&address, None).await.unwrap();
+    let mut client = connect_mpd(&address, &ConnectionSettings::default())
+        .await
+        .unwrap();
     client.update_database().await.unwrap();
     server.await.unwrap();
 }
@@ -376,7 +406,9 @@ async fn requests_a_database_update() {
 #[tokio::test]
 async fn pings_the_server() {
     let (address, server) = fake_server(vec![("ping", "OK\n")]).await;
-    let mut client = connect_mpd(&address, None).await.unwrap();
+    let mut client = connect_mpd(&address, &ConnectionSettings::default())
+        .await
+        .unwrap();
     client.ping().await.unwrap();
     server.await.unwrap();
 }
@@ -384,7 +416,9 @@ async fn pings_the_server() {
 #[tokio::test]
 async fn reports_closed_connection() {
     let (address, server) = fake_server(vec![]).await;
-    let mut client = connect_mpd(&address, None).await.unwrap();
+    let mut client = connect_mpd(&address, &ConnectionSettings::default())
+        .await
+        .unwrap();
     server.await.unwrap();
     assert!(matches!(
         client.status().await,
@@ -402,7 +436,9 @@ async fn reads_multiline_embedded_lyrics() {
         (r#"readcomments "Rock/otro.mp3""#, "TXXX: algo\nOK\n"),
     ])
     .await;
-    let mut client = connect_mpd(&address, None).await.unwrap();
+    let mut client = connect_mpd(&address, &ConnectionSettings::default())
+        .await
+        .unwrap();
     let lyrics = client.embedded_lyrics("Rock/time.flac").await.unwrap();
     assert_eq!(
         lyrics.as_deref(),
@@ -410,4 +446,43 @@ async fn reads_multiline_embedded_lyrics() {
     );
     assert_eq!(client.embedded_lyrics("Rock/otro.mp3").await.unwrap(), None);
     server.await.unwrap();
+}
+
+/// Un socket que no existe, para los candidatos que no responden.
+const MISSING_SOCKET: &str = "/nonexistent/mpctui/mpd/socket";
+
+#[tokio::test]
+async fn the_first_candidate_that_answers_is_chosen() {
+    let (address, server) = fake_server(vec![]).await;
+    let candidates =
+        AddressCandidates::in_order(Address::new(MISSING_SOCKET, 0), [address.clone()]);
+    let chosen = first_reachable(&candidates, &ConnectionSettings::default())
+        .await
+        .unwrap();
+    assert_eq!(chosen, address);
+    server.await.unwrap();
+}
+
+#[tokio::test]
+async fn a_rejected_password_stops_the_search() {
+    let (address, server) = fake_server(vec![(
+        r#"password "mala""#,
+        "ACK [3@0] {password} incorrect password\n",
+    )])
+    .await;
+    let candidates = AddressCandidates::in_order(address, [Address::new(MISSING_SOCKET, 0)]);
+    let connection = ConnectionSettings {
+        password: Some(Password::new("mala").unwrap()),
+        ..ConnectionSettings::default()
+    };
+    let result = first_reachable(&candidates, &connection).await;
+    assert!(matches!(result, Err(Error::Ack(ack)) if ack.code == 3));
+    server.await.unwrap();
+}
+
+#[tokio::test]
+async fn when_no_candidate_answers_the_last_error_is_returned() {
+    let candidates = AddressCandidates::configured(Address::new(MISSING_SOCKET, 0));
+    let result = first_reachable(&candidates, &ConnectionSettings::default()).await;
+    assert!(matches!(result, Err(Error::Io(io)) if io.kind() == std::io::ErrorKind::NotFound));
 }

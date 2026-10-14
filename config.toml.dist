@@ -10,19 +10,25 @@
 # explica el motivo.
 #
 # Precedencia: valores por defecto < este archivo < variables de entorno
-# (MPD_HOST, MPD_PORT, MPCTUI_GLYPHS y MPCTUI_COLORS).
+# (MPD_HOST, MPD_PORT, MPD_TIMEOUT, MPCTUI_GLYPHS y MPCTUI_COLORS).
 
 # --- Servidor MPD --------------------------------------------------------------
 
-# Host o ruta a un socket unix (por ejemplo "/run/mpd/socket").
-# MPD_HOST lo reemplaza y admite "contraseña@host", como mpc.
-host = "localhost"
+# Host, ruta a un socket unix ("/run/mpd/socket") o "@nombre" para un socket
+# abstracto de Linux. MPD_HOST lo reemplaza y admite "contraseña@host" y
+# "contraseña@@nombre", como mpc.
+# Sin host (ni acá ni en MPD_HOST), MPD se busca en este orden y se usa el primero
+# que responde: $XDG_RUNTIME_DIR/mpd/socket, /run/mpd/socket y localhost:port.
+# host = "localhost"
 
 # Puerto TCP. MPD_PORT lo reemplaza.
 port = 6600
 
 # Contraseña de MPD, si el servidor la pide. Sin saltos de línea.
 # password = "secreto"
+
+# Cuánto se espera a MPD al conectar y en cada respuesta: lo fija MPD_TIMEOUT, en
+# segundos enteros (por defecto 30). No es una opción de este archivo.
 
 # --- Apariencia ----------------------------------------------------------------
 

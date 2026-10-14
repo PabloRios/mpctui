@@ -15,7 +15,7 @@ async fn main() -> anyhow::Result<()> {
     let app = factory::build_app(&settings).await.map_err(|error| {
         let texts = i18n::catalog(settings.language);
         anyhow!(texts.message(&Message::ConnectFailed {
-            address: &settings.address.to_string(),
+            address: &settings.addresses.to_string(),
             error: &error,
         }))
     })?;

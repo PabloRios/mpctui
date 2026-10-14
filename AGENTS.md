@@ -79,7 +79,8 @@ i18n (textos del usuario) ← tui, main
     - `vocabulary.rs`: comandos, claves y mapeos dominio ↔ MPD. Es el único lugar con strings del protocolo.
     - `protocol.rs`: sintaxis. Escape, `Command` (y `Command::list`, una lista de comandos que viaja como un solo `Command` de varias líneas), expresiones de filtro y clasificación de líneas (`OK`/`ACK`/par).
     - `parse.rs`: pares → modelos del dominio.
-    - `transport.rs`: trait `Transport`, `Connection` real (TCP o socket unix, autentica al conectar) y `MpdConnector`.
+    - `address.rs`: `Address` (`Tcp`, `Unix` si empieza con `/`, `Abstract` si empieza con `@`) y `AddressCandidates` (lista no vacía; `defaults` sigue el orden del manual de clientes).
+    - `transport.rs`: trait `Transport`, `Connection` real (TCP, socket unix o abstracto; autentica al conectar), `ConnectionSettings` (contraseña y timeout), `MpdConnector` y `first_reachable` (el primer candidato que responde; un `ACK` corta la búsqueda). El timeout cubre la conexión y cada respuesta, salvo `idle`; vencido es `Error::Timeout`, que descarta la conexión pero no se reintenta.
     - `reconnect.rs`: trait `Connector` + `ReconnectingTransport`, que reabre la conexión y reintenta **una vez** si se cortó (`Error::is_disconnection`). Un `ACK` no reconecta. `ReconnectingTransport::lazy` conecta recién con el primer comando (vigilante relanzado).
     - `partition.rs`: `SharedPartition` (implementa `PartitionSelection`: la partición que usa mpctui) y `PartitionConnector`/`PartitionTransport`: antes de cada comando, si la conexión no está en la elegida, envía `partition X`. Cubre el cambio en vivo y la reconexión (una conexión nueva arranca en `default`). Si `partition X` responde `ACK` 50 (MPD se reinició), la selección vuelve a `default`.
     - `client.rs`: `MpdClient<T: Transport>` implementa todos los traits de repositorio. Lo que depende de una partición (`outputs`, `moveoutput`, `enable/disableoutput`, `delpartition`) va en una lista con `partition X` delante (`fetch_in`/`run_in`).
@@ -112,7 +113,8 @@ i18n (textos del usuario) ← tui, main
   - La TUI construye las entradas validadas (`SearchText`, `PlaylistName`) a partir de lo que tipea el usuario.
 - **`src/config.rs` (borde de entrada):**
   - `resolve(FileConfig, Environment) -> Settings` es pura y testeable.
-  - Precedencia: defecto < `~/.config/mpctui/config.toml` < `MPD_HOST`/`MPD_PORT`/`MPCTUI_GLYPHS`. `MPD_HOST` admite `contraseña@host`.
+  - Precedencia: defecto < `~/.config/mpctui/config.toml` < `MPD_HOST`/`MPD_PORT`/`MPD_TIMEOUT`/`MPCTUI_GLYPHS`. `MPD_HOST` admite `contraseña@host`, `@abstracto` y `contraseña@@abstracto`.
+  - Sin host configurado, `Settings.addresses` son los candidatos del manual de clientes (`$XDG_RUNTIME_DIR/mpd/socket`, `/run/mpd/socket`, `localhost:port`); `build_app` elige una vez el primero que responde. `MPD_TIMEOUT` (segundos enteros > 0, 30 por defecto) va en `Settings.connection`.
   - `language` (`en` por defecto, `es`) elige el catálogo de textos. `load()` devuelve `ConfigFailure { language, error }` para que `main` explique el error en el idioma configurado (en inglés si el TOML no se pudo leer).
   - `glyphs = "auto"` se resuelve con `resolve_glyph_mode` (pura): ASCII si el locale no es UTF-8 o `TERM` es `linux`/`dumb`.
   - `visualizer_fifo` (`/tmp/mpd.fifo`), `visualizer_format` (`44100:16:2`, validado como `PcmFormat`) y `visualizer_style` (`bars` por defecto; una forma estéreo con FIFO mono es error). Vacío o inválido no arranca; un FIFO inexistente no es error de configuración (la vista lo explica). La forma inicial viaja en `Appearance`.
@@ -176,6 +178,7 @@ i18n (textos del usuario) ← tui, main
 - **`ping`:** responde `OK` sin efectos. Lo usa el vigilante para confirmar la reconexión.
 - **`readcomments <uri>`:** todos los comentarios del archivo, con la clave tal como está en él (comparar sin distinguir mayúsculas). MPD imprime el valor **sin escapar**: una letra embebida multilínea llega partida en varias líneas, incluso vacías. Por eso una línea que no es `OK`, `ACK` ni un par con clave válida para MPD (letras, `_` y `-`) es continuación del valor anterior (`ResponseLine::Continuation`). En MP3 solo expone frames `TXXX`, no `USLT`.
 - **Salida fifo:** MPD escribe PCM crudo, entrelazado, con signo y en el orden de bytes nativo, en el `format` de su `audio_output` fifo. Un FIFO abierto en no bloqueante sin escritor no despierta al lector hasta que alguien escribe; cuando el escritor cierra, la lectura devuelve 0 (fin de archivo).
+- **Manual de clientes** (https://mpd.readthedocs.io/en/stable/client.html): no fijar `localhost:6600`; sin configuración probar `MPD_HOST` → `$XDG_RUNTIME_DIR/mpd/socket` → `/run/mpd/socket` → `localhost:$MPD_PORT`. `MPD_HOST` puede ser `@nombre` (socket abstracto de Linux; tokio no los conecta, se usa `std::os::linux::net::SocketAddrExt`) y `contraseña@@nombre`. `MPD_TIMEOUT` es el plazo, en segundos, para conectar y para cada respuesta.
 - **`connection_timeout`:** MPD cierra las conexiones sin actividad después de 60 s por defecto. Por eso las conexiones de comandos van envueltas en `ReconnectingTransport`. Durante `idle` no corre el timeout.
 - **Inyección de protocolo:** un salto de línea en un argumento cortaría el comando. Por eso todo texto del usuario pasa por `SearchText` o `PlaylistName`, que rechazan caracteres de control.
 
@@ -185,7 +188,8 @@ i18n (textos del usuario) ← tui, main
 
 - **MPD:**
   - Corre como **servicio de sistema** (`systemctl is-active mpd`), no de usuario.
-  - Escucha en `localhost:6600` (bind `0.0.0.0`), sin password.
+  - Escucha en `localhost:6600` (bind `0.0.0.0`) y en `/run/mpd/socket`, sin password. No hay `$XDG_RUNTIME_DIR/mpd/socket`.
+  - `~/.config/mpctui/config.toml` fija `host = "localhost"`. Para probar la búsqueda por defecto, correr con `XDG_CONFIG_HOME` apuntando a un directorio vacío: elige `/run/mpd/socket`.
   - Protocolo informado: **0.23.5**; el binario instalado es 0.23.14.
 - **Config de MPD:** `~/.config/mpd/mpd.conf`.
   - `music_directory ~/Music`; playlists en `~/Music/playlists`.

@@ -4,8 +4,9 @@ use std::io;
 
 use super::{Catalog, Message, Phrase, counted, seconds_with_decimal};
 use crate::config::{
-    COLORS_VARIABLE, ConfigError, GLYPHS_VARIABLE, PORT_VARIABLE, color_choices, glyph_choices,
-    language_choices, lyrics_source_choices, theme_choices, visualizer_style_choices,
+    COLORS_VARIABLE, ConfigError, GLYPHS_VARIABLE, PORT_VARIABLE, TIMEOUT_VARIABLE, color_choices,
+    glyph_choices, language_choices, lyrics_source_choices, theme_choices,
+    visualizer_style_choices,
 };
 use crate::domain::{
     InputError, MAX_VOLUME, PATH_SEPARATOR, PCM_BITS, PCM_MAX_CHANNELS, PCM_MAX_SAMPLE_RATE,
@@ -346,6 +347,7 @@ fn failure(error: &Error) -> String {
         Error::Ack(ack) => format!("MPD: {ack}"),
         Error::Protocol(detail) => format!("invalid response from MPD: {detail}"),
         Error::Closed => "the connection to MPD was closed".to_owned(),
+        Error::Timeout => "MPD did not respond in time".to_owned(),
         Error::Http { service, failure } => format!("{service}: {}", http(failure)),
     }
 }
@@ -402,6 +404,9 @@ fn config(error: &ConfigError) -> String {
             format!("{PORT_VARIABLE} is not a valid port: {value:?}")
         }
         ConfigError::EmptyHost => "the MPD host cannot be empty".to_owned(),
+        ConfigError::InvalidTimeout(value) => format!(
+            "{TIMEOUT_VARIABLE} must be a whole number of seconds greater than 0, not {value:?}"
+        ),
         ConfigError::InvalidPassword(error) => format!("invalid MPD password: {}", input(error)),
         ConfigError::InvalidGlyphs(setting) => format!(
             "{GLYPHS_VARIABLE} must be one of {}, not {:?}",

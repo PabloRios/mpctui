@@ -1,9 +1,14 @@
 //! Prueba de humo de solo lectura contra un MPD real.
-//! Uso: `cargo run --example smoke [host] [port]` (por defecto localhost 6600).
+//! Uso: `cargo run --example smoke [host] [port]`. Sin argumentos, MPD se busca como en
+//! la app: `config.toml`, `MPD_HOST`/`MPD_PORT` y, si no hay host, los sockets locales y
+//! después `localhost`.
 
+use mpctui::config;
 use mpctui::domain::{SearchText, Tag, TagFilter};
 use mpctui::factory::connect_mpd;
-use mpctui::repository::mpd::{Address, DEFAULT_HOST, DEFAULT_PORT};
+use mpctui::repository::mpd::{
+    Address, AddressCandidates, ConnectionSettings, DEFAULT_PORT, first_reachable,
+};
 use mpctui::repository::{
     LibraryRepository, OutputRepository, PlayerRepository, PlaylistRepository, QueueRepository,
 };
@@ -12,8 +17,9 @@ const SAMPLE_SEARCH: &str = "love";
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let address = address_from_arguments()?;
-    let mut client = connect_mpd(&address, None).await?;
+    let (candidates, connection) = server_from_arguments()?;
+    let address = first_reachable(&candidates, &connection).await?;
+    let mut client = connect_mpd(&address, &connection).await?;
     println!("Conectado a {address}");
 
     let status = client.status().await?;
@@ -70,12 +76,20 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn address_from_arguments() -> anyhow::Result<Address> {
+/// El host y el puerto de los argumentos, o lo que resuelve la configuración.
+fn server_from_arguments() -> anyhow::Result<(AddressCandidates, ConnectionSettings)> {
     let mut arguments = std::env::args().skip(1);
-    let host = arguments.next().unwrap_or_else(|| DEFAULT_HOST.into());
+    let Some(host) = arguments.next() else {
+        let settings = config::load()?;
+        return Ok((settings.addresses, settings.connection));
+    };
     let port = match arguments.next() {
         Some(port) => port.parse()?,
         None => DEFAULT_PORT,
     };
-    Ok(Address::new(&host, port))
+    let address = Address::new(&host, port);
+    Ok((
+        AddressCandidates::configured(address),
+        ConnectionSettings::default(),
+    ))
 }

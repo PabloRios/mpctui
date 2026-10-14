@@ -22,7 +22,7 @@ Todo es opcional. El orden de precedencia es: valores por defecto < archivo < va
 **Archivo** `~/.config/mpctui/config.toml`. En la raíz del repositorio está `config.toml.dist`, una plantilla comentada con todas las opciones y sus valores por defecto: `cp config.toml.dist ~/.config/mpctui/config.toml`. Resumen:
 
 ```toml
-host = "localhost"        # o la ruta a un socket unix, p. ej. "/run/mpd/socket"
+host = "localhost"        # o un socket: "/run/mpd/socket", "@mpd" (abstracto); sin host se busca solo
 port = 6600
 password = "secreto"
 glyphs = "auto"           # "auto" (defecto) | "unicode" | "ascii"
@@ -46,13 +46,16 @@ now_playing_line = false                               # línea actual de la let
 
 | Variable | Ejemplo | Efecto |
 |---|---|---|
-| `MPD_HOST` | `servidor`, `clave@servidor`, `/run/mpd/socket` | Host o socket; admite `contraseña@host` |
+| `MPD_HOST` | `servidor`, `clave@servidor`, `/run/mpd/socket`, `@mpd`, `clave@@mpd` | Host, socket unix o socket abstracto (`@nombre`); admite `contraseña@host` |
 | `MPD_PORT` | `6600` | Puerto TCP |
+| `MPD_TIMEOUT` | `30` | Segundos de espera al conectar y en cada respuesta (por defecto 30; `idle` espera sin límite) |
 | `MPCTUI_GLYPHS` | `ascii` | Fuerza el juego de glifos (`auto`, `unicode` o `ascii`) |
 | `MPCTUI_COLORS` | `256` | Fuerza la profundidad de color (`auto`, `truecolor`, `256`, `16` o `none`) |
 | `NO_COLOR` | `1` | Estándar no-color.org: con `colors = "auto"`, sin color |
 
-Si la configuración es inválida (puerto no numérico, host vacío, campo desconocido en el TOML, contraseña con saltos de línea, `glyphs` distinto de `auto`/`unicode`/`ascii`, `theme` o `colors` desconocidos, `language` distinto de `en`/`es`, `album_progress` o `queue_progress` que no sean `true`/`false`, `visualizer_fifo` vacío, `visualizer_format` que no sea de 16 bits, 1 o 2 canales y entre 8000 y 192000 Hz, `visualizer_style` desconocido, `mirror`/`vectorscope` con un FIFO de un canal, una fuente de letras desconocida o repetida, `lyrics.sources` vacía con las letras activadas, o `song_folder` sin `music_directory`), mpctui no arranca y explica el motivo en el idioma configurado (si el TOML no se puede leer, en inglés). Que el FIFO no exista no es un error de configuración: la vista Visual explica cómo crearlo.
+Sin host configurado (ni `host` ni `MPD_HOST`), mpctui busca a MPD como indica el [manual de clientes de MPD](https://mpd.readthedocs.io/en/stable/client.html): `$XDG_RUNTIME_DIR/mpd/socket`, `/run/mpd/socket` y `localhost:$MPD_PORT`, en ese orden, y usa el primero que responde (el encabezado lo muestra).
+
+Si la configuración es inválida (puerto no numérico, host vacío, `MPD_TIMEOUT` que no sea un entero de segundos mayor que 0, campo desconocido en el TOML, contraseña con saltos de línea, `glyphs` distinto de `auto`/`unicode`/`ascii`, `theme` o `colors` desconocidos, `language` distinto de `en`/`es`, `album_progress` o `queue_progress` que no sean `true`/`false`, `visualizer_fifo` vacío, `visualizer_format` que no sea de 16 bits, 1 o 2 canales y entre 8000 y 192000 Hz, `visualizer_style` desconocido, `mirror`/`vectorscope` con un FIFO de un canal, una fuente de letras desconocida o repetida, `lyrics.sources` vacía con las letras activadas, o `song_folder` sin `music_directory`), mpctui no arranca y explica el motivo en el idioma configurado (si el TOML no se puede leer, en inglés). Que el FIFO no exista no es un error de configuración: la vista Visual explica cómo crearlo.
 
 ### Colores y temas
 

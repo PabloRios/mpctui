@@ -6,6 +6,7 @@
 use anyhow::{Context, bail};
 use mpctui::domain::{FetchedLyrics, LyricsQuery, LyricsSource};
 use mpctui::factory::connect_mpd;
+use mpctui::repository::mpd::first_reachable;
 use mpctui::repository::{LRCLIB_URL, LrclibProvider, LyricsProvider, PlayerRepository};
 use mpctui::service::parse_lrc;
 
@@ -15,7 +16,8 @@ const PREVIEW_LINES: usize = 8;
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let settings = mpctui::config::load()?;
-    let mut mpd = connect_mpd(&settings.address, settings.password.as_ref()).await?;
+    let address = first_reachable(&settings.addresses, &settings.connection).await?;
+    let mut mpd = connect_mpd(&address, &settings.connection).await?;
     let song = mpd
         .current_song()
         .await?

@@ -5,10 +5,10 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 
 use crate::config::{GlyphMode, Settings};
-use crate::domain::Password;
 use crate::i18n;
 use crate::repository::mpd::{
-    Address, MpdClient, MpdConnector, PartitionConnector, ReconnectingTransport, SharedPartition,
+    Address, ConnectionSettings, MpdClient, MpdConnector, PartitionConnector,
+    ReconnectingTransport, SharedPartition, first_reachable,
 };
 use crate::repository::{FifoPcmSource, LRCLIB_URL, LocalLyricsFiles, LrclibProvider, Result};
 use crate::service::{
@@ -49,8 +49,11 @@ impl Backend for MpdBackend {
 }
 
 /// Abre una conexión (autenticada si hay contraseña) que se reabre sola si se corta.
-pub async fn connect_mpd(address: &Address, password: Option<&Password>) -> Result<MpdRepository> {
-    let connector = MpdConnector::new(address.clone(), password.cloned());
+pub async fn connect_mpd(
+    address: &Address,
+    connection: &ConnectionSettings,
+) -> Result<MpdRepository> {
+    let connector = MpdConnector::new(address.clone(), connection.clone());
     Ok(MpdClient::new(
         ReconnectingTransport::connect(connector).await?,
     ))
@@ -60,10 +63,10 @@ pub async fn connect_mpd(address: &Address, password: Option<&Password>) -> Resu
 /// comando, también al reconectar.
 pub async fn connect_following(
     address: &Address,
-    password: Option<&Password>,
+    connection: &ConnectionSettings,
     partition: &SharedPartition,
 ) -> Result<FollowingRepository> {
-    let connector = following_connector(address, password, partition);
+    let connector = following_connector(address, connection, partition);
     Ok(MpdClient::new(
         ReconnectingTransport::connect(connector).await?,
     ))
@@ -71,30 +74,32 @@ pub async fn connect_following(
 
 fn following_connector(
     address: &Address,
-    password: Option<&Password>,
+    connection: &ConnectionSettings,
     partition: &SharedPartition,
 ) -> PartitionConnector<MpdConnector> {
-    let connector = MpdConnector::new(address.clone(), password.cloned());
+    let connector = MpdConnector::new(address.clone(), connection.clone());
     PartitionConnector::new(connector, partition.clone())
 }
 
-/// Arma la app completa. Cada servicio tiene su propia conexión, así ninguno espera a
-/// otro, y el vigilante de cambios corre en su propia tarea (la lanza la app).
+/// Arma la app completa. MPD se busca una vez, en las direcciones candidatas, y la
+/// primera que responde queda para toda la sesión. Cada servicio tiene su propia
+/// conexión, así ninguno espera a otro, y el vigilante de cambios corre en su propia
+/// tarea (la lanza la app).
 pub async fn build_app(settings: &Settings) -> Result<App<MpdBackend>> {
-    let address = &settings.address;
-    let password = settings.password.as_ref();
+    let connection = &settings.connection;
+    let address = &first_reachable(&settings.addresses, connection).await?;
     let partition = SharedPartition::default();
-    let follow = || connect_following(address, password, &partition);
+    let follow = || connect_following(address, connection, &partition);
     let (sender, receiver) = mpsc::unbounded_channel();
     let services = Services {
         playback: PlaybackService::new(follow().await?),
         queue: QueueService::new(follow().await?),
-        library: LibraryService::new(connect_mpd(address, password).await?),
+        library: LibraryService::new(connect_mpd(address, connection).await?),
         playlists: PlaylistService::new(follow().await?),
-        outputs: OutputService::new(connect_mpd(address, password).await?, partition.clone()),
-        watcher: watcher_launcher(settings, &partition, sender),
+        outputs: OutputService::new(connect_mpd(address, connection).await?, partition.clone()),
+        watcher: watcher_launcher(address, connection, &partition, sender),
         visualizer: visualizer_launcher(settings),
-        lyrics: lyrics_lookup(settings).await?,
+        lyrics: lyrics_lookup(settings, address).await?,
         lyrics_in_background: settings.lyrics.fetch_in_background,
     };
     let appearance = Appearance {
@@ -108,23 +113,24 @@ pub async fn build_app(settings: &Settings) -> Result<App<MpdBackend>> {
         visualizer_style: settings.visualizer_style,
         lyrics_line: settings.lyrics.enabled && settings.lyrics.now_playing_line,
     };
-    let server = settings.address.to_string();
+    let server = address.to_string();
     Ok(App::new(services, receiver, appearance, server))
 }
 
 /// Cada vigilante abre su conexión con el primer `idle`, ya en la partición en uso.
 fn watcher_launcher(
-    settings: &Settings,
+    address: &Address,
+    connection: &ConnectionSettings,
     partition: &SharedPartition,
     events: mpsc::UnboundedSender<ServerEvent>,
 ) -> WatcherLauncher<FollowingRepository> {
-    let address = settings.address.clone();
-    let password = settings.password.clone();
+    let address = address.clone();
+    let connection = connection.clone();
     let partition = partition.clone();
     let backoff = Backoff::new(WATCHER_FIRST_RETRY, WATCHER_MAXIMUM_RETRY);
     WatcherLauncher::new(
         move || {
-            let connector = following_connector(&address, password.as_ref(), &partition);
+            let connector = following_connector(&address, &connection, &partition);
             MpdClient::new(ReconnectingTransport::lazy(connector))
         },
         events,
@@ -134,13 +140,13 @@ fn watcher_launcher(
 
 /// Con las letras activadas, su búsqueda corre en su propia tarea y con su propia
 /// conexión (para `readcomments`).
-async fn lyrics_lookup(settings: &Settings) -> Result<Option<LyricsLookup>> {
+async fn lyrics_lookup(settings: &Settings, address: &Address) -> Result<Option<LyricsLookup>> {
     let lyrics = &settings.lyrics;
     if !lyrics.enabled {
         return Ok(None);
     }
     let files = LocalLyricsFiles::new(lyrics.directory.clone(), lyrics.music_directory.clone());
-    let embedded = connect_mpd(&settings.address, settings.password.as_ref()).await?;
+    let embedded = connect_mpd(address, &settings.connection).await?;
     let provider = LrclibProvider::new(LRCLIB_URL)?;
     let service = LyricsService::new(embedded, files, provider, lyrics.sources.clone());
     Ok(Some(LyricsLookup::spawn(service)))

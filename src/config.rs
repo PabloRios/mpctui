@@ -2,18 +2,24 @@
 
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
+use std::time::Duration;
 use std::{env, fs, io};
 
 use directories::{BaseDirs, ProjectDirs};
 use serde::Deserialize;
 
 use crate::domain::{InputError, LyricsSource, Password, PcmFormat, VisualizerStyle};
-use crate::repository::mpd::{Address, DEFAULT_HOST, DEFAULT_PORT};
+use crate::repository::mpd::{
+    Address, AddressCandidates, ConnectionSettings, DEFAULT_PORT, DEFAULT_TIMEOUT,
+};
 
 const APPLICATION_NAME: &str = "mpctui";
 const CONFIG_FILE_NAME: &str = "config.toml";
 const HOST_VARIABLE: &str = "MPD_HOST";
 pub const PORT_VARIABLE: &str = "MPD_PORT";
+pub const TIMEOUT_VARIABLE: &str = "MPD_TIMEOUT";
+/// Donde un MPD de usuario deja su socket (`mpd/socket`).
+const RUNTIME_DIRECTORY_VARIABLE: &str = "XDG_RUNTIME_DIR";
 pub const GLYPHS_VARIABLE: &str = "MPCTUI_GLYPHS";
 pub const COLORS_VARIABLE: &str = "MPCTUI_COLORS";
 /// Estándar de no-color.org: con cualquier valor no vacío, `colors = "auto"` es `none`.
@@ -66,7 +72,8 @@ const LYRICS_SOURCE_NAMES: [(&str, LyricsSource); 4] = [
 const DEFAULT_LYRICS_DIRECTORY: &str = ".lyrics";
 /// Prefijo que se reemplaza por el directorio del usuario.
 const HOME_PREFIX: &str = "~/";
-/// Como en `mpc`: `MPD_HOST=contraseña@host`.
+/// Como en `mpc`: `MPD_HOST=contraseña@host` (y `contraseña@@socket` para un socket
+/// abstracto).
 const PASSWORD_SEPARATOR: char = '@';
 
 /// Juego de glifos pedido por el usuario.
@@ -255,6 +262,10 @@ pub struct LyricsFileConfig {
 pub struct Environment {
     pub host: Option<String>,
     pub port: Option<String>,
+    /// `MPD_TIMEOUT`, en segundos.
+    pub timeout: Option<String>,
+    /// `XDG_RUNTIME_DIR`, para el socket de un MPD de usuario.
+    pub runtime_directory: Option<PathBuf>,
     pub glyphs: Option<String>,
     /// `MPCTUI_COLORS`.
     pub colors: Option<String>,
@@ -277,8 +288,10 @@ pub struct TerminalEnvironment {
 /// Configuración ya validada.
 #[derive(Debug)]
 pub struct Settings {
-    pub address: Address,
-    pub password: Option<Password>,
+    /// Dónde buscar a MPD, en orden.
+    pub addresses: AddressCandidates,
+    /// Contraseña y timeout de cada conexión.
+    pub connection: ConnectionSettings,
     pub glyph_mode: GlyphMode,
     pub language: Language,
     pub theme: ThemeId,
@@ -314,6 +327,8 @@ pub enum ConfigError {
     },
     #[error("{PORT_VARIABLE} no es un puerto válido: {0:?}")]
     InvalidPort(String),
+    #[error("{TIMEOUT_VARIABLE} debe ser una cantidad entera de segundos mayor que 0, no {0:?}")]
+    InvalidTimeout(String),
     #[error("el host de MPD no puede estar vacío")]
     EmptyHost,
     #[error("contraseña de MPD inválida: {0}")]
@@ -371,6 +386,8 @@ pub fn load() -> Result<Settings, ConfigFailure> {
     let environment = Environment {
         host: env::var(HOST_VARIABLE).ok(),
         port: env::var(PORT_VARIABLE).ok(),
+        timeout: env::var(TIMEOUT_VARIABLE).ok(),
+        runtime_directory: env::var_os(RUNTIME_DIRECTORY_VARIABLE).map(PathBuf::from),
         glyphs: env::var(GLYPHS_VARIABLE).ok(),
         colors: env::var(COLORS_VARIABLE).ok(),
         terminal: TerminalEnvironment {
@@ -399,21 +416,24 @@ pub fn resolve(file: FileConfig, environment: Environment) -> Result<Settings, C
         Some(value) => split_host_variable(value),
         None => (None, None),
     };
-    let host = environment_host
-        .or(file.host.as_deref())
-        .unwrap_or(DEFAULT_HOST);
-    if host.trim().is_empty() {
-        return Err(ConfigError::EmptyHost);
-    }
     let port = match environment.port {
         Some(value) => value.parse().map_err(|_| ConfigError::InvalidPort(value))?,
         None => file.port.unwrap_or(DEFAULT_PORT),
+    };
+    let addresses = match environment_host.or(file.host.as_deref()) {
+        Some(host) if host.trim().is_empty() => return Err(ConfigError::EmptyHost),
+        Some(host) => AddressCandidates::configured(Address::new(host, port)),
+        None => AddressCandidates::defaults(environment.runtime_directory.as_deref(), port),
     };
     let password = environment_password
         .or(file.password.as_deref())
         .map(Password::new)
         .transpose()
         .map_err(ConfigError::InvalidPassword)?;
+    let timeout = match environment.timeout {
+        Some(value) => timeout(value)?,
+        None => DEFAULT_TIMEOUT,
+    };
     let glyph_setting = match environment.glyphs {
         Some(value) => value.parse().map_err(ConfigError::InvalidGlyphs)?,
         None => file.glyphs.unwrap_or_default(),
@@ -448,8 +468,8 @@ pub fn resolve(file: FileConfig, environment: Environment) -> Result<Settings, C
     };
     let lyrics = resolve_lyrics(file.lyrics.unwrap_or_default(), environment.home.as_deref())?;
     Ok(Settings {
-        address: Address::new(host, port),
-        password,
+        addresses,
+        connection: ConnectionSettings { password, timeout },
         glyph_mode: resolve_glyph_mode(glyph_setting, &environment.terminal),
         language,
         theme,
@@ -461,6 +481,14 @@ pub fn resolve(file: FileConfig, environment: Environment) -> Result<Settings, C
         visualizer_style,
         lyrics,
     })
+}
+
+/// `MPD_TIMEOUT`: segundos enteros, más de cero.
+fn timeout(value: String) -> Result<Duration, ConfigError> {
+    match value.parse() {
+        Ok(seconds) if seconds > 0 => Ok(Duration::from_secs(seconds)),
+        _ => Err(ConfigError::InvalidTimeout(value)),
+    }
 }
 
 /// Valores por defecto: activadas, caché en `~/.lyrics` y todas las fuentes posibles
@@ -721,8 +749,66 @@ mod tests {
     #[test]
     fn defaults_when_nothing_is_configured() {
         let settings = resolve(FileConfig::default(), environment(None, None)).unwrap();
-        assert_eq!(settings.address, Address::new(DEFAULT_HOST, DEFAULT_PORT));
-        assert!(settings.password.is_none());
+        assert_eq!(
+            settings.addresses,
+            AddressCandidates::defaults(None, DEFAULT_PORT)
+        );
+        assert!(settings.connection.password.is_none());
+        assert_eq!(settings.connection.timeout, DEFAULT_TIMEOUT);
+    }
+
+    #[test]
+    fn without_a_host_mpd_is_searched_like_the_client_manual_says() {
+        let mut environment = environment(None, Some("6601"));
+        environment.runtime_directory = Some(PathBuf::from("/run/user/1000"));
+        let settings = resolve(FileConfig::default(), environment).unwrap();
+        assert_eq!(
+            settings.addresses,
+            AddressCandidates::defaults(Some(Path::new("/run/user/1000")), 6601)
+        );
+    }
+
+    #[test]
+    fn a_configured_host_is_the_only_candidate() {
+        let mut environment = environment(None, None);
+        environment.runtime_directory = Some(PathBuf::from("/run/user/1000"));
+        let file: FileConfig = toml::from_str("host = \"servidor\"").unwrap();
+        let settings = resolve(file, environment).unwrap();
+        assert_eq!(
+            settings.addresses,
+            AddressCandidates::configured(Address::new("servidor", DEFAULT_PORT))
+        );
+    }
+
+    #[test]
+    fn mpd_host_accepts_abstract_sockets_with_or_without_password() {
+        let settings = resolve(FileConfig::default(), environment(Some("@mpd"), None)).unwrap();
+        let abstract_socket = AddressCandidates::configured(Address::Abstract("mpd".into()));
+        assert_eq!(settings.addresses, abstract_socket);
+        assert!(settings.connection.password.is_none());
+        let settings =
+            resolve(FileConfig::default(), environment(Some("clave@@mpd"), None)).unwrap();
+        assert_eq!(settings.addresses, abstract_socket);
+        assert_eq!(settings.connection.password.unwrap().as_str(), "clave");
+    }
+
+    #[test]
+    fn mpd_timeout_sets_the_connection_timeout() {
+        let mut configured = environment(None, None);
+        configured.timeout = Some("5".into());
+        let settings = resolve(FileConfig::default(), configured).unwrap();
+        assert_eq!(settings.connection.timeout, Duration::from_secs(5));
+        for invalid in ["0", "abc", "-3", "1.5", ""] {
+            let mut environment = environment(None, None);
+            environment.timeout = Some(invalid.into());
+            assert!(
+                matches!(
+                    resolve(FileConfig::default(), environment),
+                    Err(ConfigError::InvalidTimeout(value)) if value == invalid
+                ),
+                "{invalid:?}"
+            );
+        }
     }
 
     #[test]
@@ -735,8 +821,11 @@ mod tests {
             ..FileConfig::default()
         };
         let settings = resolve(file, environment(Some("clave@otro"), Some("6602"))).unwrap();
-        assert_eq!(settings.address, Address::new("otro", 6602));
-        assert_eq!(settings.password.unwrap().as_str(), "clave");
+        assert_eq!(
+            settings.addresses,
+            AddressCandidates::configured(Address::new("otro", 6602))
+        );
+        assert_eq!(settings.connection.password.unwrap().as_str(), "clave");
     }
 
     #[test]
@@ -744,8 +833,11 @@ mod tests {
         let file: FileConfig =
             toml::from_str("host = \"/run/mpd/socket\"\npassword = \"x\"").unwrap();
         let settings = resolve(file, environment(None, None)).unwrap();
-        assert_eq!(settings.address, Address::Unix("/run/mpd/socket".into()));
-        assert_eq!(settings.password.unwrap().as_str(), "x");
+        assert_eq!(
+            settings.addresses,
+            AddressCandidates::configured(Address::Unix("/run/mpd/socket".into()))
+        );
+        assert_eq!(settings.connection.password.unwrap().as_str(), "x");
     }
 
     #[test]
@@ -974,7 +1066,8 @@ mod tests {
     fn the_dist_config_holds_the_defaults() {
         let dist = resolve_with_home(DIST_CONFIG).unwrap();
         let defaults = resolve(FileConfig::default(), environment(None, None)).unwrap();
-        assert_eq!(dist.address, defaults.address);
+        assert_eq!(dist.addresses, defaults.addresses);
+        assert_eq!(dist.connection.timeout, defaults.connection.timeout);
         assert_eq!(dist.glyph_mode, defaults.glyph_mode);
         assert_eq!(dist.language, defaults.language);
         assert_eq!(dist.theme, defaults.theme);
@@ -987,7 +1080,7 @@ mod tests {
         assert_eq!(dist.visualizer_format, defaults.visualizer_format);
         assert_eq!(dist.visualizer_style, defaults.visualizer_style);
         assert_eq!(dist.lyrics, defaults.lyrics);
-        assert!(dist.password.is_none());
+        assert!(dist.connection.password.is_none());
     }
 
     #[test]
@@ -996,11 +1089,16 @@ mod tests {
         assert!(DIST_CONFIG.contains(active_sources));
         let uncommented = DIST_CONFIG
             .replace(active_sources, "")
+            .replace("# host = ", "host = ")
             .replace("# password = ", "password = ")
             .replace("# sources = ", "sources = ")
             .replace("# music_directory = ", "music_directory = ");
         let settings = resolve_with_home(&uncommented).unwrap();
-        assert!(settings.password.is_some());
+        assert!(settings.connection.password.is_some());
+        assert_eq!(
+            settings.addresses,
+            AddressCandidates::configured(Address::new("localhost", DEFAULT_PORT))
+        );
         assert_eq!(settings.lyrics.sources, LyricsSource::ALL);
         assert_eq!(
             settings.lyrics.music_directory,

@@ -67,6 +67,9 @@ pub enum Error {
     Protocol(String),
     #[error("la conexión con MPD se cerró")]
     Closed,
+    /// MPD no aceptó la conexión o no respondió dentro de `MPD_TIMEOUT`.
+    #[error("MPD no respondió a tiempo")]
+    Timeout,
     /// Un servicio web (LRCLIB) no respondió o respondió algo inesperado.
     #[error("{service}: {failure}")]
     Http {
@@ -88,6 +91,12 @@ impl Error {
     /// El error indica que la conexión ya no sirve y hay que abrir otra.
     pub fn is_disconnection(&self) -> bool {
         matches!(self, Error::Io(_) | Error::Closed)
+    }
+
+    /// La conexión quedó en un estado desconocido: no se vuelve a usar. A diferencia de
+    /// una desconexión, un timeout no se reintenta (el comando pudo haberse ejecutado).
+    pub fn leaves_connection_unusable(&self) -> bool {
+        self.is_disconnection() || matches!(self, Error::Timeout)
     }
 }
 

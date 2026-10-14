@@ -356,3 +356,22 @@ están en `DESIGN.md`.
   tampoco sobreviven a un reinicio de MPD. Idea: una opción `partition` en `config.toml`.
 - **Visible en el encabezado** (`● localhost:6600 · cocina`) solo si no es `default`: la
   cola entera cambia y tiene que quedar claro de cuál es.
+
+### C1 · Conexión según el manual de clientes de MPD
+
+- **Los candidatos se prueban una vez, al arrancar** (`first_reachable`): el primero que
+  responde queda para toda la sesión, también para las reconexiones, y es el que muestra
+  el encabezado. Así todas las conexiones van al mismo MPD y no se repite la búsqueda en
+  cada reconexión.
+- **Un `ACK` corta la búsqueda**: si un candidato rechaza la contraseña, el servidor está
+  ahí; seguir con otro escondería el error. Solo los errores de conexión pasan al
+  siguiente, y si ninguno responde se informa el error del último (`localhost`).
+- **Un host configurado es la única dirección**: con `host` o `MPD_HOST` no se busca nada
+  más. Por eso `config.toml.dist` deja `host` comentado.
+- **`MPD_TIMEOUT` solo como variable de entorno**, como en el manual; por defecto 30 s, el
+  valor recomendado. Debe ser un entero de segundos mayor que 0.
+- **`idle` espera sin límite** (como libmpdclient): espera un cambio por diseño. El `ping`
+  del vigilante sí tiene plazo, así un MPD colgado sigue contando como desconectado.
+- **Un timeout descarta la conexión pero no reintenta** (`leaves_connection_unusable` en
+  `ReconnectingTransport`): la respuesta pudo quedar a medias y el comando pudo haberse
+  ejecutado; reintentar podría duplicar un `add` y duplicar la espera.

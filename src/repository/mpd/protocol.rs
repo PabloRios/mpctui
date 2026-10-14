@@ -21,6 +21,8 @@ const QUOTE: char = '"';
 /// Separa los comandos de una lista.
 const COMMAND_SEPARATOR: &str = "\n";
 const ESCAPE: char = '\\';
+/// Separa el verbo y los argumentos de un comando.
+const ARGUMENT_SEPARATOR: char = ' ';
 
 /// Encierra un argumento entre comillas dobles escapando `\` y `"`.
 pub fn quote(argument: &str) -> String {
@@ -47,7 +49,7 @@ impl Command {
 
     /// Agrega un argumento; siempre va entre comillas, MPD lo acepta igual para números.
     pub fn arg(mut self, argument: impl fmt::Display) -> Self {
-        self.0.push(' ');
+        self.0.push(ARGUMENT_SEPARATOR);
         self.0.push_str(&quote(&argument.to_string()));
         self
     }
@@ -71,6 +73,11 @@ impl Command {
 
     pub fn as_str(&self) -> &str {
         &self.0
+    }
+
+    /// `idle` espera un cambio del servidor, sin plazo: no lleva el timeout de respuesta.
+    pub fn is_idle(&self) -> bool {
+        self.0.split(ARGUMENT_SEPARATOR).next() == Some(Verb::Idle.as_str())
     }
 }
 
@@ -195,6 +202,14 @@ mod tests {
     fn quote_escapes_quotes_and_backslashes() {
         assert_eq!(quote("simple"), r#""simple""#);
         assert_eq!(quote(r#"a "b" \c"#), r#""a \"b\" \\c""#);
+    }
+
+    #[test]
+    fn only_idle_is_idle() {
+        assert!(Command::new(Verb::Idle).is_idle());
+        assert!(!Command::new(Verb::Ping).is_idle());
+        assert!(!Command::new(Verb::Add).arg("idle").is_idle());
+        assert!(!Command::list([Command::new(Verb::Idle)]).is_idle());
     }
 
     #[test]

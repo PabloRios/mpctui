@@ -38,14 +38,15 @@ impl<C: Connector + Send + Sync> ReconnectingTransport<C> {
         }
     }
 
-    /// Ejecuta sobre la conexión actual (o una nueva) y la descarta si se cortó.
+    /// Ejecuta sobre la conexión actual (o una nueva) y la descarta si se cortó o si
+    /// MPD no respondió a tiempo.
     async fn execute_once(&mut self, command: &Command) -> Result<Vec<Pair>> {
         let mut transport = match self.current.take() {
             Some(transport) => transport,
             None => self.connector.connect().await?,
         };
         let result = transport.execute(command).await;
-        if !matches!(&result, Err(error) if error.is_disconnection()) {
+        if !matches!(&result, Err(error) if error.leaves_connection_unusable()) {
             self.current = Some(transport);
         }
         result
@@ -53,7 +54,8 @@ impl<C: Connector + Send + Sync> ReconnectingTransport<C> {
 }
 
 impl<C: Connector + Send + Sync> Transport for ReconnectingTransport<C> {
-    /// Si la conexión estaba cortada, reintenta una sola vez con una conexión nueva.
+    /// Si la conexión estaba cortada, reintenta una sola vez con una conexión nueva. Un
+    /// timeout no se reintenta: el comando pudo haberse ejecutado.
     async fn execute(&mut self, command: &Command) -> Result<Vec<Pair>> {
         match self.execute_once(command).await {
             Err(error) if error.is_disconnection() => self.execute_once(command).await,
@@ -152,6 +154,41 @@ mod tests {
         let result = transport.execute(&Command::new(Verb::Play)).await;
         assert!(matches!(result, Err(Error::Ack(_))));
         assert_eq!(transport.connector.connections.load(Ordering::SeqCst), 1);
+    }
+
+    /// Transporte que nunca responde a tiempo.
+    struct SilentTransport;
+
+    impl Transport for SilentTransport {
+        async fn execute(&mut self, _command: &Command) -> Result<Vec<Pair>> {
+            Err(Error::Timeout)
+        }
+    }
+
+    #[derive(Default)]
+    struct SilentConnector {
+        connections: AtomicUsize,
+    }
+
+    impl Connector for SilentConnector {
+        type Transport = SilentTransport;
+
+        async fn connect(&self) -> Result<SilentTransport> {
+            self.connections.fetch_add(1, Ordering::SeqCst);
+            Ok(SilentTransport)
+        }
+    }
+
+    #[tokio::test]
+    async fn a_timeout_discards_the_connection_without_retrying() {
+        let mut transport = ReconnectingTransport::connect(SilentConnector::default())
+            .await
+            .unwrap();
+        let result = transport.execute(&Command::new(Verb::Add)).await;
+        assert!(matches!(result, Err(Error::Timeout)));
+        assert_eq!(transport.connector.connections.load(Ordering::SeqCst), 1);
+        let _ = transport.execute(&Command::new(Verb::Status)).await;
+        assert_eq!(transport.connector.connections.load(Ordering::SeqCst), 2);
     }
 
     #[tokio::test]
