@@ -2,13 +2,15 @@
 
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
+use ratatui::style::Style;
 use ratatui::text::Line;
 
 use super::{breadcrumbs, draw_line, draw_list, text_row};
 use crate::i18n::{Catalog, Phrase};
 use crate::tui::state::{AppState, LibraryColumn};
+use crate::tui::theme::Role;
 use crate::tui::views::chrome::{self, Context};
-use crate::tui::views::format::{fit_start, or_unnamed};
+use crate::tui::views::format::or_unnamed;
 use crate::tui::views::widgets::{ItemRows, LibrarySongRows, RowSource, panel_title};
 
 const ARTISTS_SHARE: u16 = 26;
@@ -26,6 +28,7 @@ pub fn render(frame: &mut Frame, area: Rect, state: &mut AppState, context: &Con
     .areas(area);
     let library = &mut state.library;
     let texts = context.texts;
+    let crumbs_area = text_row(crumbs_area);
     let crumbs = breadcrumbs(
         [
             Some(context.phrase(Phrase::ViewLibrary)),
@@ -40,16 +43,11 @@ pub fn render(frame: &mut Frame, area: Rect, state: &mut AppState, context: &Con
         ]
         .into_iter()
         .flatten(),
+        usize::from(crumbs_area.width),
         context,
     );
-    let crumbs_area = text_row(crumbs_area);
-    let crumbs = fit_start(
-        &crumbs,
-        usize::from(crumbs_area.width),
-        context.glyphs.ellipsis,
-    );
-    draw_line(frame, crumbs_area, &Line::from(crumbs));
-    chrome::rule(frame.buffer_mut(), rule_area, context.glyphs, None);
+    draw_line(frame, crumbs_area, &crumbs);
+    chrome::rule(frame.buffer_mut(), rule_area, context, None);
 
     let columns = Layout::horizontal([
         Constraint::Percentage(ARTISTS_SHARE),
@@ -78,7 +76,7 @@ pub fn render(frame: &mut Frame, area: Rect, state: &mut AppState, context: &Con
     ];
     for (column, (name, count, kind)) in columns.iter().zip(titles) {
         let name = context.phrase(name);
-        let title = panel_title(format!("{name} ({count})"), focus == kind);
+        let title = panel_title(format!("{name} ({count})"), focus == kind, context);
         let title_area = Rect::new(column.x, titles_area.y, column.width, 1);
         draw_line(frame, title_area, &Line::from(title));
     }
@@ -90,7 +88,7 @@ pub fn render(frame: &mut Frame, area: Rect, state: &mut AppState, context: &Con
         context,
         &mut library.artists,
         focus == LibraryColumn::Artists,
-        |names| name_rows(names, texts),
+        |names| name_rows(names, texts, context.style(Role::Artist)),
     );
     draw_list(
         frame,
@@ -98,26 +96,27 @@ pub fn render(frame: &mut Frame, area: Rect, state: &mut AppState, context: &Con
         context,
         &mut library.albums,
         focus == LibraryColumn::Albums,
-        |names| name_rows(names, texts),
+        |names| name_rows(names, texts, context.style(Role::Album)),
     );
-    let glyphs = context.glyphs;
+    let songs_context = *context;
     draw_list(
         frame,
         list_area(&columns[2]),
         context,
         &mut library.songs,
         focus == LibraryColumn::Songs,
-        |songs| LibrarySongRows::new(songs, glyphs),
+        |songs| LibrarySongRows::new(songs, songs_context),
     );
     for column in &columns[..2] {
         let rows = titles_area.y..area.bottom();
-        chrome::divider(frame.buffer_mut(), column.right(), rows, glyphs, false);
+        chrome::divider(frame.buffer_mut(), column.right(), rows, context, false);
     }
 }
 
-fn name_rows<'a>(names: &'a [String], texts: &'a dyn Catalog) -> impl RowSource + 'a {
+/// Artistas o álbumes, cada columna con el color de su dato.
+fn name_rows<'a>(names: &'a [String], texts: &'a dyn Catalog, style: Style) -> impl RowSource + 'a {
     ItemRows {
         items: names,
-        line: move |name: &'a String| Line::from(or_unnamed(name, texts)),
+        line: move |name: &'a String| Line::styled(or_unnamed(name, texts), style),
     }
 }

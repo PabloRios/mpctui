@@ -8,6 +8,7 @@ mod list;
 mod picker;
 mod prompt;
 mod state;
+pub mod theme;
 mod views;
 
 pub use app::{App, Backend, Services};

@@ -4,8 +4,8 @@ use std::io;
 
 use super::{Catalog, Message, Phrase, counted, seconds_with_decimal};
 use crate::config::{
-    ConfigError, GLYPHS_VARIABLE, PORT_VARIABLE, glyph_choices, language_choices,
-    lyrics_source_choices, visualizer_style_choices,
+    COLORS_VARIABLE, ConfigError, GLYPHS_VARIABLE, PORT_VARIABLE, color_choices, glyph_choices,
+    language_choices, lyrics_source_choices, theme_choices, visualizer_style_choices,
 };
 use crate::domain::{
     InputError, MAX_VOLUME, PATH_SEPARATOR, PCM_BITS, PCM_MAX_CHANNELS, PCM_MAX_SAMPLE_RATE,
@@ -25,6 +25,7 @@ impl Catalog for Spanish {
             Phrase::ToggleHelp => "Mostrar u ocultar la ayuda",
             Phrase::GoToView => "Ir a la vista",
             Phrase::CycleVisualizer => "Visualizador / otra forma",
+            Phrase::NextTheme => "Tema de colores siguiente",
             Phrase::NextView => "Vista siguiente",
             Phrase::PreviousView => "Vista anterior",
             Phrase::MoveDown => "Bajar",
@@ -102,6 +103,7 @@ impl Catalog for Spanish {
             Phrase::HintNewPartition => "nueva partición",
             Phrase::HintToggleOutput => "activar/desactivar",
             Phrase::HintMoveOutput => "mover",
+            Phrase::HintUsePartition => "usar",
             Phrase::HintPause => "pausa",
             Phrase::HintNextStyle => "siguiente forma",
             Phrase::HintRetry => "reintentar",
@@ -200,6 +202,8 @@ impl Catalog for Spanish {
             Phrase::QueueCleared => "Cola vaciada",
             Phrase::NoVolumeControl => "El servidor no tiene control de volumen",
             Phrase::DefaultPartitionUndeletable => "La partición default no se puede borrar",
+            Phrase::ActivePartitionUndeletable => "La partición en uso no se puede borrar",
+            Phrase::ThemesNeedColors => "Los temas requieren 256 colores",
             Phrase::TerminalTooSmall => "La terminal es muy chica.",
         }
     }
@@ -279,6 +283,10 @@ impl Catalog for Spanish {
             Message::VisualizerChanged { style, key } => {
                 format!("Visualizador: {style} ({key}: siguiente forma)")
             }
+            Message::ThemeChanged { theme, key } => format!("Tema: {theme} ({key}: siguiente)"),
+            Message::ThemeNeedsColors { theme } => {
+                format!("Tema {theme}: requiere 256 colores, se usa terminal")
+            }
             Message::ConnectionLost(error) => {
                 format!("Sin conexión con MPD: {}", failure(error))
             }
@@ -299,6 +307,7 @@ impl Catalog for Spanish {
                 format!("No hay otra partición: {key} crea una")
             }
             Message::PartitionCreated(name) => format!("Partición «{name}» creada"),
+            Message::UsingPartition(name) => format!("mpctui usa ahora la partición «{name}»"),
             Message::PartitionDeleted(name) => format!("Partición «{name}» borrada"),
             Message::OutputMoved { output, partition } => {
                 format!("«{output}» movida a «{partition}»")
@@ -406,6 +415,13 @@ fn config(error: &ConfigError) -> String {
         ConfigError::InvalidLanguage(value) => {
             format!("language debe ser {}, no {value:?}", language_choices())
         }
+        ConfigError::InvalidTheme(value) => {
+            format!("theme debe ser {}, no {value:?}", theme_choices())
+        }
+        ConfigError::InvalidColors(value) => format!(
+            "colors (o {COLORS_VARIABLE}) debe ser {}, no {value:?}",
+            color_choices()
+        ),
         ConfigError::EmptyVisualizerFifo => "visualizer_fifo no puede estar vacío".to_owned(),
         ConfigError::InvalidVisualizerFormat(error) => {
             format!("visualizer_format inválido: {}", input(error))

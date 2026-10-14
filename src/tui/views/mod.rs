@@ -14,7 +14,6 @@ mod help;
 mod layout;
 mod now_playing;
 mod pages;
-mod theme;
 mod widgets;
 
 use std::time::Instant;
@@ -29,31 +28,31 @@ pub(crate) use self::format::{format_duration, visualizer_style_name};
 use self::chrome::{Context, titled_block};
 use self::layout::{COMPACT_MIN_HEIGHT, COMPACT_MIN_WIDTH, LayoutMode, layout_mode};
 use super::appearance::Appearance;
-use super::glyphs::Glyphs;
 use super::state::AppState;
-use crate::i18n::{Catalog, Message, Phrase};
+use super::theme::Role;
+use crate::i18n::{Message, Phrase};
 
 const FOOTER_ROWS: u16 = 1;
 const TABS_ROWS: u16 = 1;
 const RULE_ROWS: u16 = 1;
 const APPLICATION_NAME: &str = "mpctui";
 
-pub fn render(frame: &mut Frame, state: &mut AppState, appearance: Appearance, now: Instant) {
-    let glyphs = appearance.glyphs;
+pub fn render(frame: &mut Frame, state: &mut AppState, appearance: &Appearance, now: Instant) {
     let area = frame.area();
     let mode = layout_mode(area.width, area.height);
-    if mode == LayoutMode::TooSmall {
-        return render_too_small(frame, area, glyphs, appearance.texts);
-    }
     let context = Context {
-        glyphs,
+        glyphs: appearance.glyphs,
         texts: appearance.texts,
+        theme: &appearance.theme,
         mode,
         width: area.width,
         now,
         progress_bars: appearance.progress_bars,
         lyrics_line: appearance.lyrics_line,
     };
+    if mode == LayoutMode::TooSmall {
+        return render_too_small(frame, area, &context);
+    }
     let [frame_area, footer_area] =
         Layout::vertical([Constraint::Fill(1), Constraint::Length(FOOTER_ROWS)]).areas(area);
     let outer = header::frame_block(state, &context);
@@ -69,7 +68,7 @@ pub fn render(frame: &mut Frame, state: &mut AppState, appearance: Appearance, n
     .areas(inner);
 
     header::render_tabs(frame, tabs_area, state, &context);
-    chrome::rule(frame.buffer_mut(), header_rule, glyphs, None);
+    chrome::rule(frame.buffer_mut(), header_rule, &context, None);
     now_playing::render_rule(frame.buffer_mut(), panel_rule, state, &context);
     pages::render(frame, body_area, state, &context);
     now_playing::render(frame, panel_area, state, &context);
@@ -84,8 +83,8 @@ pub fn render(frame: &mut Frame, state: &mut AppState, appearance: Appearance, n
 }
 
 /// Aviso con el mínimo y el tamaño actual.
-fn render_too_small(frame: &mut Frame, area: Rect, glyphs: &Glyphs, texts: &dyn Catalog) {
-    let size = texts.message(&Message::TerminalSize {
+fn render_too_small(frame: &mut Frame, area: Rect, context: &Context<'_>) {
+    let size = context.message(Message::TerminalSize {
         minimum_width: COMPACT_MIN_WIDTH,
         minimum_height: COMPACT_MIN_HEIGHT,
         width: area.width,
@@ -93,10 +92,11 @@ fn render_too_small(frame: &mut Frame, area: Rect, glyphs: &Glyphs, texts: &dyn 
     });
     let lines = vec![
         Line::default(),
-        Line::from(format!("  {}", texts.phrase(Phrase::TerminalTooSmall))),
+        Line::from(format!("  {}", context.phrase(Phrase::TerminalTooSmall))),
         Line::from(format!("  {size}")),
     ];
-    let block = titled_block(Line::from(APPLICATION_NAME), glyphs);
+    let name = Line::styled(APPLICATION_NAME, context.strong(Role::Accent));
+    let block = titled_block(name, Role::Subtle, context);
     frame.render_widget(Paragraph::new(lines).block(block), area);
 }
 
@@ -109,17 +109,20 @@ mod tests {
     use ratatui::backend::TestBackend;
     use ratatui::buffer::Buffer;
 
+    use ratatui::style::{Color, Modifier};
+
     use super::*;
+    use crate::config::{ColorDepth, ThemeId};
     use crate::domain::{
         AudioFormat, BandFrame, ChannelLevel, Entry, LyricLine, Lyrics, LyricsSource, Output,
         Partition, PartitionName, PlayState, PlaylistName, SampleFormat, SampleRange, ScopePoint,
         SearchText, Song, Status, VisualContent, VisualFrame, VisualizerStyle, Volume,
     };
-    use crate::i18n::{English, Spanish};
+    use crate::i18n::{Catalog, English, Spanish};
     use crate::repository::Error;
     use crate::service::{PlaybackClock, PlayerSnapshot, VisualState};
     use crate::tui::appearance::ProgressBars;
-    use crate::tui::glyphs::{ASCII, UNICODE};
+    use crate::tui::glyphs::{ASCII, Glyphs, UNICODE};
     use crate::tui::list::SelectionPolicy;
     use crate::tui::picker::{PartitionPicker, Picker, PlaylistAddition, PlaylistPicker};
     use crate::tui::prompt::{Confirmation, Prompt, PromptKind};
@@ -127,6 +130,7 @@ mod tests {
         ConnectionState, LyricsStatus, Notice, NoticeLevel, OutputsColumn, PlaylistsColumn,
         ViewKind, VisualView,
     };
+    use crate::tui::theme::Theme;
 
     /// Tamaños de la sección 7 de `DESIGN.md`: completo, compacto y demasiado chico.
     const SIZES: [(u16, u16); 3] = [(100, 30), (72, 16), (40, 10)];
@@ -424,26 +428,174 @@ mod tests {
         render_in(state, glyphs, size, progress_bars, &Spanish)
     }
 
-    /// Los tests de pantalla usan el español salvo que digan otro idioma.
+    /// Los tests de pantalla usan el español y el tema por defecto con 16 colores, salvo
+    /// que digan otro idioma o tema.
     fn render_in(
         state: &mut AppState,
         glyphs: &'static Glyphs,
-        (width, height): (u16, u16),
+        size: (u16, u16),
         progress_bars: ProgressBars,
         texts: &'static dyn Catalog,
     ) -> Buffer {
         let appearance = Appearance {
             glyphs,
             texts,
+            theme: Theme::resolve(ThemeId::Terminal, ColorDepth::Ansi16),
             progress_bars,
             visualizer_style: VisualizerStyle::default(),
             lyrics_line: true,
         };
+        render_appearance(state, &appearance, size)
+    }
+
+    fn render_appearance(
+        state: &mut AppState,
+        appearance: &Appearance,
+        (width, height): (u16, u16),
+    ) -> Buffer {
         let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
         terminal
             .draw(|frame| render(frame, state, appearance, Instant::now()))
             .unwrap();
         terminal.backend().buffer().clone()
+    }
+
+    /// Una pantalla con un tema y una profundidad de color.
+    fn render_themed(
+        state: &mut AppState,
+        theme: ThemeId,
+        depth: ColorDepth,
+        size: (u16, u16),
+    ) -> Buffer {
+        let appearance = Appearance {
+            glyphs: &UNICODE,
+            texts: &Spanish,
+            theme: Theme::resolve(theme, depth),
+            progress_bars: ALL_BARS,
+            visualizer_style: VisualizerStyle::default(),
+            lyrics_line: true,
+        };
+        render_appearance(state, &appearance, size)
+    }
+
+    const ALL_DEPTHS: [ColorDepth; 4] = [
+        ColorDepth::TrueColor,
+        ColorDepth::Palette256,
+        ColorDepth::Ansi16,
+        ColorDepth::NoColor,
+    ];
+
+    /// Cada vista (el visualizador, una vez por forma) con el diálogo de vaciar la cola
+    /// encima o sin nada, en el estado de ejemplo.
+    fn themed_screens(theme: ThemeId, depth: ColorDepth) -> Vec<Buffer> {
+        let mut screens = Vec::new();
+        for (view, style) in every_view() {
+            for confirming in [false, true] {
+                let mut state = sample_state();
+                state.view = view;
+                state.visual.style = style;
+                state.visual.state = sample_frame(style);
+                if confirming {
+                    state.prompt = Some(Prompt::confirm(Confirmation::ClearQueue));
+                }
+                screens.push(render_themed(&mut state, theme, depth, SIZES[0]));
+            }
+        }
+        screens
+    }
+
+    fn is_named(color: Color) -> bool {
+        !matches!(color, Color::Rgb(..) | Color::Indexed(_))
+    }
+
+    #[test]
+    fn sixteen_colors_only_use_named_colors() {
+        for theme in ThemeId::ALL {
+            for screen in themed_screens(theme, ColorDepth::Ansi16) {
+                let painted = screen
+                    .content()
+                    .iter()
+                    .find(|cell| !is_named(cell.fg) || !is_named(cell.bg));
+                assert_eq!(painted.map(|cell| (cell.fg, cell.bg)), None, "{theme:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn without_color_only_modifiers_remain() {
+        let screens = themed_screens(ThemeId::Neon, ColorDepth::NoColor);
+        for screen in &screens {
+            let painted = screen
+                .content()
+                .iter()
+                .find(|cell| cell.fg != Color::Reset || cell.bg != Color::Reset);
+            assert_eq!(painted.map(|cell| (cell.fg, cell.bg)), None);
+        }
+        let mut state = sample_state();
+        let screen = render_themed(&mut state, ThemeId::Neon, ColorDepth::NoColor, SIZES[0]);
+        let lines = screen_lines(&screen);
+        let row_of = |text: &str| lines.lines().position(|line| line.contains(text)).unwrap();
+        let modifier_at = |row: usize, column: usize| {
+            let row = u16::try_from(row).unwrap();
+            screen[(u16::try_from(column).unwrap(), row)].modifier
+        };
+        let selected = row_of("Un tema con un nombre bastante largo 0");
+        assert!(modifier_at(selected, 10).contains(Modifier::REVERSED));
+        let tabs = row_of("[1 Cola]");
+        let tab_column = lines
+            .lines()
+            .nth(tabs)
+            .unwrap()
+            .chars()
+            .position(|c| c == '[')
+            .unwrap();
+        assert!(modifier_at(tabs, tab_column).contains(Modifier::BOLD | Modifier::REVERSED));
+    }
+
+    #[test]
+    fn colors_never_move_the_text() {
+        let expected: Vec<String> = themed_screens(ThemeId::Terminal, ColorDepth::Ansi16)
+            .iter()
+            .map(screen_lines)
+            .collect();
+        for theme in ThemeId::ALL {
+            for depth in ALL_DEPTHS {
+                let screens: Vec<String> = themed_screens(theme, depth)
+                    .iter()
+                    .map(screen_lines)
+                    .collect();
+                assert_eq!(screens, expected, "{theme:?} {depth:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn truecolor_themes_paint_the_selection_and_the_playing_album_rule() {
+        let mut state = sample_state();
+        state.player.status.state = PlayState::Play;
+        let theme = Theme::resolve(ThemeId::Midnight, ColorDepth::TrueColor);
+        let screen = render_themed(
+            &mut state,
+            ThemeId::Midnight,
+            ColorDepth::TrueColor,
+            SIZES[0],
+        );
+        let lines = screen_lines(&screen);
+        let row_of = |text: &str| {
+            let row = lines.lines().position(|line| line.contains(text)).unwrap();
+            u16::try_from(row).unwrap()
+        };
+        let selected = row_of("Un tema con un nombre bastante largo 0 ");
+        assert_eq!(
+            Some(screen[(10, selected)].bg),
+            theme.style(Role::Selection).bg
+        );
+        // El tramo del tema que suena: su regla va en `playing`.
+        let separator = row_of("Pink Floyd - The Piper at the Gates of Dawn");
+        assert_eq!(
+            Some(screen[(2, separator)].fg),
+            theme.style(Role::Playing).fg
+        );
     }
 
     /// Cada vista; el visualizador, una vez por forma.
@@ -1110,11 +1262,12 @@ mod tests {
             &[
                 "[8 Sal.]",
                 "[Particiones (2)]",
-                "> default  3 salidas",
-                "cocina  0 salidas",
+                "> * default  3 salidas",
+                "    cocina  0 salidas",
                 " default: 3 salidas ",
                 "[x] pulse audio  pulse",
                 "[ ] alsa hw:1,3 BLOCKING  alsa",
+                "Enter usar",
                 "l salidas",
                 "n nueva partición",
             ],
@@ -1178,5 +1331,20 @@ mod tests {
             wide.contains("2 Biblioteca") && wide.contains("[8 Salidas]"),
             "{wide}"
         );
+    }
+
+    #[test]
+    fn another_partition_in_use_is_marked_and_named_in_the_header() {
+        let mut state = sample_state();
+        state.view = ViewKind::Outputs;
+        state.partition = PartitionName::new("cocina").unwrap();
+        let screen = screen_lines(&render_to_buffer(&mut state, &UNICODE, SIZES[0]));
+        assert_contains(
+            &screen,
+            &["● localhost:6600 · cocina", "▸   default", "  ◆ cocina"],
+        );
+        state.partition = PartitionName::default_partition();
+        let screen = screen_lines(&render_to_buffer(&mut state, &UNICODE, SIZES[0]));
+        assert!(!screen.contains("6600 · "), "{screen}");
     }
 }

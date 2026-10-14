@@ -9,14 +9,16 @@ use ratatui::layout::Rect;
 use super::canvas::{DotCanvas, dots_per_cell};
 use crate::domain::{SampleRange, VisualRequest, VisualizerStyle};
 use crate::i18n::{Catalog, Message};
+use crate::tui::theme::{GradientRole, Role};
 use crate::tui::views::chrome::Context;
-use crate::tui::views::theme;
 
 /// Columnas a la izquierda para la escala.
 const LABEL_MARGIN: u16 = 3;
 const TOP_LABEL: &str = "+1";
 const MIDDLE_LABEL: &str = " 0";
 const BOTTOM_LABEL: &str = "-1";
+/// Desde esta amplitud una columna se marca como recorte.
+const CLIP_THRESHOLD: f32 = 0.98;
 
 /// Área de los puntos: sin el margen de la escala en modo completo.
 fn plot_area(area: Rect, context: &Context<'_>) -> Rect {
@@ -55,8 +57,17 @@ pub fn render(frame: &mut Frame, area: Rect, columns: &[SampleRange], context: &
             canvas.set(column, row);
         }
     }
+    let (dot_columns, _) = dots_per_cell(context.glyphs.plot);
+    let amplitudes = cell_amplitudes(columns, dot_columns);
     let buffer = frame.buffer_mut();
-    canvas.draw(buffer, theme::SCOPE);
+    canvas.draw(buffer, |cell| {
+        let amplitude = amplitudes.get(cell.column).copied().unwrap_or_default();
+        if amplitude >= CLIP_THRESHOLD {
+            context.style(Role::Error)
+        } else {
+            context.gradient(GradientRole::Wave, amplitude)
+        }
+    });
     if context.is_compact() || area.height == 0 {
         return;
     }
@@ -66,8 +77,20 @@ pub fn render(frame: &mut Frame, area: Rect, columns: &[SampleRange], context: &
         (area.bottom() - 1, BOTTOM_LABEL),
     ];
     for (y, label) in labels {
-        buffer.set_string(area.x, y, label, theme::MUTED);
+        buffer.set_string(area.x, y, label, context.style(Role::Muted));
     }
+}
+
+/// La amplitud máxima (`|x|`) de cada celda: elige su color y deja ver los recortes.
+fn cell_amplitudes(columns: &[SampleRange], dot_columns: usize) -> Vec<f32> {
+    columns
+        .chunks(dot_columns.max(1))
+        .map(|cell| {
+            cell.iter()
+                .map(|range| range.low.abs().max(range.high.abs()))
+                .fold(0.0, f32::max)
+        })
+        .collect()
 }
 
 /// Fila de puntos de un valor entre -1 (abajo) y 1 (arriba).
@@ -87,6 +110,14 @@ mod tests {
         assert_eq!(dot_row(0.0, 9), 4);
         assert_eq!(dot_row(-1.0, 9), 8);
         assert_eq!(dot_row(-3.0, 9), 8);
+    }
+
+    #[test]
+    fn each_cell_takes_the_loudest_of_its_columns() {
+        let range = |low, high| SampleRange { low, high };
+        let columns = [range(-0.2, 0.1), range(-0.5, 0.3), range(0.0, 0.99)];
+        assert_eq!(cell_amplitudes(&columns, 2), [0.5, 0.99]);
+        assert!(cell_amplitudes(&columns, 2)[1] >= CLIP_THRESHOLD);
     }
 
     #[test]

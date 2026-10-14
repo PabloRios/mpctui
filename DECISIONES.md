@@ -1,7 +1,7 @@
 # DECISIONES.md — mpctui
 
 Registro de ideas pendientes y de decisiones tomadas durante la implementación que no
-están en `DESIGN.md` ni en `DESIGN_EXTRA.md`.
+están en `DESIGN.md`.
 
 ---
 
@@ -328,6 +328,31 @@ están en `DESIGN.md` ni en `DESIGN_EXTRA.md`.
   30 filas). `Enter` sobre una salida la activa o desactiva.
 - **Con ocho pestañas el español no entra en 100 columnas**: si los títulos completos no
   entran, se usan los abreviados del modo compacto.
-- **Supuesto sin verificar en el MPD real**: que las salidas de otra partición aparezcan
-  con `plugin: dummy` (crear particiones modifica el servidor). Se cubre con el servidor
-  falso y queda para validar a mano.
+- **Salidas `dummy`**: verificado en el MPD real (0.23.5) que una partición nueva no
+  lista ninguna salida. Que la partición que cede una salida la siga listando con
+  `plugin: dummy` sale del código de MPD y queda para validar a mano; el filtro cubre
+  los dos casos.
+
+### S2 · Usar una partición
+
+- **Cada conexión sigue la partición sola** (`PartitionTransport`): antes de cada comando
+  compara dónde está con la elegida (`SharedPartition`) y, si difieren, envía
+  `partition X`. Un solo mecanismo cubre el cambio en vivo y la reconexión, sin tocar los
+  servicios ni avisarle a cada conexión.
+- **No todas la siguen**: reproducción, cola, playlists (cargar y guardar tocan la cola)
+  y vigilancia sí; la biblioteca es la misma en todas, la administración ya elige la
+  partición en cada lista y las letras solo leen archivos.
+- **El vigilante se relanza** (`WatcherLauncher`/`RunningWatcher`, como el
+  visualizador): `idle` bloquea la conexión en la partición vieja y no hay forma limpia
+  de despertarlo. Soltarlo cierra su conexión; el nuevo conecta con su primer `idle`
+  (`ReconnectingTransport::lazy`) y, si el servidor no responde, su backoff ya lo maneja.
+- **Si la partición desaparece** (MPD se reinició: las particiones no se guardan),
+  `partition X` responde `ACK` 50 y la selección vuelve a `default`; el error se ve una
+  vez y el próximo comando ya va a `default`. La app copia la partición en uso al estado
+  antes de cada dibujado, así el encabezado se entera. Mientras alguna conexión de mpctui
+  esté en una partición, nadie la puede borrar (MPD exige que no tenga clientes).
+- **La partición en uso no se puede borrar** desde mpctui: se avisa sin preguntar.
+- **No se recuerda entre ejecuciones**: al arrancar siempre es `default`; las particiones
+  tampoco sobreviven a un reinicio de MPD. Idea: una opción `partition` en `config.toml`.
+- **Visible en el encabezado** (`● localhost:6600 · cocina`) solo si no es `default`: la
+  cola entera cambia y tiene que quedar claro de cuál es.

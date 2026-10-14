@@ -2,6 +2,7 @@
 //! Cada vista tiene su propio submódulo con sus acciones.
 
 mod browse;
+mod colors;
 mod library;
 mod lyrics;
 mod outputs;
@@ -29,12 +30,13 @@ use super::state::{AppState, ConnectionState, Notice, NoticeLevel, ViewKind};
 use super::views;
 use crate::i18n::{Message, Phrase};
 use crate::repository::{
-    Error, LibraryRepository, OptionsRepository, OutputRepository, PcmSource, PlayerRepository,
-    PlaylistRepository, QueueRepository, Result,
+    ChangesRepository, Error, LibraryRepository, OptionsRepository, OutputRepository,
+    PartitionSelection, PcmSource, PlayerRepository, PlaylistRepository, QueueRepository, Result,
 };
 use crate::service::{
     LibraryService, LyricsLookup, OutputService, PlaybackService, PlaylistService, QueueService,
-    RunningVisualizer, STATUS_POLL_INTERVAL, ServerEvent, VisualizerLauncher,
+    RunningVisualizer, RunningWatcher, STATUS_POLL_INTERVAL, ServerEvent, VisualizerLauncher,
+    WatcherLauncher,
 };
 
 /// Cada cuánto se redibuja el progreso y la cuenta regresiva de la reconexión.
@@ -52,6 +54,10 @@ pub trait Backend {
     type Library: LibraryRepository + Send;
     type Playlists: PlaylistRepository + Send;
     type Outputs: OutputRepository + Send;
+    /// La partición que siguen las conexiones de reproducción, cola y vigilancia.
+    type Selection: PartitionSelection + Send;
+    /// Conexión del vigilante de cambios (`idle`).
+    type Changes: ChangesRepository + Send + 'static;
     /// Fuente de PCM del visualizador.
     type Pcm: PcmSource + Send + 'static;
 }
@@ -61,7 +67,8 @@ pub struct Services<B: Backend> {
     pub queue: QueueService<B::Queue>,
     pub library: LibraryService<B::Library>,
     pub playlists: PlaylistService<B::Playlists>,
-    pub outputs: OutputService<B::Outputs>,
+    pub outputs: OutputService<B::Outputs, B::Selection>,
+    pub watcher: WatcherLauncher<B::Changes>,
     pub visualizer: VisualizerLauncher<B::Pcm>,
     /// `None` con las letras desactivadas.
     pub lyrics: Option<LyricsLookup>,
@@ -76,6 +83,8 @@ pub struct App<B: Backend> {
     state: AppState,
     /// Solo mientras la vista Visual está activa.
     visualizer: Option<RunningVisualizer>,
+    /// Vigila la partición en uso; se relanza al cambiarla.
+    watcher: Option<RunningWatcher>,
 }
 
 impl<B: Backend> App<B> {
@@ -92,13 +101,16 @@ impl<B: Backend> App<B> {
         state.visual.channels = format.channels();
         state.visual.style = appearance.visualizer_style;
         state.lyrics_enabled = services.lyrics.is_some();
-        Self {
+        let mut app = Self {
             services,
             server_events,
             appearance,
             state,
             visualizer: None,
-        }
+            watcher: None,
+        };
+        app.explain_unavailable_theme();
+        app
     }
 
     /// Bucle principal: dibuja y espera el próximo evento (teclado, servidor o tick).
@@ -110,13 +122,16 @@ impl<B: Backend> App<B> {
     where
         E: Stream<Item = io::Result<Event>> + Unpin,
     {
+        self.watcher = Some(self.services.watcher.launch());
         self.resynchronize().await;
         let mut tick = tokio::time::interval(TICK_INTERVAL);
         while self.state.running {
             // Antes de dibujar, para que un tema nuevo no muestre la letra del anterior.
             self.sync_lyrics();
+            // Puede volver sola a `default` si la elegida desapareció (MPD se reinició).
+            self.state.partition = self.services.outputs.active();
             terminal.draw(|frame| {
-                views::render(frame, &mut self.state, self.appearance, Instant::now());
+                views::render(frame, &mut self.state, &self.appearance, Instant::now());
             })?;
             self.sync_visualizer();
             let next_lyrics_line = self.next_lyrics_line();
@@ -228,6 +243,7 @@ impl<B: Backend> App<B> {
             Action::ShowPlaying => self.show_playing().await,
             Action::RetryLyrics => self.retry_lyrics(),
             Action::UpdateDatabase => self.request_database_update().await,
+            Action::NextTheme => self.next_theme(),
             Action::SaveQueue => {
                 self.state.prompt = Some(Prompt::text(PromptKind::SavePlaylist, String::new()));
             }

@@ -3,8 +3,6 @@
 //! navegación, la elegida; una sin sincronizar se recorre con esas teclas. Mientras
 //! busca o si no hay letra, lo dice en el centro.
 
-use std::time::Instant;
-
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::Style;
@@ -15,11 +13,10 @@ use crate::domain::{Lyrics, LyricsSource};
 use crate::i18n::{Message, Phrase};
 use crate::service::PlaybackClock;
 use crate::tui::action::Action;
-use crate::tui::glyphs::Glyphs;
 use crate::tui::state::{AppState, LyricsStatus};
+use crate::tui::theme::Role;
 use crate::tui::views::chrome::Context;
 use crate::tui::views::format::{fit_line, or_missing, saturating_u16};
-use crate::tui::views::theme;
 use crate::tui::views::widgets::{centered_message, spread};
 
 const TITLE_ROWS: u16 = 1;
@@ -42,12 +39,14 @@ pub fn render(frame: &mut Frame, area: Rect, state: &mut AppState, context: &Con
     let body = text_row(body);
     let glyphs = context.glyphs;
     match &state.lyrics.status {
-        LyricsStatus::NoSong => message(frame, body, context.phrase(Phrase::NoSong)),
-        LyricsStatus::Instrumental => message(frame, body, context.phrase(Phrase::Instrumental)),
+        LyricsStatus::NoSong => message(frame, body, context.phrase(Phrase::NoSong), context),
+        LyricsStatus::Instrumental => {
+            message(frame, body, context.phrase(Phrase::Instrumental), context);
+        }
         LyricsStatus::Searching => {
             let spinner = glyphs.spinner_frame(state.ticks);
             let searching = context.phrase(Phrase::SearchingLyrics);
-            message(frame, body, &format!("{searching} {spinner}"));
+            message(frame, body, &format!("{searching} {spinner}"), context);
         }
         LyricsStatus::NotFound { untitled, problem } => {
             let detail = if *untitled {
@@ -61,29 +60,22 @@ pub fn render(frame: &mut Frame, area: Rect, state: &mut AppState, context: &Con
             let title = song_title(state);
             let not_found = context.message(Message::LyricsNotFound { title: &title });
             let retry = state.lyrics.status.can_retry().then(|| retry_hint(context));
+            let muted = context.style(Role::Muted);
             let rows = [
-                Some(Line::styled(not_found, theme::MUTED)),
-                detail.map(|detail| Line::styled(detail, theme::MUTED)),
+                Some(Line::styled(not_found, muted)),
+                detail.map(|detail| Line::styled(detail, muted)),
                 retry,
             ];
             draw_not_found(frame, body, rows);
         }
         LyricsStatus::Found(lyrics) if lyrics.is_synced() => {
             let cursor = state.lyrics.cursor;
-            draw_synced(
-                frame,
-                body,
-                lyrics,
-                cursor,
-                &state.clock,
-                context.now,
-                glyphs,
-            );
+            draw_synced(frame, body, lyrics, cursor, &state.clock, context);
         }
         LyricsStatus::Found(lyrics) => {
             let scroll = &mut state.lyrics.scroll;
             *scroll = (*scroll).min(lyrics.lines.len().saturating_sub(usize::from(body.height)));
-            draw_plain(frame, body, lyrics, *scroll, glyphs);
+            draw_plain(frame, body, lyrics, *scroll, context);
         }
     }
 }
@@ -106,12 +98,15 @@ fn draw_title(frame: &mut Frame, area: Rect, state: &AppState, context: &Context
                 Phrase::PlainText
             });
             let source = source_name(lyrics.source, context);
-            Line::styled(format!("{timing}{DETAIL_SEPARATOR}{source}"), theme::MUTED)
+            Line::styled(
+                format!("{timing}{DETAIL_SEPARATOR}{source}"),
+                context.style(Role::Muted),
+            )
         }
         _ => Line::default(),
     };
     let line = spread(
-        Line::styled(left, theme::BOLD),
+        Line::styled(left, context.style(Role::TextStrong)),
         details,
         area.width,
         context.glyphs,
@@ -130,10 +125,13 @@ fn cursor_hints(context: &Context<'_>) -> Line<'static> {
         if index > 0 {
             spans.push(Span::raw(HINT_GAP));
         }
-        spans.push(Span::styled(context.key(action), theme::ACCENT));
+        spans.push(Span::styled(
+            context.key(action),
+            context.strong(Role::Accent),
+        ));
         spans.push(Span::styled(
             format!(" {}", context.phrase(hint)),
-            theme::MUTED,
+            context.style(Role::Muted),
         ));
     }
     Line::from(spans)
@@ -158,8 +156,9 @@ fn song_title(state: &AppState) -> String {
         .unwrap_or_default()
 }
 
-fn message(frame: &mut Frame, area: Rect, text: &str) {
-    centered_message(frame, area, Line::styled(text.to_owned(), theme::MUTED));
+fn message(frame: &mut Frame, area: Rect, text: &str, context: &Context<'_>) {
+    let text = Line::styled(text.to_owned(), context.style(Role::Muted));
+    centered_message(frame, area, text);
 }
 
 /// `Ctrl+r reintentar`, con la tecla resaltada como en la línea inferior.
@@ -167,8 +166,8 @@ fn retry_hint(context: &Context<'_>) -> Line<'static> {
     let key = context.key(Action::RetryLyrics);
     let hint = context.phrase(Phrase::HintRetry);
     Line::from(vec![
-        Span::styled(key, theme::ACCENT),
-        Span::styled(format!(" {hint}"), theme::MUTED),
+        Span::styled(key, context.strong(Role::Accent)),
+        Span::styled(format!(" {hint}"), context.style(Role::Muted)),
     ])
 }
 
@@ -190,6 +189,17 @@ fn draw_not_found(frame: &mut Frame, area: Rect, rows: [Option<Line<'static>>; 3
     }
 }
 
+/// El estilo de la línea `index` según la actual: la actual en `accent` y negrita, las
+/// cantadas en `muted` y las siguientes apagándose con la distancia.
+fn synced_style(index: usize, current: Option<usize>, context: &Context<'_>) -> Style {
+    match current {
+        Some(current) if index < current => context.style(Role::Muted),
+        Some(current) if index == current => context.strong(Role::Accent),
+        Some(current) => context.theme.faded(index - current),
+        None => context.style(Role::Text),
+    }
+}
+
 /// La línea elegida o, si no hay, la actual en el medio; antes de la primera, la
 /// primera espera en el medio. La elegida va invertida (una vacía muestra el glifo de
 /// la música, para que se vea dónde está).
@@ -199,10 +209,10 @@ fn draw_synced(
     lyrics: &Lyrics,
     cursor: Option<usize>,
     clock: &PlaybackClock,
-    now: Instant,
-    glyphs: &Glyphs,
+    context: &Context<'_>,
 ) {
-    let current = lyrics.current_line(clock.elapsed_at(now));
+    let glyphs = context.glyphs;
+    let current = lyrics.current_line(clock.elapsed_at(context.now));
     let anchor = cursor.or(current).unwrap_or_default();
     let middle = usize::from(area.height / 2);
     for row in 0..usize::from(area.height) {
@@ -212,11 +222,7 @@ fn draw_synced(
         let Some(line) = lyrics.lines.get(index) else {
             break;
         };
-        let style = match current {
-            Some(current) if index < current => theme::MUTED,
-            Some(current) if index == current => theme::CURRENT_LYRIC,
-            _ => theme::PLAIN,
-        };
+        let style = synced_style(index, current, context);
         let is_current = current == Some(index);
         let (text, style) = if cursor == Some(index) {
             let text = if line.text.trim().is_empty() {
@@ -224,22 +230,29 @@ fn draw_synced(
             } else {
                 &line.text
             };
-            (text, style.patch(theme::SELECTED_ROW))
+            (text, style.patch(context.style(Role::Selection)))
         } else {
             (line.text.as_str(), style)
         };
-        draw_centered(frame, area, row, text, style, is_current, glyphs);
+        draw_centered(frame, area, row, text, style, is_current, context);
     }
 }
 
-fn draw_plain(frame: &mut Frame, area: Rect, lyrics: &Lyrics, scroll: usize, glyphs: &Glyphs) {
+fn draw_plain(
+    frame: &mut Frame,
+    area: Rect,
+    lyrics: &Lyrics,
+    scroll: usize,
+    context: &Context<'_>,
+) {
     let visible = lyrics
         .lines
         .iter()
         .skip(scroll)
         .take(usize::from(area.height));
+    let text = context.style(Role::Text);
     for (row, line) in visible.enumerate() {
-        draw_centered(frame, area, row, &line.text, theme::PLAIN, false, glyphs);
+        draw_centered(frame, area, row, &line.text, text, false, context);
     }
 }
 
@@ -251,8 +264,9 @@ fn draw_centered(
     text: &str,
     style: Style,
     is_current: bool,
-    glyphs: &Glyphs,
+    context: &Context<'_>,
 ) {
+    let glyphs = context.glyphs;
     let cursor_width = Span::raw(format!("{}{CURSOR_GAP}", glyphs.cursor)).width();
     let available = usize::from(area.width).saturating_sub(2 * cursor_width);
     let line = fit_line(
@@ -267,6 +281,6 @@ fn draw_centered(
     buffer.set_line(x, y, &line, saturating_u16(width));
     if is_current {
         let cursor_x = x.saturating_sub(saturating_u16(cursor_width));
-        buffer.set_string(cursor_x, y, glyphs.cursor, theme::ACCENT);
+        buffer.set_string(cursor_x, y, glyphs.cursor, context.style(Role::Accent));
     }
 }

@@ -1,15 +1,30 @@
-//! Particiones de MPD y sus salidas de audio.
+//! Particiones de MPD, sus salidas de audio y cuál usa mpctui.
 
 use crate::domain::{Output, Partition, PartitionName};
-use crate::repository::{OutputRepository, Result};
+use crate::repository::{OutputRepository, PartitionSelection, Result};
 
-pub struct OutputService<R> {
+pub struct OutputService<R, S> {
     repository: R,
+    selection: S,
 }
 
-impl<R: OutputRepository + Send> OutputService<R> {
-    pub fn new(repository: R) -> Self {
-        Self { repository }
+impl<R: OutputRepository + Send, S: PartitionSelection> OutputService<R, S> {
+    pub fn new(repository: R, selection: S) -> Self {
+        Self {
+            repository,
+            selection,
+        }
+    }
+
+    /// La partición que usa mpctui.
+    pub fn active(&self) -> PartitionName {
+        self.selection.active()
+    }
+
+    /// Cola, reproducción y avisos pasan a ser los de `partition`. Quien vigila los
+    /// cambios tiene que relanzarse: `idle` sigue esperando en la anterior.
+    pub fn use_partition(&self, partition: PartitionName) {
+        self.selection.select(partition);
     }
 
     /// Cada partición, en el orden del servidor, con las salidas que le pertenecen.
@@ -122,13 +137,38 @@ mod tests {
         }
     }
 
+    #[derive(Default)]
+    struct FixedSelection(std::sync::Mutex<PartitionName>);
+
+    impl PartitionSelection for FixedSelection {
+        fn active(&self) -> PartitionName {
+            self.0.lock().unwrap().clone()
+        }
+
+        fn select(&self, partition: PartitionName) {
+            *self.0.lock().unwrap() = partition;
+        }
+    }
+
+    fn service(repository: RecordingOutputs) -> OutputService<RecordingOutputs, FixedSelection> {
+        OutputService::new(repository, FixedSelection::default())
+    }
+
+    #[test]
+    fn mpctui_starts_in_default_and_can_use_another_partition() {
+        let service = service(RecordingOutputs::default());
+        assert!(service.active().is_default());
+        service.use_partition(PartitionName::new("cocina").unwrap());
+        assert_eq!(service.active().as_str(), "cocina");
+    }
+
     #[tokio::test]
     async fn overview_lists_each_partition_with_its_outputs() {
         let partitions = vec![
             partition("default", vec![output(0, "pulse", true)]),
             partition("cocina", vec![output(1, "parlante", false)]),
         ];
-        let mut service = OutputService::new(RecordingOutputs {
+        let mut service = service(RecordingOutputs {
             partitions: partitions.clone(),
             ..RecordingOutputs::default()
         });
@@ -137,7 +177,7 @@ mod tests {
 
     #[tokio::test]
     async fn toggle_decides_from_the_known_state() {
-        let mut service = OutputService::new(RecordingOutputs::default());
+        let mut service = service(RecordingOutputs::default());
         let default = PartitionName::default_partition();
         assert!(
             service
@@ -159,7 +199,7 @@ mod tests {
 
     #[tokio::test]
     async fn delete_returns_the_outputs_to_default_first() {
-        let mut service = OutputService::new(RecordingOutputs::default());
+        let mut service = service(RecordingOutputs::default());
         let cocina = partition("cocina", vec![output(0, "a", true), output(1, "b", false)]);
         service.delete(&cocina).await.unwrap();
         assert_eq!(

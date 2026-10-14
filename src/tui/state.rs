@@ -352,6 +352,8 @@ pub struct AppState {
     pub database_update: Option<Instant>,
     /// Servidor al que se conecta, para el encabezado.
     pub server: String,
+    /// La partición que usa mpctui.
+    pub partition: PartitionName,
     /// Ticks transcurridos; anima los spinners.
     pub ticks: usize,
     pub player: PlayerSnapshot,

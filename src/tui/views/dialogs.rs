@@ -8,15 +8,14 @@ use ratatui::widgets::{Clear, Paragraph};
 
 use super::chrome::{Context, titled_block};
 use super::format::{fit_start, saturating_u16};
-use super::theme;
 use super::widgets::{ItemRows, RowSource, Selection, render_list};
 use crate::domain::PartitionName;
 use crate::i18n::{Message, Phrase};
-use crate::tui::glyphs::Glyphs;
 use crate::tui::list::SelectableList;
 use crate::tui::picker::{Picker, PlaylistChoice};
 use crate::tui::prompt::{Confirmation, DECLINE_KEYS, Prompt, PromptKind};
 use crate::tui::state::AppState;
+use crate::tui::theme::Role;
 
 /// Bordes, filas en blanco y contenido: siempre cinco filas interiores.
 const DIALOG_HEIGHT: u16 = 7;
@@ -77,6 +76,30 @@ fn question(confirmation: &Confirmation, state: &AppState, context: &Context<'_>
     }
 }
 
+/// Cómo se ve el marco de un diálogo: las confirmaciones (siempre de acciones
+/// destructivas) avisan; el texto libre lleva el foco.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DialogKind {
+    Destructive,
+    Input,
+}
+
+impl DialogKind {
+    fn border(self) -> Role {
+        match self {
+            DialogKind::Destructive => Role::Warning,
+            DialogKind::Input => Role::Accent,
+        }
+    }
+
+    fn title(self, context: &Context<'_>) -> ratatui::style::Style {
+        match self {
+            DialogKind::Destructive => context.strong(Role::Warning),
+            DialogKind::Input => context.style(Role::TextStrong),
+        }
+    }
+}
+
 /// Dibuja el marco del diálogo y sus cinco filas interiores.
 fn dialog(
     frame: &mut Frame,
@@ -84,14 +107,16 @@ fn dialog(
     width: u16,
     title: &str,
     rows: [Line<'_>; 5],
-    glyphs: &Glyphs,
+    kind: DialogKind,
+    context: &Context<'_>,
 ) {
     let popup = area.centered(
         Constraint::Length(width.min(area.width)),
         Constraint::Length(DIALOG_HEIGHT.min(area.height)),
     );
     frame.render_widget(Clear, popup);
-    let block = titled_block(Line::styled(title.to_owned(), theme::BOLD), glyphs);
+    let title = Line::styled(title.to_owned(), kind.title(context));
+    let block = titled_block(title, kind.border(), context);
     frame.render_widget(Paragraph::new(rows.to_vec()).block(block), popup);
 }
 
@@ -104,14 +129,12 @@ fn padded<'a>(spans: Vec<Span<'a>>) -> Line<'a> {
 fn confirm_dialog(frame: &mut Frame, area: Rect, question: String, context: &Context<'_>) {
     let question_width = saturating_u16(Span::raw(&question).width());
     let width = (question_width + saturating_u16(PADDING * 2) + BORDERS).max(CONFIRM_MIN_WIDTH);
+    let key = context.strong(Role::Accent);
     let answers = Line::from(vec![
-        Span::styled(
-            format!("[{}]", context.phrase(Phrase::ConfirmKey)),
-            theme::ACCENT,
-        ),
+        Span::styled(format!("[{}]", context.phrase(Phrase::ConfirmKey)), key),
         Span::raw(format!(" {}", context.phrase(Phrase::Yes))),
         Span::raw(ANSWERS_GAP),
-        Span::styled(format!("[{}]", DECLINE_KEYS[0]), theme::ACCENT),
+        Span::styled(format!("[{}]", DECLINE_KEYS[0]), key),
         Span::raw(format!(" {}", context.phrase(Phrase::No))),
     ])
     .centered();
@@ -123,7 +146,15 @@ fn confirm_dialog(frame: &mut Frame, area: Rect, question: String, context: &Con
         Line::default(),
     ];
     let title = context.phrase(Phrase::ConfirmTitle);
-    dialog(frame, area, width, title, rows, context.glyphs);
+    dialog(
+        frame,
+        area,
+        width,
+        title,
+        rows,
+        DialogKind::Destructive,
+        context,
+    );
 }
 
 /// El campo muestra el final del texto si no entra; un error de validación aparece en
@@ -144,37 +175,38 @@ fn name_dialog(
     let typed = format!("{}{}", prompt.input, glyphs.input_cursor);
     let shown = fit_start(&typed, field_width, glyphs.ellipsis);
     let padding = " ".repeat(field_width.saturating_sub(Span::raw(&shown).width()));
+    let muted = context.style(Role::Muted);
     let field = padded(vec![
-        Span::styled(label, theme::MUTED),
+        Span::styled(label, muted),
         Span::raw(shown),
         Span::raw(padding),
-        Span::styled(FIELD_CLOSE, theme::MUTED),
+        Span::styled(FIELD_CLOSE, muted),
     ]);
     let error = match &prompt.error {
-        Some(error) => padded(vec![
-            Span::styled(glyphs.message_error, theme::ERROR),
-            Span::styled(
-                format!(" {}", context.message(Message::Input(error))),
-                theme::ERROR,
-            ),
-        ]),
+        Some(error) => {
+            let style = context.style(Role::Error);
+            padded(vec![
+                Span::styled(glyphs.message_error, style),
+                Span::styled(
+                    format!(" {}", context.message(Message::Input(error))),
+                    style,
+                ),
+            ])
+        }
         None => Line::default(),
     };
     let rows = [
         Line::default(),
         field,
         Line::default(),
-        padded(vec![Span::styled(
-            context.phrase(Phrase::SaveKeys),
-            theme::MUTED,
-        )]),
+        padded(vec![Span::styled(context.phrase(Phrase::SaveKeys), muted)]),
         error,
     ];
-    dialog(frame, area, width, context.phrase(title), rows, glyphs);
+    let title = context.phrase(title);
+    dialog(frame, area, width, title, rows, DialogKind::Input, context);
 }
 
 pub fn render_picker(frame: &mut Frame, area: Rect, picker: &mut Picker, context: &Context<'_>) {
-    let glyphs = context.glyphs;
     match picker {
         Picker::Playlist(picker) => {
             let new_playlist = context.phrase(Phrase::NewPlaylistChoice);
@@ -184,7 +216,7 @@ pub fn render_picker(frame: &mut Frame, area: Rect, picker: &mut Picker, context
                 Phrase::PickerTitle,
                 &mut picker.choices,
                 context,
-                |choices| choice_rows(choices, new_playlist, glyphs),
+                |choices| choice_rows(choices, new_playlist, context),
             );
         }
         Picker::Partition(picker) => picker_dialog(
@@ -207,7 +239,6 @@ fn picker_dialog<'a, T, S: RowSource>(
     context: &Context<'_>,
     make_rows: impl FnOnce(&'a [T]) -> S,
 ) {
-    let glyphs = context.glyphs;
     let visible = choices.items().len().min(PICKER_MAX_ROWS);
     let height = saturating_u16(visible + PICKER_FIXED_ROWS);
     let popup = area.centered(
@@ -215,8 +246,11 @@ fn picker_dialog<'a, T, S: RowSource>(
         Constraint::Length(height.min(area.height)),
     );
     frame.render_widget(Clear, popup);
-    let title = Line::styled(context.phrase(title).to_owned(), theme::BOLD);
-    let block = titled_block(title, glyphs);
+    let title = Line::styled(
+        context.phrase(title).to_owned(),
+        DialogKind::Input.title(context),
+    );
+    let block = titled_block(title, DialogKind::Input.border(), context);
     let inner = block.inner(popup);
     frame.render_widget(block, popup);
     let [list_area, _, keys_area] = Layout::vertical([
@@ -233,9 +267,12 @@ fn picker_dialog<'a, T, S: RowSource>(
         centered: false,
     };
     let mut offset = table.offset();
-    render_list(frame, list_area, glyphs, &rows, selection, &mut offset);
+    render_list(frame, list_area, context, &rows, selection, &mut offset);
     *table.offset_mut() = offset;
-    let keys = Line::styled(context.phrase(Phrase::PickerKeys).to_owned(), theme::MUTED);
+    let keys = Line::styled(
+        context.phrase(Phrase::PickerKeys).to_owned(),
+        context.style(Role::Muted),
+    );
     frame
         .buffer_mut()
         .set_line(keys_area.x, keys_area.y, &keys, keys_area.width);
@@ -252,16 +289,19 @@ fn partition_rows<'a>(names: &'a [PartitionName]) -> impl RowSource + 'a {
 fn choice_rows<'a>(
     choices: &'a [PlaylistChoice],
     new_playlist: &'a str,
-    glyphs: &'a Glyphs,
-) -> impl RowSource + 'a {
+    context: &Context<'_>,
+) -> impl RowSource + use<'a> {
+    let glyph = context.glyphs.playlist;
+    let new_style = context.style(Role::Accent);
+    let playlist = context.style(Role::Playlist);
     ItemRows {
         items: choices,
         line: move |choice: &'a PlaylistChoice| match choice {
-            PlaylistChoice::New => Line::styled(new_playlist, theme::ACCENT),
+            PlaylistChoice::New => Line::styled(new_playlist, new_style),
             PlaylistChoice::Existing(name) => Line::from(vec![
-                Span::styled(glyphs.playlist, theme::MUTED),
+                Span::styled(glyph, playlist),
                 Span::raw(BADGE_GAP),
-                Span::raw(name.as_str()),
+                Span::styled(name.as_str(), playlist),
             ]),
         },
     }

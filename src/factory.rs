@@ -7,14 +7,17 @@ use tokio::sync::mpsc;
 use crate::config::{GlyphMode, Settings};
 use crate::domain::Password;
 use crate::i18n;
-use crate::repository::mpd::{Address, MpdClient, MpdConnector, ReconnectingTransport};
+use crate::repository::mpd::{
+    Address, MpdClient, MpdConnector, PartitionConnector, ReconnectingTransport, SharedPartition,
+};
 use crate::repository::{FifoPcmSource, LRCLIB_URL, LocalLyricsFiles, LrclibProvider, Result};
 use crate::service::{
-    Backoff, ChangeWatcher, LibraryService, LyricsLookup, LyricsService, OutputService,
-    PlaybackService, PlaylistService, QueueService, VisualizerLauncher,
+    Backoff, LibraryService, LyricsLookup, LyricsService, OutputService, PlaybackService,
+    PlaylistService, QueueService, ServerEvent, VisualizerLauncher, WatcherLauncher,
 };
 use crate::tui::appearance::{Appearance, ProgressBars};
 use crate::tui::glyphs::{self, Glyphs};
+use crate::tui::theme::Theme;
 use crate::tui::{App, Backend, Services};
 
 const WATCHER_FIRST_RETRY: Duration = Duration::from_secs(1);
@@ -25,16 +28,23 @@ const FIFO_MAXIMUM_RETRY: Duration = Duration::from_secs(1);
 
 /// Repositorio MPD con reconexión automática.
 pub type MpdRepository = MpdClient<ReconnectingTransport<MpdConnector>>;
+/// Repositorio MPD que además sigue la partición que usa mpctui.
+pub type FollowingRepository = MpdClient<ReconnectingTransport<PartitionConnector<MpdConnector>>>;
 
-/// Todos los repositorios de la app son MPD.
+/// Todos los repositorios de la app son MPD. Siguen la partición en uso los que dependen
+/// de ella (reproducción, cola, playlists, que cargan y guardan la cola, y vigilancia);
+/// la biblioteca es la misma en todas y la administración elige la partición en cada
+/// comando.
 pub struct MpdBackend;
 
 impl Backend for MpdBackend {
-    type Player = MpdRepository;
-    type Queue = MpdRepository;
+    type Player = FollowingRepository;
+    type Queue = FollowingRepository;
     type Library = MpdRepository;
-    type Playlists = MpdRepository;
+    type Playlists = FollowingRepository;
     type Outputs = MpdRepository;
+    type Selection = SharedPartition;
+    type Changes = FollowingRepository;
     type Pcm = FifoPcmSource;
 }
 
@@ -46,27 +56,51 @@ pub async fn connect_mpd(address: &Address, password: Option<&Password>) -> Resu
     ))
 }
 
+/// Abre una conexión que entra a la partición elegida en `partition` antes de cada
+/// comando, también al reconectar.
+pub async fn connect_following(
+    address: &Address,
+    password: Option<&Password>,
+    partition: &SharedPartition,
+) -> Result<FollowingRepository> {
+    let connector = following_connector(address, password, partition);
+    Ok(MpdClient::new(
+        ReconnectingTransport::connect(connector).await?,
+    ))
+}
+
+fn following_connector(
+    address: &Address,
+    password: Option<&Password>,
+    partition: &SharedPartition,
+) -> PartitionConnector<MpdConnector> {
+    let connector = MpdConnector::new(address.clone(), password.cloned());
+    PartitionConnector::new(connector, partition.clone())
+}
+
 /// Arma la app completa. Cada servicio tiene su propia conexión, así ninguno espera a
-/// otro, y el vigilante de cambios corre en su propia tarea.
+/// otro, y el vigilante de cambios corre en su propia tarea (la lanza la app).
 pub async fn build_app(settings: &Settings) -> Result<App<MpdBackend>> {
-    let connect = || connect_mpd(&settings.address, settings.password.as_ref());
+    let address = &settings.address;
+    let password = settings.password.as_ref();
+    let partition = SharedPartition::default();
+    let follow = || connect_following(address, password, &partition);
+    let (sender, receiver) = mpsc::unbounded_channel();
     let services = Services {
-        playback: PlaybackService::new(connect().await?),
-        queue: QueueService::new(connect().await?),
-        library: LibraryService::new(connect().await?),
-        playlists: PlaylistService::new(connect().await?),
-        outputs: OutputService::new(connect().await?),
+        playback: PlaybackService::new(follow().await?),
+        queue: QueueService::new(follow().await?),
+        library: LibraryService::new(connect_mpd(address, password).await?),
+        playlists: PlaylistService::new(follow().await?),
+        outputs: OutputService::new(connect_mpd(address, password).await?, partition.clone()),
+        watcher: watcher_launcher(settings, &partition, sender),
         visualizer: visualizer_launcher(settings),
         lyrics: lyrics_lookup(settings).await?,
         lyrics_in_background: settings.lyrics.fetch_in_background,
     };
-    let (sender, receiver) = mpsc::unbounded_channel();
-    let backoff = Backoff::new(WATCHER_FIRST_RETRY, WATCHER_MAXIMUM_RETRY);
-    let watcher = ChangeWatcher::new(connect().await?, sender, backoff);
-    tokio::spawn(watcher.run());
     let appearance = Appearance {
         glyphs: glyphs_for(settings.glyph_mode),
         texts: i18n::catalog(settings.language),
+        theme: Theme::resolve(settings.theme, settings.color_depth),
         progress_bars: ProgressBars {
             album: settings.album_progress,
             queue: settings.queue_progress,
@@ -76,6 +110,26 @@ pub async fn build_app(settings: &Settings) -> Result<App<MpdBackend>> {
     };
     let server = settings.address.to_string();
     Ok(App::new(services, receiver, appearance, server))
+}
+
+/// Cada vigilante abre su conexión con el primer `idle`, ya en la partición en uso.
+fn watcher_launcher(
+    settings: &Settings,
+    partition: &SharedPartition,
+    events: mpsc::UnboundedSender<ServerEvent>,
+) -> WatcherLauncher<FollowingRepository> {
+    let address = settings.address.clone();
+    let password = settings.password.clone();
+    let partition = partition.clone();
+    let backoff = Backoff::new(WATCHER_FIRST_RETRY, WATCHER_MAXIMUM_RETRY);
+    WatcherLauncher::new(
+        move || {
+            let connector = following_connector(&address, password.as_ref(), &partition);
+            MpdClient::new(ReconnectingTransport::lazy(connector))
+        },
+        events,
+        backoff,
+    )
 }
 
 /// Con las letras activadas, su búsqueda corre en su propia tarea y con su propia

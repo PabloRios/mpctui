@@ -29,6 +29,15 @@ impl<C: Connector + Send + Sync> ReconnectingTransport<C> {
         })
     }
 
+    /// Conecta recién con el primer comando: para quien ya sabe reintentar (el vigilante
+    /// de cambios relanzado al cambiar de partición).
+    pub fn lazy(connector: C) -> Self {
+        Self {
+            connector,
+            current: None,
+        }
+    }
+
     /// Ejecuta sobre la conexión actual (o una nueva) y la descarta si se cortó.
     async fn execute_once(&mut self, command: &Command) -> Result<Vec<Pair>> {
         let mut transport = match self.current.take() {
@@ -134,6 +143,15 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(transport.connector.connections.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn a_lazy_transport_connects_with_the_first_command() {
+        let mut transport = ReconnectingTransport::lazy(AckConnector::default());
+        assert_eq!(transport.connector.connections.load(Ordering::SeqCst), 0);
+        let result = transport.execute(&Command::new(Verb::Play)).await;
+        assert!(matches!(result, Err(Error::Ack(_))));
+        assert_eq!(transport.connector.connections.load(Ordering::SeqCst), 1);
     }
 
     #[tokio::test]

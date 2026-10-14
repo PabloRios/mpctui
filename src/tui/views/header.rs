@@ -9,13 +9,13 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::Block;
 
 use super::chrome::{Context, block_title, end_title, titled_block};
-use super::format::{countdown, format_duration};
-use super::gauges::{MeterCell, meter, meter_line};
-use super::theme;
+use super::format::{countdown, format_duration, numbers_stand_out};
+use super::gauges::{MeterCell, MeterFill, meter, meter_line};
 use super::widgets::{millis, spread};
 use crate::i18n::{Message, Phrase};
 use crate::tui::action::view_action;
 use crate::tui::state::{AppState, ConnectionState, ViewKind};
+use crate::tui::theme::Role;
 
 const APPLICATION_NAME: &str = "mpctui";
 /// Esquinas del marco, a cada lado del borde superior.
@@ -28,37 +28,46 @@ const FIRST_SHOWN_ATTEMPT: u32 = 2;
 
 /// Marco de toda la pantalla: `┌─ mpctui ──── ● localhost:6600 ─┐`.
 pub fn frame_block(state: &AppState, context: &Context<'_>) -> Block<'static> {
-    let glyphs = context.glyphs;
     let name = name_line(state, context);
     let used = CORNERS
-        + block_title(name.clone(), glyphs).width()
+        + block_title(name.clone(), context).width()
         + MIN_TITLE_GAP
-        + end_title(Line::default(), glyphs).width();
+        + end_title(Line::default(), context).width();
     let available = usize::from(context.width).saturating_sub(used);
-    let connection = end_title(connection_line(state, context, available), glyphs);
-    titled_block(name, glyphs).title_top(connection.right_aligned())
+    let connection = end_title(connection_line(state, context, available), context);
+    titled_block(name, Role::Subtle, context).title_top(connection.right_aligned())
 }
 
 /// `mpctui`; con una actualización de la base en curso,
 /// `mpctui ─ ◐ actualizando biblioteca 0:42` (compacto: `mpctui ◐`).
 fn name_line(state: &AppState, context: &Context<'_>) -> Line<'static> {
     let glyphs = context.glyphs;
-    let mut spans = vec![Span::styled(APPLICATION_NAME, theme::ACCENT)];
+    let mut spans = vec![Span::styled(APPLICATION_NAME, context.strong(Role::Accent))];
     let Some(started) = state.database_update else {
         return Line::from(spans);
     };
     let spinner = glyphs.spinner_frame(state.ticks);
+    let updating_style = context.style(Role::Warning);
     if context.is_compact() {
-        spans.push(Span::styled(format!(" {spinner}"), theme::INFO));
+        spans.push(Span::styled(format!(" {spinner}"), updating_style));
     } else {
         let elapsed = format_duration(context.now.saturating_duration_since(started));
         spans.push(Span::raw(" "));
-        spans.push(Span::styled(glyphs.border.horizontal_top, theme::BORDER));
+        spans.push(Span::styled(
+            glyphs.border.horizontal_top,
+            context.style(Role::Subtle),
+        ));
         let updating = context.message(Message::UpdatingLibrary { elapsed: &elapsed });
-        spans.push(Span::styled(format!(" {spinner} {updating}"), theme::INFO));
+        spans.push(Span::styled(
+            format!(" {spinner} {updating}"),
+            updating_style,
+        ));
     }
     Line::from(spans)
 }
+
+/// Entre el servidor y la partición en uso.
+const PARTITION_SEPARATOR: &str = " · ";
 
 /// Cuánto de la desconexión se muestra. Si no entra, se quita primero el intento,
 /// después el medidor y por último `sin conexión, `.
@@ -92,12 +101,12 @@ const DETAIL_LEVELS: [Detail; 4] = [
     },
 ];
 
-/// `● localhost:6600`, o la desconexión con el detalle que entre en `available`.
-/// En modo compacto, siempre la forma mínima.
+/// `● localhost:6600` (con `· cocina` si mpctui usa otra partición que `default`), o la
+/// desconexión con el detalle que entre en `available`. En modo compacto, siempre la
+/// forma mínima.
 fn connection_line(state: &AppState, context: &Context<'_>, available: usize) -> Line<'static> {
     if state.connection == ConnectionState::Connected {
-        let text = format!("{} {}", context.glyphs.connected, state.server);
-        return Line::styled(text, theme::INFO);
+        return connected_line(state, context);
     }
     let levels = if context.is_compact() {
         &DETAIL_LEVELS[DETAIL_LEVELS.len() - 1..]
@@ -113,6 +122,25 @@ fn connection_line(state: &AppState, context: &Context<'_>, available: usize) ->
         .into_iter()
         .find(|line| line.width() <= available)
         .unwrap_or(shortest)
+}
+
+/// `●` en `success`, el servidor en `muted` y la partición en `accent_alt`.
+fn connected_line(state: &AppState, context: &Context<'_>) -> Line<'static> {
+    let mut spans = vec![
+        Span::styled(context.glyphs.connected, context.style(Role::Success)),
+        Span::styled(format!(" {}", state.server), context.style(Role::Muted)),
+    ];
+    if !state.partition.is_default() {
+        spans.push(Span::styled(
+            PARTITION_SEPARATOR,
+            context.style(Role::Muted),
+        ));
+        spans.push(Span::styled(
+            state.partition.to_string(),
+            context.style(Role::AccentAlt),
+        ));
+    }
+    Line::from(spans)
 }
 
 /// `✖ sin conexión, reintento en 5 s ■■■□□□□□ (intento 4)` o
@@ -139,7 +167,9 @@ fn disconnected_line(state: &AppState, context: &Context<'_>, detail: Detail) ->
             }));
             if detail.meter {
                 extra.push(Span::raw(" "));
-                extra.extend(meter_line(&waited_meter(delay, remaining), glyphs).spans);
+                let fill = MeterFill::Role(Role::Warning);
+                let meter = meter_line(&waited_meter(delay, remaining), fill, context);
+                extra.extend(meter.spans);
             }
             attempt
         }
@@ -150,11 +180,12 @@ fn disconnected_line(state: &AppState, context: &Context<'_>, detail: Detail) ->
             attempt
         }
     };
-    let mut spans = vec![Span::styled(text, theme::ERROR)];
+    let error = context.style(Role::Error);
+    let mut spans = vec![Span::styled(text, error)];
     spans.extend(extra);
     if detail.attempt && attempt >= FIRST_SHOWN_ATTEMPT {
         let attempt = context.message(Message::Attempt(attempt));
-        spans.push(Span::styled(format!(" {attempt}"), theme::ERROR));
+        spans.push(Span::styled(format!(" {attempt}"), error));
     }
     Line::from(spans)
 }
@@ -195,22 +226,22 @@ fn tabs_line(state: &AppState, context: &Context<'_>, abbreviated: bool) -> Line
         let title = context.phrase(view_title(view, abbreviated));
         let label = format!("{key} {title}");
         tabs.push(if view == state.view {
-            Span::styled(format!("[{label}]"), theme::FOCUSED)
+            Span::styled(format!("[{label}]"), context.style(Role::TabActive))
         } else {
-            Span::styled(format!(" {label} "), theme::MUTED)
+            Span::styled(format!(" {label} "), context.style(Role::Muted))
         });
     }
     Line::from(tabs)
 }
 
-/// Sin duración si falta la de algún tema.
+/// Sin duración si falta la de algún tema. Los números resaltan sobre el texto.
 fn queue_summary(state: &AppState, context: &Context<'_>) -> Line<'static> {
     let mut text = context.message(Message::QueueSummary(state.queue.items().len()));
     if let Some(total) = state.queue.timeline().total {
         text.push_str(&format!("  {}", format_duration(total)));
     }
     text.push(' ');
-    Line::styled(text, theme::MUTED)
+    numbers_stand_out(&text, context.style(Role::Muted), context.style(Role::Text))
 }
 
 /// En modo compacto, abreviado.
@@ -237,20 +268,16 @@ mod tests {
     use std::time::Instant;
 
     use super::*;
-    use crate::i18n::{English, Spanish};
-    use crate::tui::appearance::ProgressBars;
+    use crate::i18n::English;
     use crate::tui::glyphs::{ASCII, UNICODE};
+    use crate::tui::views::chrome::testing;
     use crate::tui::views::layout::LayoutMode;
 
     fn context(mode: LayoutMode, now: Instant) -> Context<'static> {
         Context {
-            glyphs: &ASCII,
-            texts: &Spanish,
             mode,
-            width: 100,
             now,
-            progress_bars: ProgressBars::default(),
-            lyrics_line: false,
+            ..testing::context(&ASCII)
         }
     }
 

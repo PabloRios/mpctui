@@ -6,8 +6,9 @@ use std::ops::Range;
 use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 
-use super::theme;
+use super::chrome::Context;
 use crate::tui::glyphs::Glyphs;
+use crate::tui::theme::{GradientRole, Role};
 
 /// Mínimo de celdas por tema en la barra del álbum.
 pub const ALBUM_BAR_MIN_CELLS: usize = 1;
@@ -279,62 +280,100 @@ pub fn meter_width(cells: usize, glyphs: &Glyphs) -> usize {
     cells + Span::raw(glyphs.bar_open).width() + Span::raw(glyphs.bar_close).width()
 }
 
-fn bar_cell_look(cell: BarCell, glyphs: &Glyphs) -> (&'static str, Style) {
+/// El glifo y el estilo de una celda de barra en `position` (0 a 1) de la barra. Lo
+/// lleno toma el degradado según dónde está la celda, no según el avance: la barra no
+/// cambia de color al avanzar.
+fn bar_cell_look(cell: BarCell, position: f32, context: &Context<'_>) -> (&'static str, Style) {
+    let glyphs = context.glyphs;
     match cell {
-        BarCell::Filled => (glyphs.bar_filled, theme::BAR_FILLED),
-        BarCell::Head => (glyphs.bar_head, theme::BAR_HEAD),
-        BarCell::Empty => (glyphs.bar_empty, theme::BAR_EMPTY),
-        BarCell::Separator => (glyphs.bar_separator, theme::BAR_SEPARATOR),
-        BarCell::More => (glyphs.bar_more, theme::MUTED),
-        BarCell::Unknown => (glyphs.bar_unknown, theme::MUTED),
+        BarCell::Filled => (
+            glyphs.bar_filled,
+            context.gradient(GradientRole::Progress, position),
+        ),
+        BarCell::Head => (glyphs.bar_head, context.style(Role::AccentAlt)),
+        BarCell::Empty => (glyphs.bar_empty, context.style(Role::Subtle)),
+        BarCell::Separator => (glyphs.bar_separator, context.style(Role::TextStrong)),
+        BarCell::More => (glyphs.bar_more, context.style(Role::Muted)),
+        BarCell::Unknown => (glyphs.bar_unknown, context.style(Role::Muted)),
     }
 }
 
-fn meter_cell_look(cell: MeterCell, glyphs: &Glyphs) -> (&'static str, Style) {
-    match cell {
-        MeterCell::Filled => (glyphs.meter_filled, theme::BAR_FILLED),
-        MeterCell::Empty => (glyphs.meter_empty, theme::BAR_EMPTY),
+/// Color de lo lleno de un medidor: un rol fijo o un degradado según la posición.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MeterFill {
+    Role(Role),
+    Gradient(GradientRole),
+}
+
+fn meter_cell_look(
+    cell: MeterCell,
+    position: f32,
+    fill: MeterFill,
+    context: &Context<'_>,
+) -> (&'static str, Style) {
+    match (cell, fill) {
+        (MeterCell::Filled, MeterFill::Role(role)) => {
+            (context.glyphs.meter_filled, context.style(role))
+        }
+        (MeterCell::Filled, MeterFill::Gradient(role)) => (
+            context.glyphs.meter_filled,
+            context.gradient(role, position),
+        ),
+        (MeterCell::Empty, _) => (context.glyphs.meter_empty, context.style(Role::Subtle)),
     }
 }
 
-/// Traduce celdas a una línea con extremos, juntando las celdas iguales en un tramo.
-fn cells_line<T: Copy + PartialEq>(
+/// Traduce celdas a una línea con extremos, juntando las celdas iguales (mismo glifo y
+/// mismo estilo) en un tramo.
+fn cells_line<T: Copy>(
     cells: &[T],
-    glyphs: &Glyphs,
-    look: impl Fn(T, &Glyphs) -> (&'static str, Style),
+    context: &Context<'_>,
+    look: impl Fn(T, f32) -> (&'static str, Style),
 ) -> Line<'static> {
-    let mut spans = vec![Span::styled(glyphs.bar_open, theme::MUTED)];
-    for group in cells.chunk_by(|left, right| left == right) {
-        let (symbol, style) = look(group[0], glyphs);
+    let glyphs = context.glyphs;
+    let edges = context.style(Role::Muted);
+    let last = cells.len().saturating_sub(1).max(1) as f32;
+    let looks: Vec<(&'static str, Style)> = cells
+        .iter()
+        .enumerate()
+        .map(|(index, cell)| look(*cell, index as f32 / last))
+        .collect();
+    let mut spans = vec![Span::styled(glyphs.bar_open, edges)];
+    for group in looks.chunk_by(|left, right| left == right) {
+        let (symbol, style) = group[0];
         spans.push(Span::styled(symbol.repeat(group.len()), style));
     }
-    spans.push(Span::styled(glyphs.bar_close, theme::MUTED));
+    spans.push(Span::styled(glyphs.bar_close, edges));
     Line::from(spans)
 }
 
-pub fn bar_line(cells: &[BarCell], glyphs: &Glyphs) -> Line<'static> {
-    cells_line(cells, glyphs, bar_cell_look)
+pub fn bar_line(cells: &[BarCell], context: &Context<'_>) -> Line<'static> {
+    cells_line(cells, context, |cell, position| {
+        bar_cell_look(cell, position, context)
+    })
 }
 
-pub fn meter_line(cells: &[MeterCell], glyphs: &Glyphs) -> Line<'static> {
-    cells_line(cells, glyphs, meter_cell_look)
+pub fn meter_line(cells: &[MeterCell], fill: MeterFill, context: &Context<'_>) -> Line<'static> {
+    cells_line(cells, context, |cell, position| {
+        meter_cell_look(cell, position, fill, context)
+    })
 }
 
 /// Barra de un stream: `bar_unknown` con la etiqueta centrada si entra.
-pub fn unknown_bar_line(width: usize, label: &str, glyphs: &Glyphs) -> Line<'static> {
+pub fn unknown_bar_line(width: usize, label: &str, context: &Context<'_>) -> Line<'static> {
     let label_width = Span::raw(label).width();
     let mut cells = vec![BarCell::Unknown; width];
     if label_width >= width {
-        return bar_line(&cells, glyphs);
+        return bar_line(&cells, context);
     }
     let left = (width - label_width) / 2;
-    let mut line = bar_line(&cells[..left], glyphs);
+    let mut line = bar_line(&cells[..left], context);
     // Se quita el cierre para continuar la barra después de la etiqueta.
     line.spans.pop();
     line.spans
-        .push(Span::styled(label.to_owned(), theme::MUTED));
+        .push(Span::styled(label.to_owned(), context.style(Role::Muted)));
     cells.truncate(width - left - label_width);
-    let mut right = bar_line(&cells, glyphs).spans;
+    let mut right = bar_line(&cells, context).spans;
     right.remove(0);
     line.spans.extend(right);
     line
@@ -343,7 +382,10 @@ pub fn unknown_bar_line(width: usize, label: &str, glyphs: &Glyphs) -> Line<'sta
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::{ColorDepth, ThemeId};
     use crate::tui::glyphs::{ASCII, UNICODE};
+    use crate::tui::theme::Theme;
+    use crate::tui::views::chrome::testing;
 
     /// Representación compacta para comparar barras en los tests.
     fn draw(cells: &[BarCell]) -> String {
@@ -454,19 +496,52 @@ mod tests {
     #[test]
     fn lines_use_the_glyph_set() {
         let cells = [BarCell::Filled, BarCell::Head, BarCell::Empty];
-        assert_eq!(bar_line(&cells, &ASCII).to_string(), "[=>-]");
+        assert_eq!(
+            bar_line(&cells, &testing::context(&ASCII)).to_string(),
+            "[=>-]"
+        );
         let unicode = format!(
             "{}{}{}",
             UNICODE.bar_filled, UNICODE.bar_head, UNICODE.bar_empty
         );
-        assert_eq!(bar_line(&cells, &UNICODE).to_string(), unicode);
+        assert_eq!(
+            bar_line(&cells, &testing::context(&UNICODE)).to_string(),
+            unicode
+        );
         assert_eq!(meter_width(10, &ASCII), 12);
     }
 
     #[test]
+    fn filled_cells_take_the_gradient_by_their_position() {
+        let theme = Theme::resolve(ThemeId::Midnight, ColorDepth::TrueColor);
+        let context = Context {
+            theme: &theme,
+            ..testing::context(&ASCII)
+        };
+        let volume = MeterFill::Gradient(GradientRole::Volume);
+        let line = meter_line(&[MeterCell::Filled; 4], volume, &context);
+        assert_eq!(line.to_string(), "[####]");
+        let first = line.spans[1].style;
+        let last = line.spans[line.spans.len() - 2].style;
+        assert_eq!(first, theme.gradient(GradientRole::Volume, 0.0));
+        assert_eq!(last, theme.gradient(GradientRole::Volume, 1.0));
+        assert_ne!(first, last);
+        let warning = meter_line(
+            &[MeterCell::Filled; 4],
+            MeterFill::Role(Role::Warning),
+            &context,
+        );
+        assert_eq!(warning.spans.len(), 3, "las celdas iguales van juntas");
+    }
+
+    #[test]
     fn unknown_bar_centers_its_label() {
-        let line = unknown_bar_line(10, " x ", &ASCII);
+        let context = testing::context(&ASCII);
+        let line = unknown_bar_line(10, " x ", &context);
         assert_eq!(line.to_string(), "[~~~ x ~~~~]");
-        assert_eq!(unknown_bar_line(2, " en vivo ", &ASCII).to_string(), "[~~]");
+        assert_eq!(
+            unknown_bar_line(2, " en vivo ", &context).to_string(),
+            "[~~]"
+        );
     }
 }

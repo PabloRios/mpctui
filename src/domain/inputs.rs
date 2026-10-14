@@ -133,6 +133,13 @@ impl PartitionName {
     }
 }
 
+/// Con la que arranca toda conexión.
+impl Default for PartitionName {
+    fn default() -> Self {
+        Self::default_partition()
+    }
+}
+
 impl fmt::Display for PartitionName {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(&self.0)

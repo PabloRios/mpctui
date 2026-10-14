@@ -78,6 +78,7 @@ pub enum Phrase {
     UpdateDatabase,
     NewPartition,
     MoveOutput,
+    NextTheme,
     // Secciones y marco de la ayuda.
     HelpNavigation,
     HelpLists,
@@ -127,6 +128,7 @@ pub enum Phrase {
     HintNewPartition,
     HintToggleOutput,
     HintMoveOutput,
+    HintUsePartition,
     /// Teclas de la línea de búsqueda.
     SearchKeys,
     // Diálogos.
@@ -233,7 +235,10 @@ pub enum Phrase {
     QueueCleared,
     NoVolumeControl,
     DefaultPartitionUndeletable,
+    ActivePartitionUndeletable,
     TerminalTooSmall,
+    /// Con 16 colores o sin color, `t` no cambia el tema.
+    ThemesNeedColors,
 }
 
 /// Textos con datos: cada idioma decide el orden de las palabras y los plurales.
@@ -322,6 +327,15 @@ pub enum Message<'a> {
         style: &'a str,
         key: &'a str,
     },
+    // Colores. El nombre del tema es el de la opción `theme`: no se traduce.
+    ThemeChanged {
+        theme: &'a str,
+        key: &'a str,
+    },
+    /// Al arrancar con un tema que no se puede mostrar con 16 colores.
+    ThemeNeedsColors {
+        theme: &'a str,
+    },
     // Avisos.
     ConnectionLost(&'a Error),
     AddedToQueue(&'a str),
@@ -345,6 +359,7 @@ pub enum Message<'a> {
         key: &'a str,
     },
     PartitionCreated(&'a str),
+    UsingPartition(&'a str),
     PartitionDeleted(&'a str),
     OutputMoved {
         output: &'a str,

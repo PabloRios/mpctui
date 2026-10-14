@@ -22,11 +22,10 @@ use crate::domain::{VisualContent, VisualFrame, VisualRequest, VisualizerStyle};
 use crate::i18n::{Catalog, Message, Phrase};
 use crate::repository::Error;
 use crate::service::VisualState;
-use crate::tui::glyphs::Glyphs;
 use crate::tui::state::{AppState, VisualView};
+use crate::tui::theme::Role;
 use crate::tui::views::chrome::Context;
 use crate::tui::views::format::visualizer_style_name;
-use crate::tui::views::theme;
 use crate::tui::views::widgets::{centered_message, spread};
 
 const TITLE_ROWS: u16 = 1;
@@ -74,8 +73,8 @@ fn draw_frame(
         return;
     }
     if !visual.signal && visual.content.is_flat() {
-        let no_signal = context.phrase(Phrase::NoSignal);
-        return centered_message(frame, area, Line::styled(no_signal, theme::MUTED));
+        let no_signal = Line::styled(context.phrase(Phrase::NoSignal), context.style(Role::Muted));
+        return centered_message(frame, area, no_signal);
     }
     match &visual.content {
         VisualContent::Bars(bands) => bars::render(frame, area, bands, context),
@@ -96,21 +95,19 @@ fn draw_frame(
 /// `Visualizador: Barras  ● ○ ○ ○ ○ ○  1/6` y, a la derecha, los datos de la forma.
 /// Sin FIFO, solo `Visualizador` y `sin señal`.
 fn draw_title(frame: &mut Frame, area: Rect, view: &VisualView, context: &Context<'_>) {
-    let glyphs = context.glyphs;
+    let strong = context.style(Role::TextStrong);
     let title = context.phrase(Phrase::VisualizerTitle);
     let (left, details) = match &view.state {
         VisualState::Unavailable(_) => (
-            Line::styled(title, theme::BOLD),
+            Line::styled(title, strong),
             context.phrase(Phrase::NoSignal).to_owned(),
         ),
         VisualState::Frame(visual) => {
             let style = context.phrase(visualizer_style_name(view.style));
             let name = format!("{title}: {style}");
-            let left = Line::from(vec![
-                Span::styled(name, theme::BOLD),
-                Span::raw(PART_GAP),
-                Span::styled(page_indicator(view, glyphs), theme::MUTED),
-            ]);
+            let mut spans = vec![Span::styled(name, strong), Span::raw(PART_GAP)];
+            spans.extend(page_indicator(view, context).spans);
+            let left = Line::from(spans);
             let details = if visual.content.style() == view.style {
                 details(&visual.content, view.request, context.texts)
             } else {
@@ -121,35 +118,36 @@ fn draw_title(frame: &mut Frame, area: Rect, view: &VisualView, context: &Contex
     };
     let line = spread(
         left,
-        Line::styled(details, theme::MUTED),
+        Line::styled(details, context.style(Role::Muted)),
         area.width,
-        glyphs,
+        context.glyphs,
     );
     draw_line(frame, area, &line);
 }
 
-/// `● ○ ○ ○ ○ ○  1/6` entre las formas disponibles con los canales del FIFO.
-fn page_indicator(view: &VisualView, glyphs: &Glyphs) -> String {
+/// `● ○ ○ ○ ○ ○  1/6` entre las formas disponibles con los canales del FIFO: la activa
+/// en `accent`, las demás en `subtle`.
+fn page_indicator(view: &VisualView, context: &Context<'_>) -> Line<'static> {
+    let glyphs = context.glyphs;
     let available = VisualizerStyle::available(view.channels);
     let position = available
         .iter()
         .position(|style| *style == view.style)
         .unwrap_or_default();
-    let pages: Vec<&str> = (0..available.len())
-        .map(|page| {
-            if page == position {
-                glyphs.page_active
-            } else {
-                glyphs.page_inactive
-            }
-        })
-        .collect();
-    format!(
-        "{}{PART_GAP}{}/{}",
-        pages.join(PAGE_GAP),
-        position + 1,
-        available.len()
-    )
+    let mut spans = Vec::new();
+    for page in 0..available.len() {
+        if page > 0 {
+            spans.push(Span::raw(PAGE_GAP));
+        }
+        spans.push(if page == position {
+            Span::styled(glyphs.page_active, context.style(Role::Accent))
+        } else {
+            Span::styled(glyphs.page_inactive, context.style(Role::Subtle))
+        });
+    }
+    let count = format!("{PART_GAP}{}/{}", position + 1, available.len());
+    spans.push(Span::styled(count, context.style(Role::Muted)));
+    Line::from(spans)
 }
 
 fn details(content: &VisualContent, request: Option<VisualRequest>, texts: &dyn Catalog) -> String {
@@ -198,6 +196,7 @@ mod tests {
     use super::*;
     use crate::domain::STEREO_CHANNELS;
     use crate::tui::glyphs::{ASCII, UNICODE};
+    use crate::tui::views::chrome::testing;
 
     fn view(style: VisualizerStyle, channels: u8) -> VisualView {
         VisualView {
@@ -209,11 +208,13 @@ mod tests {
 
     #[test]
     fn the_indicator_marks_the_active_style() {
+        let indicator =
+            |view: &VisualView, glyphs| page_indicator(view, &testing::context(glyphs)).to_string();
         let bars = view(VisualizerStyle::Bars, STEREO_CHANNELS);
-        assert_eq!(page_indicator(&bars, &UNICODE), "● ○ ○ ○ ○ ○  1/6");
+        assert_eq!(indicator(&bars, &UNICODE), "● ○ ○ ○ ○ ○  1/6");
         let waterfall = view(VisualizerStyle::Waterfall, STEREO_CHANNELS);
-        assert_eq!(page_indicator(&waterfall, &ASCII), ". . . * . .  4/6");
+        assert_eq!(indicator(&waterfall, &ASCII), ". . . * . .  4/6");
         let mono = view(VisualizerStyle::Meters, 1);
-        assert_eq!(page_indicator(&mono, &ASCII), ". . . *  4/4");
+        assert_eq!(indicator(&mono, &ASCII), ". . . *  4/4");
     }
 }

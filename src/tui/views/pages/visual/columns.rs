@@ -1,19 +1,15 @@
 //! Barras por banda (Barras y Espejo): cuántas entran, dónde va cada una, su altura en
-//! sub-celdas, el color por altura y las etiquetas de frecuencia.
+//! sub-celdas, la posición de cada fila para el degradado y las etiquetas de frecuencia.
 
 use ratatui::layout::Rect;
-use ratatui::style::Style;
 use ratatui::text::Span;
 
 use crate::domain::band_centers;
 use crate::tui::views::chrome::Context;
 use crate::tui::views::format::{frequency_tick, saturating_u16};
-use crate::tui::views::theme;
 
 pub const SPECTRUM_MIN_BANDS: usize = 8;
 pub const SPECTRUM_MAX_BANDS: usize = 64;
-/// Tercios de la altura, para el color.
-const HEIGHT_ZONES: usize = 3;
 /// Separación mínima entre dos etiquetas del eje.
 const LABEL_GAP: u16 = 1;
 
@@ -131,13 +127,11 @@ pub fn fill_glyph(
     (fill > 0).then_some(levels[fill])
 }
 
-/// Verde el tercio de abajo, amarillo el del medio y rojo el de arriba.
-pub fn zone_style(row: usize, rows: usize) -> Style {
-    match (row * HEIGHT_ZONES) / rows.max(1) {
-        0 => theme::SPECTRUM_LOW,
-        1 => theme::SPECTRUM_MIDDLE,
-        _ => theme::SPECTRUM_HIGH,
-    }
+/// Dónde está la fila `row` (desde la base) en una barra de `rows` filas, entre 0 y 1:
+/// el centro de la fila. Elige el color del degradado; el color solo refuerza lo que
+/// ya dice la altura.
+pub fn height_position(row: usize, rows: usize) -> f32 {
+    (row as f32 + 0.5) / rows.max(1) as f32
 }
 
 /// La banda cuyo centro está más cerca de `hertz`, en escala logarítmica.
@@ -185,10 +179,11 @@ mod tests {
     }
 
     #[test]
-    fn colors_go_by_thirds() {
-        assert_eq!(zone_style(0, 9), theme::SPECTRUM_LOW);
-        assert_eq!(zone_style(4, 9), theme::SPECTRUM_MIDDLE);
-        assert_eq!(zone_style(8, 9), theme::SPECTRUM_HIGH);
+    fn rows_are_placed_at_their_center() {
+        assert_eq!(height_position(0, 2), 0.25);
+        assert_eq!(height_position(1, 2), 0.75);
+        assert_eq!(height_position(4, 9), 0.5);
+        assert_eq!(height_position(0, 0), 0.5);
     }
 
     #[test]

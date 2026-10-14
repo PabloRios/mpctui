@@ -6,13 +6,12 @@ use ratatui::layout::Rect;
 use ratatui::text::{Line, Span};
 
 use super::chrome::Context;
-use super::theme;
 use crate::domain::MoveDirection;
 use crate::i18n::Phrase;
 use crate::tui::action::Action;
-use crate::tui::glyphs::Glyphs;
 use crate::tui::prompt::PromptKind;
 use crate::tui::state::{AppState, Notice, NoticeLevel, OutputsColumn, PlaylistsColumn, ViewKind};
+use crate::tui::theme::Role;
 
 const HINT_GAP: &str = "   ";
 /// Separación entre el borde de la pantalla y el texto.
@@ -30,11 +29,11 @@ pub fn render(frame: &mut Frame, area: Rect, state: &AppState, context: &Context
         .as_ref()
         .filter(|notice| notice.is_visible_at(context.now));
     let line = match notice {
-        Some(notice) => notice_line(notice, context.glyphs),
+        Some(notice) => notice_line(notice, context),
         None if searching => {
             // Las teclas de la búsqueda las maneja el prompt, no la tabla de atajos.
             let keys = context.phrase(Phrase::SearchKeys);
-            Line::styled(format!("{LEADING_SPACE}{keys}"), theme::MUTED)
+            Line::styled(format!("{LEADING_SPACE}{keys}"), context.style(Role::Muted))
         }
         None => hints_line(state, context),
     };
@@ -95,6 +94,7 @@ fn view_hints(state: &AppState) -> &'static [(Action, Phrase)] {
         },
         ViewKind::Outputs => match state.outputs.focus {
             OutputsColumn::Partitions => &[
+                (Action::Activate, Phrase::HintUsePartition),
                 (Action::Forward, Phrase::HintOutputs),
                 (Action::NewPartition, Phrase::HintNewPartition),
                 (Action::Delete, Phrase::HintDelete),
@@ -134,19 +134,27 @@ fn hints_line(state: &AppState, context: &Context<'_>) -> Line<'static> {
         if index > 0 {
             spans.push(Span::raw(HINT_GAP));
         }
-        spans.push(Span::styled(context.key(*action), theme::ACCENT));
+        spans.push(Span::styled(
+            context.key(*action),
+            context.strong(Role::Accent),
+        ));
         let label = context.phrase(*label);
-        spans.push(Span::styled(format!(" {label}"), theme::MUTED));
+        spans.push(Span::styled(
+            format!(" {label}"),
+            context.style(Role::Muted),
+        ));
     }
     Line::from(spans)
 }
 
 /// El prefijo distingue el tipo de aviso sin depender del color.
-fn notice_line<'a>(notice: &'a Notice, glyphs: &Glyphs) -> Line<'a> {
-    let (prefix, style) = match notice.level {
-        NoticeLevel::Info => (glyphs.message_info, theme::INFO),
-        NoticeLevel::Error => (glyphs.message_error, theme::ERROR),
+fn notice_line<'a>(notice: &'a Notice, context: &Context<'_>) -> Line<'a> {
+    let glyphs = context.glyphs;
+    let (prefix, role) = match notice.level {
+        NoticeLevel::Info => (glyphs.message_info, Role::Info),
+        NoticeLevel::Error => (glyphs.message_error, Role::Error),
     };
+    let style = context.style(role);
     Line::from(vec![
         Span::raw(LEADING_SPACE),
         Span::styled(prefix, style),

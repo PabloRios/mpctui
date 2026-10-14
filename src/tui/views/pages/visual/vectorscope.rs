@@ -10,9 +10,9 @@ use super::correlation::correlation_line;
 use crate::domain::{ScopePoint, VisualRequest, VisualizerStyle};
 use crate::i18n::{Catalog, Message};
 use crate::tui::glyphs::{CellPlot, Plot};
+use crate::tui::theme::{GradientRole, Role};
 use crate::tui::views::chrome::Context;
 use crate::tui::views::format::saturating_u16;
-use crate::tui::views::theme;
 
 const LABEL_ROWS: u16 = 1;
 const CORRELATION_ROWS: u16 = 1;
@@ -65,14 +65,14 @@ pub fn render(
     let square = Rect::new(area.x + (area.width - width) / 2, top, width, side);
     let buffer = frame.buffer_mut();
     match context.glyphs.plot {
-        Plot::Braille => draw_braille(buffer, square, points),
-        Plot::Cells(cells) => draw_cells(buffer, square, points, cells),
+        Plot::Braille => draw_braille(buffer, square, points, context),
+        Plot::Cells(cells) => draw_cells(buffer, square, points, cells, context),
     }
     if let Some(y) = labels {
-        draw_labels(buffer, area, square, y);
+        draw_labels(buffer, area, square, y, context);
     }
     if let Some(y) = correlation_y {
-        let line = correlation_line(correlation, area.width, context.glyphs, context.texts);
+        let line = correlation_line(correlation, area.width, context);
         let x = area.x + area.width.saturating_sub(saturating_u16(line.width())) / 2;
         buffer.set_line(x, y, &line, area.width);
     }
@@ -86,32 +86,43 @@ fn grid_position(point: ScopePoint, columns: usize, rows: usize) -> (usize, usiz
     (scale(point.side, columns), scale(-point.mid, rows))
 }
 
-/// Guías punteadas en las diagonales y los puntos encima.
-fn draw_braille(buffer: &mut Buffer, square: Rect, points: &[ScopePoint]) {
+/// Guías punteadas en las diagonales y los puntos encima, cada celda con el degradado
+/// de calor según cuántos puntos tiene.
+fn draw_braille(buffer: &mut Buffer, square: Rect, points: &[ScopePoint], context: &Context<'_>) {
     let mut guides = DotCanvas::new(square, Plot::Braille);
     let (columns, rows) = (guides.columns(), guides.rows());
     for dot in (0..rows.min(columns)).step_by(GUIDE_DOT_SPACING) {
         guides.set(dot, dot);
         guides.set(columns - 1 - dot, dot);
     }
-    guides.draw(buffer, theme::SCOPE_GUIDE);
+    guides.draw(buffer, |_| context.style(Role::Subtle));
     let mut signal = DotCanvas::new(square, Plot::Braille);
     for point in points {
         let (column, row) = grid_position(*point, columns, rows);
         signal.set(column, row);
     }
-    signal.draw(buffer, theme::SCOPE);
+    signal.draw(buffer, |cell| {
+        context.gradient(GradientRole::Heat, cell.density())
+    });
 }
 
 /// Guías `\` y `/` y, encima, la densidad de puntos de cada celda.
-fn draw_cells(buffer: &mut Buffer, square: Rect, points: &[ScopePoint], cells: CellPlot) {
+fn draw_cells(
+    buffer: &mut Buffer,
+    square: Rect,
+    points: &[ScopePoint],
+    cells: CellPlot,
+    context: &Context<'_>,
+) {
+    let guide = context.style(Role::Subtle);
     for row in 0..square.height {
         let offset = row * COLUMNS_PER_ROW;
         let y = square.y + row;
-        buffer.set_string(square.x + offset, y, cells.guide_left, theme::SCOPE_GUIDE);
+        buffer.set_string(square.x + offset, y, cells.guide_left, guide);
         let right = square.right() - 1 - offset;
-        buffer.set_string(right, y, cells.guide_right, theme::SCOPE_GUIDE);
+        buffer.set_string(right, y, cells.guide_right, guide);
     }
+    let top_level = (cells.density.len() - 1) as f32;
     let (columns, rows) = (usize::from(square.width), usize::from(square.height));
     let mut counts = vec![0_u32; columns * rows];
     for point in points {
@@ -128,20 +139,22 @@ fn draw_cells(buffer: &mut Buffer, square: Rect, points: &[ScopePoint], cells: C
         }
         let x = square.x + saturating_u16(index % columns);
         let y = square.y + saturating_u16(index / columns);
-        buffer.set_string(x, y, cells.density[level], theme::SCOPE);
+        let heat = context.gradient(GradientRole::Heat, level as f32 / top_level);
+        buffer.set_string(x, y, cells.density[level], heat);
     }
 }
 
 /// `M` arriba al centro; `L` y `R` en las puntas de las guías.
-fn draw_labels(buffer: &mut Buffer, area: Rect, square: Rect, y: u16) {
+fn draw_labels(buffer: &mut Buffer, area: Rect, square: Rect, y: u16, context: &Context<'_>) {
+    let label = context.style(Role::Muted);
     let middle = square.x + square.width / 2;
-    buffer.set_string(middle, y, MID_LABEL, theme::BOLD);
+    buffer.set_string(middle, y, MID_LABEL, label);
     if let Some(x) = square.x.checked_sub(LABEL_GAP + 1).filter(|x| *x >= area.x) {
-        buffer.set_string(x, y, LEFT_LABEL, theme::BOLD);
+        buffer.set_string(x, y, LEFT_LABEL, label);
     }
     let right = square.right() + LABEL_GAP;
     if right < area.right() {
-        buffer.set_string(right, y, RIGHT_LABEL, theme::BOLD);
+        buffer.set_string(right, y, RIGHT_LABEL, label);
     }
 }
 

@@ -4,12 +4,12 @@
 use ratatui::Frame;
 use ratatui::layout::Rect;
 
-use super::columns::{BarLayout, BarShape, fill_glyph, zone_style};
+use super::columns::{BarLayout, BarShape, fill_glyph, height_position};
 use crate::domain::{BandFrame, VisualRequest, VisualizerStyle};
 use crate::i18n::{Catalog, Message};
+use crate::tui::theme::{GradientRole, Role};
 use crate::tui::views::chrome::Context;
 use crate::tui::views::format::saturating_u16;
-use crate::tui::views::theme;
 
 /// Columnas a la izquierda para las letras `L` y `R`.
 const LABEL_MARGIN: u16 = 3;
@@ -69,25 +69,30 @@ pub fn render(
     for band in 0..layout.bands.min(right.levels.len()) {
         let x = layout.x(band);
         for row in 0..rows {
-            let style = zone_style(row, rows);
+            // Cada mitad con su degradado, según la distancia al eje.
+            let distance = height_position(row, rows);
             let offset = saturating_u16(row) + 1;
             if let Some(symbol) = fill_glyph(left.levels[band], rows, row, glyphs.mirror_up) {
+                let style = context.gradient(GradientRole::MirrorLeft, distance);
                 buffer.set_string(x, axis_y - offset, layout.fill(symbol), style);
             }
             if let Some(symbol) = fill_glyph(right.levels[band], rows, row, glyphs.mirror_down) {
+                let style = context.gradient(GradientRole::MirrorRight, distance);
                 buffer.set_string(x, axis_y + offset, layout.fill(symbol), style);
             }
         }
     }
     let axis = Rect::new(bars.x, axis_y, bars.width, AXIS_ROWS);
     let rule = glyphs.border.horizontal_top.repeat(usize::from(bars.width));
-    buffer.set_string(axis.x, axis.y, rule, theme::MUTED);
+    let muted = context.style(Role::Muted);
+    buffer.set_string(axis.x, axis.y, rule, muted);
     if context.is_compact() {
         return;
     }
     for (x, label) in layout.axis_labels(axis, &AXIS_FREQUENCIES, LABEL_PAD) {
-        buffer.set_string(x, axis.y, label, theme::MUTED);
+        buffer.set_string(x, axis.y, label, muted);
     }
-    buffer.set_string(area.x, area.y + half / 2, LEFT_LABEL, theme::BOLD);
-    buffer.set_string(area.x, axis_y + 1 + half / 2, RIGHT_LABEL, theme::BOLD);
+    let label = context.style(Role::TextStrong);
+    buffer.set_string(area.x, area.y + half / 2, LEFT_LABEL, label);
+    buffer.set_string(area.x, axis_y + 1 + half / 2, RIGHT_LABEL, label);
 }

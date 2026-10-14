@@ -1,5 +1,6 @@
-//! Acciones de la vista Salidas: con foco en las particiones se crean y se borran; con
-//! foco en las salidas se activan, se desactivan y se mueven a otra partición.
+//! Acciones de la vista Salidas: con foco en las particiones se elige cuál usa mpctui y
+//! se crean y se borran; con foco en las salidas se activan, se desactivan y se mueven a
+//! otra partición.
 
 use super::{App, Backend};
 use crate::domain::{Output, Partition, PartitionName};
@@ -67,6 +68,7 @@ impl<B: Backend> App<B> {
             Action::Forward if !view.outputs.items().is_empty() => {
                 view.focus = OutputsColumn::Outputs;
             }
+            Action::Activate => self.use_selected_partition().await,
             Action::NewPartition => self.ask_partition_name(),
             Action::Delete => self.confirm_partition_removal(),
             _ => {}
@@ -90,13 +92,34 @@ impl<B: Backend> App<B> {
         self.state.prompt = Some(Prompt::text(PromptKind::NewPartition, String::new()));
     }
 
-    /// `default` no se puede borrar: se avisa sin preguntar.
+    /// Todas las conexiones que la siguen entran a la nueva con su próximo comando; el
+    /// vigilante se relanza porque `idle` sigue esperando en la anterior. Después se
+    /// relee todo: la cola y la reproducción son otras.
+    async fn use_selected_partition(&mut self) {
+        let Some(partition) = self.state.outputs.selected_partition() else {
+            return;
+        };
+        let name = partition.name.clone();
+        if name == self.services.outputs.active() {
+            return;
+        }
+        self.services.outputs.use_partition(name.clone());
+        self.state.partition = name.clone();
+        self.watcher = Some(self.services.watcher.launch());
+        self.resynchronize().await;
+        self.notify_info(self.message(Message::UsingPartition(name.as_str())));
+    }
+
+    /// `default` y la partición en uso no se pueden borrar: se avisa sin preguntar.
     fn confirm_partition_removal(&mut self) {
         let Some(partition) = self.state.outputs.selected_partition().cloned() else {
             return;
         };
         if partition.name.is_default() {
             return self.notify_error(self.phrase(Phrase::DefaultPartitionUndeletable));
+        }
+        if partition.name == self.services.outputs.active() {
+            return self.notify_error(self.phrase(Phrase::ActivePartitionUndeletable));
         }
         let confirmation = Confirmation::RemovePartition(partition);
         self.state.prompt = Some(Prompt::confirm(confirmation));

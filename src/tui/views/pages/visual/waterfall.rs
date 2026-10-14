@@ -3,15 +3,14 @@
 
 use ratatui::Frame;
 use ratatui::layout::Rect;
-use ratatui::style::Style;
 use ratatui::text::Span;
 
 use super::columns::nearest_band;
 use crate::domain::{VisualRequest, VisualizerStyle, WATERFALL_COLUMNS_PER_SECOND, band_centers};
 use crate::i18n::{Catalog, Message, Phrase};
+use crate::tui::theme::{GradientRole, Role};
 use crate::tui::views::chrome::Context;
 use crate::tui::views::format::{frequency_tick, saturating_u16};
-use crate::tui::views::theme;
 
 /// Etiquetas de frecuencia a la izquierda y su separación de los datos.
 const LABEL_WIDTH: u16 = 4;
@@ -70,8 +69,10 @@ pub fn render(frame: &mut Frame, area: Rect, columns: &[Vec<f32>], context: &Con
         for (row, level) in levels.iter().rev().take(bands).enumerate() {
             let shade = shade_index(*level, shades.len());
             if shade > 0 {
+                // El sombreado ya dice la intensidad; el color de calor la refuerza.
                 let y = data.y + saturating_u16(row);
-                buffer.set_string(x, y, shades[shade], shade_style(*level));
+                let heat = context.gradient(GradientRole::Heat, *level);
+                buffer.set_string(x, y, shades[shade], heat);
             }
         }
     }
@@ -79,8 +80,8 @@ pub fn render(frame: &mut Frame, area: Rect, columns: &[Vec<f32>], context: &Con
         return;
     }
     let bands = columns.last().map_or(usize::from(data.height), Vec::len);
-    draw_frequency_labels(frame, area, data, bands);
-    draw_time_axis(frame, data, context.phrase(Phrase::Now));
+    draw_frequency_labels(frame, area, data, bands, context);
+    draw_time_axis(frame, data, context);
 }
 
 /// Sombreado de un nivel: 0 es vacío y el último, el más intenso.
@@ -88,15 +89,14 @@ fn shade_index(level: f32, shades: usize) -> usize {
     (level.clamp(0.0, 1.0) * (shades - 1) as f32).round() as usize
 }
 
-/// De gris oscuro a cian, amarillo y rojo.
-fn shade_style(level: f32) -> Style {
-    let zones = theme::WATERFALL_SHADES.len();
-    let zone = ((level.clamp(0.0, 1.0) * zones as f32) as usize).min(zones - 1);
-    theme::WATERFALL_SHADES[zone]
-}
-
 /// `16k`, `4k`… alineadas a la derecha en la fila de la banda más cercana.
-fn draw_frequency_labels(frame: &mut Frame, area: Rect, data: Rect, bands: usize) {
+fn draw_frequency_labels(
+    frame: &mut Frame,
+    area: Rect,
+    data: Rect,
+    bands: usize,
+    context: &Context<'_>,
+) {
     let centers = band_centers(bands);
     let mut used_rows = Vec::new();
     for hertz in AXIS_FREQUENCIES {
@@ -114,19 +114,21 @@ fn draw_frequency_labels(frame: &mut Frame, area: Rect, data: Rect, bands: usize
         let y = data.y + saturating_u16(row);
         frame
             .buffer_mut()
-            .set_string(area.x, y, label, theme::MUTED);
+            .set_string(area.x, y, label, context.style(Role::Muted));
     }
 }
 
 /// `-9 s … -1 s ahora`: cada etiqueta termina en la columna de ese instante.
-fn draw_time_axis(frame: &mut Frame, data: Rect, now_label: &str) {
+fn draw_time_axis(frame: &mut Frame, data: Rect, context: &Context<'_>) {
+    let now_label = context.phrase(Phrase::Now);
+    let muted = context.style(Role::Muted);
     let y = data.bottom();
     let now_width = saturating_u16(Span::raw(now_label).width());
     let Some(now_x) = data.right().checked_sub(now_width).filter(|x| *x >= data.x) else {
         return;
     };
     let buffer = frame.buffer_mut();
-    buffer.set_string(now_x, y, now_label, theme::MUTED);
+    buffer.set_string(now_x, y, now_label, muted);
     let mut free_until = now_x.saturating_sub(TIME_LABEL_GAP);
     let column_width = WATERFALL_COLUMNS_PER_SECOND;
     for seconds in (FIRST_TIME_LABEL..).step_by(TIME_LABEL_STEP as usize) {
@@ -147,7 +149,7 @@ fn draw_time_axis(frame: &mut Frame, data: Rect, now_label: &str) {
         if end >= free_until {
             continue;
         }
-        buffer.set_string(start, y, &label, theme::MUTED);
+        buffer.set_string(start, y, &label, muted);
         free_until = start.saturating_sub(TIME_LABEL_GAP);
     }
 }
@@ -163,8 +165,6 @@ mod tests {
         assert_eq!(shade_index(0.0, UNICODE.shades.len()), 0);
         assert_eq!(shade_index(1.0, UNICODE.shades.len()), 4);
         assert_eq!(shade_index(0.5, ASCII.shades.len()), 5);
-        assert_eq!(shade_style(0.1), theme::WATERFALL_SHADES[0]);
-        assert_eq!(shade_style(1.0), theme::WATERFALL_SHADES[3]);
     }
 
     #[test]

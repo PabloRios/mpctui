@@ -3,6 +3,7 @@
 mod address;
 mod client;
 mod parse;
+mod partition;
 mod protocol;
 mod reconnect;
 mod transport;
@@ -10,6 +11,7 @@ mod vocabulary;
 
 pub use address::{Address, DEFAULT_HOST, DEFAULT_PORT};
 pub use client::MpdClient;
+pub use partition::{PartitionConnector, PartitionTransport, SharedPartition};
 pub use protocol::{Command, Pair};
 pub use reconnect::{Connector, ReconnectingTransport};
 pub use transport::{Connection, MpdConnector, Transport};

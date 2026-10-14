@@ -91,6 +91,8 @@ pub enum Action {
     NewPartition,
     /// En la vista Salidas, abre el selector de partición para la salida elegida.
     MoveOutput,
+    /// Pasa al tema de colores siguiente (no se guarda al salir).
+    NextTheme,
 }
 
 /// Las vistas de listas comparten descripción (`Phrase::GoToView`): la ayuda las
@@ -323,6 +325,7 @@ pub const BINDINGS: &[Binding] = &[
         Action::MoveOutput,
         Phrase::MoveOutput,
     ),
+    plain(&[KeyCode::Char('t')], Action::NextTheme, Phrase::NextTheme),
 ];
 
 /// La acción que abre cada vista: la del visualizador además cambia de forma.
@@ -406,6 +409,7 @@ impl HelpGroup {
             | Action::UpdateDatabase
             | Action::NewPartition
             | Action::MoveOutput
+            | Action::NextTheme
             | Action::ToggleHelp
             | Action::Quit => HelpGroup::Other,
         }
@@ -657,6 +661,18 @@ mod tests {
         assert_eq!(press('8'), Some(Action::ShowView(ViewKind::Outputs)));
         assert_eq!(press('n'), Some(Action::NewPartition));
         assert_eq!(press('m'), Some(Action::MoveOutput));
+    }
+
+    #[test]
+    fn t_cycles_the_color_theme() {
+        assert_eq!(
+            action_for(key(KeyCode::Char('t'), KeyModifiers::NONE)),
+            Some(Action::NextTheme)
+        );
+        assert_eq!(
+            key_label(Action::NextTheme, &ASCII, &Spanish).as_deref(),
+            Some("t")
+        );
     }
 
     #[test]

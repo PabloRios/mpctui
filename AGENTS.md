@@ -10,7 +10,7 @@ Base de conocimiento para cualquier agente o persona que trabaje en este reposit
 - **Stack:** Rust edition 2024, `tokio` (async), `ratatui` + `crossterm` (TUI), `thiserror`/`anyhow` (errores), `serde` + `toml` (config), `directories`, `tracing` (log a archivo: la terminal es de la TUI), `rustfft` (visualizador), `reqwest` con rustls (LRCLIB).
 - **Cliente de MPD propio:** no se usa ningún crate de MPD; el protocolo de texto está implementado en `src/repository/mpd/`.
 - **MVP:** cola + controles, biblioteca (Artista → Álbum → Tema y por directorios), búsqueda, playlists guardadas.
-- **Estado:** MVP completo, más los extras de `DESIGN_EXTRA.md` (formato de audio, actualización de la base, cuenta regresiva de reconexión y visualizador con seis formas), letras, la interfaz en inglés (por defecto) y español, y la pestaña Salidas (particiones y salidas de audio; usar otra partición está pendiente: fase S2). El detalle por fases está en `PLAN.md`; la guía de uso, en `README.md`; las decisiones e ideas pendientes, en `DECISIONES.md`.
+- **Estado:** MVP completo, más los extras visuales de `DESIGN.md` (formato de audio, actualización de la base, cuenta regresiva de reconexión y visualizador con seis formas), letras, el color (cuatro temas y profundidad de color adaptable), la interfaz en inglés (por defecto) y español, y la pestaña Salidas (particiones y salidas de audio, y qué partición usa mpctui). El detalle por fases está en `PLAN.md`; la guía de uso, en `README.md`; las decisiones e ideas pendientes, en `DECISIONES.md`.
 
 ---
 
@@ -18,7 +18,7 @@ Base de conocimiento para cualquier agente o persona que trabaje en este reposit
 
 Todo diseño respeta SOLID. En este proyecto eso significa:
 
-- Las abstracciones son **traits angostos** (ver `src/repository/traits.rs`): `PlayerRepository`, `OptionsRepository`, `QueueRepository`, `LibraryRepository`, `PlaylistRepository`, `OutputRepository`, `ChangesRepository`, `PcmSource`, más `Transport` en `src/repository/mpd/transport.rs`. Se extiende componiendo e implementando traits, no modificando structs existentes.
+- Las abstracciones son **traits angostos** (ver `src/repository/traits.rs`): `PlayerRepository`, `OptionsRepository`, `QueueRepository`, `LibraryRepository`, `PlaylistRepository`, `OutputRepository`, `PartitionSelection`, `ChangesRepository`, `PcmSource`, más `Transport` en `src/repository/mpd/transport.rs`. Se extiende componiendo e implementando traits, no modificando structs existentes.
 - Cada consumidor depende **solo del trait que necesita** (p. ej. el vigilante de cambios solo pide `ChangesRepository`), nunca de `MpdClient` ni de `Connection`.
 - Las dependencias se **inyectan por constructor** (`MpdClient::new(transport)`) y se arman en **`src/factory.rs`** (composition root). Ninguna struct instancia sus colaboradores.
 
@@ -80,13 +80,14 @@ i18n (textos del usuario) ← tui, main
     - `protocol.rs`: sintaxis. Escape, `Command` (y `Command::list`, una lista de comandos que viaja como un solo `Command` de varias líneas), expresiones de filtro y clasificación de líneas (`OK`/`ACK`/par).
     - `parse.rs`: pares → modelos del dominio.
     - `transport.rs`: trait `Transport`, `Connection` real (TCP o socket unix, autentica al conectar) y `MpdConnector`.
-    - `reconnect.rs`: trait `Connector` + `ReconnectingTransport`, que reabre la conexión y reintenta **una vez** si se cortó (`Error::is_disconnection`). Un `ACK` no reconecta.
+    - `reconnect.rs`: trait `Connector` + `ReconnectingTransport`, que reabre la conexión y reintenta **una vez** si se cortó (`Error::is_disconnection`). Un `ACK` no reconecta. `ReconnectingTransport::lazy` conecta recién con el primer comando (vigilante relanzado).
+    - `partition.rs`: `SharedPartition` (implementa `PartitionSelection`: la partición que usa mpctui) y `PartitionConnector`/`PartitionTransport`: antes de cada comando, si la conexión no está en la elegida, envía `partition X`. Cubre el cambio en vivo y la reconexión (una conexión nueva arranca en `default`). Si `partition X` responde `ACK` 50 (MPD se reinició), la selección vuelve a `default`.
     - `client.rs`: `MpdClient<T: Transport>` implementa todos los traits de repositorio. Lo que depende de una partición (`outputs`, `moveoutput`, `enable/disableoutput`, `delpartition`) va en una lista con `partition X` delante (`fetch_in`/`run_in`).
 - **`src/service/`:** lógica de negocio sobre los traits del repositorio.
   - `PlaybackService`: alterna pausa según el estado, pasos de volumen, ciclo de single y `play_from` (salta a un momento y deja sonando: en pausa reanuda, detenido arranca).
   - `QueueService`, `LibraryService` y `PlaylistService`.
-  - `OutputService`: particiones con sus salidas (`overview`), crear, borrar (primero devuelve sus salidas a `default`), mover y activar/desactivar (decide según el estado conocido).
-  - `ChangeWatcher`: loop de `idle` que emite `ServerEvent`. Es la **única fuente del estado de conexión**: si se corta, emite `Disconnected { attempt, retry_at, delay, reason }`, espera con `Backoff` exponencial (1 s → 30 s), emite `Connecting` y prueba con `ping` (no con `idle`, que bloquearía); al responder, `Connected`. `retry_at` es `tokio::time::Instant` para testear con `start_paused`.
+  - `OutputService`: particiones con sus salidas (`overview`), crear, borrar (primero devuelve sus salidas a `default`), mover y activar/desactivar (decide según el estado conocido). `active`/`use_partition` leen y cambian la partición en uso por medio de `PartitionSelection`.
+  - `ChangeWatcher`: loop de `idle` que emite `ServerEvent`. `WatcherLauncher` lo lanza con un repositorio nuevo y `RunningWatcher` lo cancela al soltarse: `idle` bloquea en una partición, así que al cambiar de partición `App` suelta el vigilante y lanza otro. Es la **única fuente del estado de conexión**: si se corta, emite `Disconnected { attempt, retry_at, delay, reason }`, espera con `Backoff` exponencial (1 s → 30 s), emite `Connecting` y prueba con `ping` (no con `idle`, que bloquearía); al responder, `Connected`. `retry_at` es `tokio::time::Instant` para testear con `start_paused`.
   - `update_transition` (`database_update.rs`): decide si la actualización de la base empezó o terminó comparando dos `Status` sucesivos.
   - `visual/`: análisis en funciones puras. `pcm.rs` (`PcmDecoder` con cuadros partidos, `StereoWindow` de pares L/R), `bands.rs` (Hann, FFT con `rustfft`, bandas, dB, `Smoother`), `levels.rs` (RMS, pico, correlación), `peak.rs` (`HeldPeak`) y un módulo por forma. `Analysis` calcula solo la forma pedida y se reinicia al cambiar de forma; sin señal vacía la ventana, así todas las formas caen a cero.
   - `Visualizer` (`visualizer.rs`): tarea que lee la `PcmSource`, analiza a 20 FPS la forma del último `VisualRequest` y publica el último cuadro por `watch`. `VisualizerLauncher` la lanza con una fuente nueva; `RunningVisualizer` la cancela al soltarse (`Drop` → `abort`).
@@ -100,7 +101,7 @@ i18n (textos del usuario) ← tui, main
   - `list.rs`: `SelectableList<T>` con `SelectionPolicy::{Keep, Reset}` (Keep para refrescos, Reset para contenido nuevo). La usan todas las listas.
   - `prompt.rs`: texto libre y confirmaciones s/n. Las acciones destructivas (vaciar cola, borrar playlist) siempre confirman; quitar un tema (de la cola o de una playlist) no.
   - `picker.rs`: selectores (`Picker`), con la misma navegación (`choose`). El de playlists (`P`): `PlaylistAddition` lleva las URI y el nombre para el aviso; la primera opción es «Nueva playlist», que abre el prompt `NewPlaylist`. El de particiones (`m`, vista Salidas): las demás particiones como destino de la salida elegida.
-  - `views/` solo dibuja a partir de `AppState`, recibiendo un `chrome::Context` (glifos, modo de layout, ancho, instante). Colores en `theme.rs`, textos auxiliares en `format.rs`.
+  - `views/` solo dibuja a partir de `AppState`, recibiendo un `chrome::Context` (glifos, textos, tema, modo de layout, ancho, instante). Colores en `src/tui/theme/` (`palettes.rs` es el único lugar con colores; las vistas piden `Role`/`GradientRole`), textos auxiliares en `format.rs`.
     - **Listas:** todas pasan por `widgets::render_list`, que arma solo las filas visibles a partir de un `RowSource` (cursor, foco, desplazamiento, cabecera fija, barra de desplazamiento). Una lista nueva implementa `RowSource`; no usa `Table`.
     - **Temas agrupados:** `GroupedSongRows` (Cola, Búsqueda, Playlists) intercala separadoras de álbum; la selección sigue siendo un índice de tema y la `Timeline` vive en `state::GroupedSongs`, que la recalcula solo al cambiar los temas.
     - **Marco:** `chrome::rule` dibuja `├──┤` y `chrome::divider` une solo los cruces (`┬ ┼ ┴`) mirando los símbolos ya dibujados.
@@ -123,6 +124,7 @@ i18n (textos del usuario) ← tui, main
 - **`src/factory.rs`:**
   - `MpdBackend` fija los tipos concretos del trait `Backend`.
   - `build_app` abre **una conexión por servicio + una para `idle`**. Así ningún servicio espera a otro, e `idle` bloquea su propia conexión.
+  - Reproducción, cola, playlists y vigilancia usan `FollowingRepository` (siguen la `SharedPartition`); biblioteca, administración de salidas y letras usan `MpdRepository` (la biblioteca es la misma en todas las particiones y la administración elige la partición en cada lista de comandos).
   - `visualizer_launcher` arma el `VisualizerLauncher<FifoPcmSource>` con un backoff corto (50 ms → 1 s) para que el visualizador reaparezca rápido al reanudar.
 
 ### Async en traits
@@ -169,7 +171,8 @@ i18n (textos del usuario) ← tui, main
 - **Edición:** `move <desde> <hasta>` corre un tema de la cola. `playlistadd <nombre> <uri>` agrega un archivo o un directorio completo al final de una playlist y la crea si no existe; `playlistdelete <nombre> <pos>` y `playlistmove <nombre> <desde> <hasta>` usan posiciones desde 0. No hay `findaddpl`: para agregar un artista se buscan sus temas con `find` y se agregan de a uno.
 - **Listas de comandos:** `command_list_begin`, un comando por línea y `command_list_end`. MPD las ejecuta de corrido sobre la conexión y responde una sola vez: `OK`, o el `ACK` del primero que falla. En el servidor falso, cada línea es un paso del guion y solo la última lleva respuesta.
 - **Particiones:** cada una es un reproductor con su cola, su reproducción y sus salidas; cada conexión está en una (al conectar, `default`). `listpartitions` → `partition: <nombre>`; `partition X` cambia la conexión; `newpartition X` (nombre ASCII alfanumérico, `-`, `_`); `delpartition X` solo si no tiene salidas ni clientes; `moveoutput <nombre>` trae la salida a la partición **de la conexión**. No sobreviven a un reinicio de MPD. Requieren el permiso `admin`.
-- **Salidas:** `outputs` lista `outputid`, `outputname`, `plugin`, `outputenabled` (y `attribute`, que no se parsea). El id es la posición en la lista **de esa partición**. Las salidas de otra partición aparecen con `plugin: dummy` (se descartan). Se activan con `enableoutput <id>` / `disableoutput <id>` en su partición.
+- **Salidas:** `outputs` lista `outputid`, `outputname`, `plugin`, `outputenabled` (y `attribute`, que no se parsea). El id es la posición en la lista **de esa partición**. Una partición nueva no lista ninguna salida (verificado en 0.23.5); la que cede una salida la sigue listando con `plugin: dummy` (se descarta). Se activan con `enableoutput <id>` / `disableoutput <id>` en su partición.
+- **`ACK` 50 (`ACK_NO_EXIST`):** lo que se pide no existe; con `partition X`, la partición ya no está (por ejemplo, tras reiniciar MPD).
 - **`ping`:** responde `OK` sin efectos. Lo usa el vigilante para confirmar la reconexión.
 - **`readcomments <uri>`:** todos los comentarios del archivo, con la clave tal como está en él (comparar sin distinguir mayúsculas). MPD imprime el valor **sin escapar**: una letra embebida multilínea llega partida en varias líneas, incluso vacías. Por eso una línea que no es `OK`, `ACK` ni un par con clave válida para MPD (letras, `_` y `-`) es continuación del valor anterior (`ResponseLine::Continuation`). En MP3 solo expone frames `TXXX`, no `USLT`.
 - **Salida fifo:** MPD escribe PCM crudo, entrelazado, con signo y en el orden de bytes nativo, en el `format` de su `audio_output` fifo. Un FIFO abierto en no bloqueante sin escritor no despierta al lector hasta que alguien escribe; cuando el escritor cierra, la lectura devuelve 0 (fin de archivo).

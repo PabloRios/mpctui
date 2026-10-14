@@ -4,6 +4,7 @@
 use std::time::Duration;
 
 use tokio::sync::mpsc::UnboundedSender;
+use tokio::task::JoinHandle;
 use tokio::time::Instant;
 
 use super::backoff::Backoff;
@@ -92,6 +93,52 @@ impl<R: ChangesRepository + Send> ChangeWatcher<R> {
     /// `false` si ya nadie escucha.
     fn publish(&self, event: ServerEvent) -> bool {
         self.events.send(event).is_ok()
+    }
+}
+
+/// Abre el repositorio de un vigilante nuevo.
+type RepositoryOpener<R> = Box<dyn Fn() -> R + Send + Sync>;
+
+/// Lanza vigilantes. `idle` bloquea la conexión en una partición: para vigilar otra se
+/// suelta el vigilante y se lanza uno nuevo, con una conexión nueva.
+pub struct WatcherLauncher<R> {
+    open_repository: RepositoryOpener<R>,
+    events: UnboundedSender<ServerEvent>,
+    backoff: Backoff,
+}
+
+impl<R: ChangesRepository + Send + 'static> WatcherLauncher<R> {
+    /// `open_repository` no debería conectar: si el servidor no responde, el vigilante
+    /// ya reintenta con su espera creciente.
+    pub fn new(
+        open_repository: impl Fn() -> R + Send + Sync + 'static,
+        events: UnboundedSender<ServerEvent>,
+        backoff: Backoff,
+    ) -> Self {
+        Self {
+            open_repository: Box::new(open_repository),
+            events,
+            backoff,
+        }
+    }
+
+    pub fn launch(&self) -> RunningWatcher {
+        let watcher =
+            ChangeWatcher::new((self.open_repository)(), self.events.clone(), self.backoff);
+        RunningWatcher {
+            task: tokio::spawn(watcher.run()),
+        }
+    }
+}
+
+/// El vigilante en marcha. Al soltarlo, la tarea se cancela y su conexión se cierra.
+pub struct RunningWatcher {
+    task: JoinHandle<()>,
+}
+
+impl Drop for RunningWatcher {
+    fn drop(&mut self) {
+        self.task.abort();
     }
 }
 
@@ -194,5 +241,45 @@ mod tests {
             events.recv().await,
             Some(ServerEvent::Changed(vec![Subsystem::Player]))
         );
+    }
+
+    /// Espera para siempre; mientras vive, retiene una copia de `alive`.
+    struct Idle {
+        _alive: std::sync::Arc<()>,
+    }
+
+    impl ChangesRepository for Idle {
+        async fn wait_for_changes(&mut self) -> Result<Vec<Subsystem>> {
+            std::future::pending().await
+        }
+
+        async fn ping(&mut self) -> Result<()> {
+            Ok(())
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn dropping_a_running_watcher_closes_its_repository() {
+        let alive = std::sync::Arc::new(());
+        let (sender, _receiver) = mpsc::unbounded_channel();
+        let backoff = Backoff::new(FIRST_RETRY, Duration::from_secs(30));
+        let opened = alive.clone();
+        let launcher = WatcherLauncher::new(
+            move || Idle {
+                _alive: opened.clone(),
+            },
+            sender,
+            backoff,
+        );
+        let first = launcher.launch();
+        let second = launcher.launch();
+        tokio::task::yield_now().await;
+        assert_eq!(std::sync::Arc::strong_count(&alive), 4);
+        drop(first);
+        tokio::time::sleep(Duration::from_millis(1)).await;
+        assert_eq!(std::sync::Arc::strong_count(&alive), 3);
+        drop(second);
+        tokio::time::sleep(Duration::from_millis(1)).await;
+        assert_eq!(std::sync::Arc::strong_count(&alive), 2);
     }
 }

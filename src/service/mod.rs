@@ -16,7 +16,7 @@ mod visual;
 mod visualizer;
 
 pub use backoff::Backoff;
-pub use changes::{ChangeWatcher, ServerEvent};
+pub use changes::{ChangeWatcher, RunningWatcher, ServerEvent, WatcherLauncher};
 pub use database_update::{UpdateTransition, update_transition};
 pub use library::{LIBRARY_ROOT, LibraryService};
 pub use lrc::parse_lrc;

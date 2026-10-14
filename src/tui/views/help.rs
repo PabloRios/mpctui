@@ -8,9 +8,9 @@ use ratatui::widgets::{Clear, Paragraph};
 
 use super::chrome::{Context, titled_block};
 use super::format::{fit_line, saturating_u16};
-use super::theme;
 use crate::i18n::Phrase;
 use crate::tui::action::{HelpSection, help_sections};
+use crate::tui::theme::Role;
 /// Sangría de las entradas bajo el título de su sección.
 const ENTRY_INDENT: &str = "  ";
 const KEYS_GAP: usize = 2;
@@ -58,7 +58,7 @@ pub fn render(frame: &mut Frame, area: Rect, context: &Context<'_>) {
     }
     lines.push(Line::default());
     let close_hint = context.phrase(Phrase::HelpClose);
-    lines.push(Line::styled(format!("{close_hint} "), theme::MUTED).right_aligned());
+    lines.push(Line::styled(format!("{close_hint} "), context.style(Role::Muted)).right_aligned());
     let width = (column_width * 2 + COLUMN_GAP + FIXED_COLUMNS).min(usize::from(area.width));
     let height = (body_rows + FIXED_ROWS).min(usize::from(area.height));
     let popup = area.centered(
@@ -67,22 +67,22 @@ pub fn render(frame: &mut Frame, area: Rect, context: &Context<'_>) {
     );
     frame.render_widget(Clear, popup);
     let title = context.phrase(Phrase::HelpTitle);
-    let block = titled_block(Line::styled(title, theme::BOLD), glyphs);
+    // Es la ventana con foco: el borde va en `accent`.
+    let title = Line::styled(title, context.style(Role::TextStrong));
+    let block = titled_block(title, Role::Accent, context);
     frame.render_widget(Paragraph::new(lines).block(block), popup);
 }
 
-/// Las secciones van a la columna izquierda hasta cubrir la mitad de las filas.
+/// Corta las secciones (en orden) donde la columna más alta queda lo más baja posible.
 fn split_columns(sections: &[HelpSection]) -> (&[HelpSection], &[HelpSection]) {
     let rows = |section: &HelpSection| section.entries.len() + 2;
     let total: usize = sections.iter().map(rows).sum();
-    let mut left_rows = 0;
-    let split = sections
-        .iter()
-        .position(|section| {
-            left_rows += rows(section);
-            left_rows * 2 >= total
+    let split = (0..=sections.len())
+        .min_by_key(|split| {
+            let left: usize = sections[..*split].iter().map(rows).sum();
+            left.max(total - left)
         })
-        .map_or(sections.len(), |index| index + 1);
+        .unwrap_or_default();
     sections.split_at(split)
 }
 
@@ -100,12 +100,15 @@ fn column_lines(
         }
         lines.push(Line::styled(
             context.phrase(section.group.title()),
-            theme::BOLD,
+            context.style(Role::AccentAlt),
         ));
         for entry in &section.entries {
             let line = Line::from(vec![
                 Span::raw(ENTRY_INDENT),
-                Span::styled(format!("{:<keys_width$}", entry.keys), theme::ACCENT),
+                Span::styled(
+                    format!("{:<keys_width$}", entry.keys),
+                    context.strong(Role::Accent),
+                ),
                 Span::raw(" ".repeat(KEYS_GAP)),
                 Span::raw(context.phrase(entry.description)),
             ]);
@@ -113,4 +116,30 @@ fn column_lines(
         }
     }
     lines
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::i18n::Spanish;
+    use crate::tui::glyphs::UNICODE;
+
+    /// Filas de una columna: título y entradas de cada sección y una en blanco entre
+    /// secciones.
+    fn column_rows(sections: &[HelpSection]) -> usize {
+        let entries: usize = sections
+            .iter()
+            .map(|section| section.entries.len() + 1)
+            .sum();
+        entries + sections.len().saturating_sub(1)
+    }
+
+    #[test]
+    fn the_help_fits_in_thirty_rows() {
+        let sections = help_sections(&UNICODE, &Spanish);
+        let (left, right) = split_columns(&sections);
+        assert!(!left.is_empty() && !right.is_empty());
+        let body = column_rows(left).max(column_rows(right));
+        assert!(body + FIXED_ROWS <= 30, "{body}");
+    }
 }

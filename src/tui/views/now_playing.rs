@@ -11,15 +11,15 @@ use ratatui::text::{Line, Span};
 
 use super::chrome::{self, Context, block_title, end_title};
 use super::format::{
-    MISSING, TIME_UNKNOWN, audio_parts, duration_or_unknown, fit_line, fit_parts_from_left,
-    format_duration, year,
+    ARTIST_ALBUM_SEPARATOR, AUDIO_PART_SEPARATOR, AudioPart, AudioPartKind, AudioQuality, MISSING,
+    TIME_UNKNOWN, audio_parts, duration_or_unknown, fit_line, fit_parts_from_left, format_duration,
+    year,
 };
 use super::gauges::{
-    ALBUM_BAR, BAR_MIN_WIDTH, BarInput, BarPolicy, QUEUE_BAR, SONG_BAR, bar_line, meter,
+    ALBUM_BAR, BAR_MIN_WIDTH, BarInput, BarPolicy, MeterFill, QUEUE_BAR, SONG_BAR, bar_line, meter,
     meter_line, segmented_bar, unknown_bar_line,
 };
 use super::layout::LayoutMode;
-use super::theme;
 use super::widgets::{millis, spread, state_glyph};
 use crate::domain::{AlbumRun, MAX_VOLUME, PlayState, SingleMode, Song, Status, Timeline};
 use crate::i18n::{Catalog, Phrase};
@@ -27,6 +27,7 @@ use crate::tui::action::Action;
 use crate::tui::appearance::ProgressBars;
 use crate::tui::glyphs::Glyphs;
 use crate::tui::state::{AppState, LyricsStatus};
+use crate::tui::theme::{GradientRole, Role};
 
 /// Tema, barra del tema y controles; las barras del álbum y de la cola son opcionales.
 pub const FULL_BASE_ROWS: u16 = 3;
@@ -39,9 +40,11 @@ const LABEL_GAP: usize = 2;
 const VOLUME_CELLS: usize = 10;
 const VOLUME_GAP: &str = "    ";
 const MODE_GAP: &str = "  ";
+/// Entre `tema 4/10` y los tiempos, en las barras del álbum y de la cola.
+const ALBUM_DETAIL_GAP: &str = "   ";
+const QUEUE_DETAIL_GAP: &str = "  ";
 /// Peso de un tema en el modo por cantidad (cuando falta alguna duración).
 const COUNT_MODE_WEIGHT: u64 = 1_000;
-const ARTIST_ALBUM_SEPARATOR: &str = " - ";
 /// Entre el título y la línea actual de la letra.
 const LYRIC_SEPARATOR: &str = " · ";
 
@@ -55,24 +58,23 @@ pub fn rows(mode: LayoutMode, bars: ProgressBars) -> u16 {
 /// Regla que abre el panel: `├─ ▶ reproduciendo ──── FLAC  44.1 kHz  16 bit … ─┤`.
 /// En modo compacto, sin títulos.
 pub fn render_rule(buffer: &mut Buffer, row: Rect, state: &AppState, context: &Context<'_>) {
-    let glyphs = context.glyphs;
     if context.is_compact() {
-        return chrome::rule(buffer, row, glyphs, None);
+        return chrome::rule(buffer, row, context, None);
     }
     let title = title(state, context);
-    let used = block_title(title.clone(), glyphs).width()
+    let used = block_title(title.clone(), context).width()
         + MIN_GAP
-        + end_title(Line::default(), glyphs).width();
-    chrome::rule(buffer, row, glyphs, Some(title));
+        + end_title(Line::default(), context).width();
+    chrome::rule(buffer, row, context, Some(title));
     let available = usize::from(row.width).saturating_sub(used);
-    if let Some(audio) = audio_format(state, available, context.texts) {
-        chrome::rule_end_title(buffer, row, glyphs, Line::styled(audio, theme::MUTED));
+    if let Some(audio) = audio_format(state, available, context) {
+        chrome::rule_end_title(buffer, row, context, audio);
     }
 }
 
-/// Formato de audio del tema actual en `width` columnas. Detenido, nada: MPD no
-/// informa `audio` ni `bitrate`.
-fn audio_format(state: &AppState, width: usize, texts: &dyn Catalog) -> Option<String> {
+/// Formato de audio del tema actual en `width` columnas, coloreado por calidad.
+/// Detenido, nada: MPD no informa `audio` ni `bitrate`.
+fn audio_format(state: &AppState, width: usize, context: &Context<'_>) -> Option<Line<'static>> {
     let status = &state.player.status;
     if status.state == PlayState::Stop {
         return None;
@@ -81,9 +83,42 @@ fn audio_format(state: &AppState, width: usize, texts: &dyn Catalog) -> Option<S
         state.player.current_song.as_ref(),
         status.audio.as_ref(),
         status.bitrate,
-        texts,
+        context.texts,
     );
-    fit_parts_from_left(&parts, width)
+    let fitting = fit_parts_from_left(&parts, width)?;
+    let mut spans = Vec::new();
+    for (index, part) in fitting.iter().enumerate() {
+        if index > 0 {
+            spans.push(Span::raw(AUDIO_PART_SEPARATOR));
+        }
+        spans.push(Span::styled(part.text.clone(), audio_style(part, context)));
+    }
+    Some(Line::from(spans))
+}
+
+/// El códec según su calidad; la frecuencia y los bits, si son de alta resolución.
+fn audio_style(part: &AudioPart, context: &Context<'_>) -> ratatui::style::Style {
+    let role = match part.kind {
+        AudioPartKind::Codec(AudioQuality::Lossless) => Role::Lossless,
+        AudioPartKind::Codec(AudioQuality::Lossy) => Role::Lossy,
+        AudioPartKind::Sample {
+            high_resolution: true,
+        } => Role::HighResolution,
+        AudioPartKind::Codec(AudioQuality::Unknown)
+        | AudioPartKind::Sample { .. }
+        | AudioPartKind::Channels
+        | AudioPartKind::Bitrate => Role::Muted,
+    };
+    context.style(role)
+}
+
+/// El rol del estado de reproducción: `playing`, `paused` o, detenido, `muted`.
+fn play_state_role(play_state: PlayState) -> Role {
+    match play_state {
+        PlayState::Play => Role::Playing,
+        PlayState::Pause => Role::Paused,
+        PlayState::Stop => Role::Muted,
+    }
 }
 
 /// Título del bloque: `▶ reproduciendo`, `⏸ en pausa`, `■ detenido`.
@@ -94,13 +129,11 @@ fn title(state: &AppState, context: &Context<'_>) -> Line<'static> {
         PlayState::Pause => Phrase::Paused,
         PlayState::Stop => Phrase::Stopped,
     });
-    let style = if play_state == PlayState::Play {
-        theme::ACCENT
-    } else {
-        theme::BOLD
-    };
     let glyph = state_glyph(play_state, context.glyphs);
-    Line::styled(format!("{glyph} {word}"), style)
+    Line::styled(
+        format!("{glyph} {word}"),
+        context.style(play_state_role(play_state)),
+    )
 }
 
 pub fn render(frame: &mut Frame, area: Rect, state: &AppState, context: &Context<'_>) {
@@ -200,12 +233,13 @@ fn current_lyric<'a>(state: &'a AppState, context: &Context<'_>) -> Option<&'a s
 fn title_spans(
     title: Line<'static>,
     lyric: Option<Line<'static>>,
-    glyphs: &Glyphs,
+    context: &Context<'_>,
 ) -> Vec<Span<'static>> {
-    let mut spans = vec![Span::styled(now_playing_prefix(glyphs), theme::ACCENT)];
+    let prefix = now_playing_prefix(context.glyphs);
+    let mut spans = vec![Span::styled(prefix, context.style(Role::Accent))];
     spans.extend(title.spans);
     if let Some(lyric) = lyric {
-        spans.push(Span::styled(LYRIC_SEPARATOR, theme::MUTED));
+        spans.push(Span::styled(LYRIC_SEPARATOR, context.style(Role::Muted)));
         spans.extend(lyric.spans);
     }
     spans
@@ -224,7 +258,28 @@ enum BarContent {
 struct BarRow {
     label: &'static str,
     content: BarContent,
-    right: String,
+    /// `tema 4/10   9:52 / 42:51`: lo que cuenta en `muted`, los tiempos en `text`.
+    right: Line<'static>,
+}
+
+/// `detalle` + separación + `tiempos`; cualquiera de los dos puede faltar.
+fn bar_right(
+    detail: Option<String>,
+    gap: &'static str,
+    times: Option<String>,
+    context: &Context<'_>,
+) -> Line<'static> {
+    let mut spans = Vec::new();
+    if let Some(detail) = detail {
+        spans.push(Span::styled(detail, context.style(Role::Muted)));
+    }
+    if let Some(times) = times {
+        if !spans.is_empty() {
+            spans.push(Span::raw(gap));
+        }
+        spans.push(Span::styled(times, context.style(Role::Text)));
+    }
+    Line::from(spans)
 }
 
 const EMPTY_BAR: BarInput = BarInput {
@@ -232,12 +287,13 @@ const EMPTY_BAR: BarInput = BarInput {
     position: None,
 };
 
-fn song_bar(playback: &Playback<'_>, texts: &dyn Catalog) -> BarRow {
-    let right = format!(
+fn song_bar(playback: &Playback<'_>, context: &Context<'_>) -> BarRow {
+    let times = format!(
         "{} / {}",
         playback.elapsed_text(Some(playback.elapsed)),
         duration_or_unknown(playback.duration)
     );
+    let right = bar_right(None, "", Some(times), context);
     let content = match playback.duration {
         Some(duration) => {
             let input = BarInput {
@@ -252,7 +308,7 @@ fn song_bar(playback: &Playback<'_>, texts: &dyn Catalog) -> BarRow {
         None => BarContent::Unknown,
     };
     BarRow {
-        label: texts.phrase(Phrase::SongLabel),
+        label: context.phrase(Phrase::SongLabel),
         content,
         right,
     }
@@ -276,18 +332,18 @@ fn song_number(index: usize, run: AlbumRun, texts: &dyn Catalog) -> String {
 }
 
 /// Un segmento por tema del álbum en curso. Si falta alguna duración, por cantidad.
-fn album_bar(playback: &Playback<'_>, texts: &dyn Catalog) -> BarRow {
-    let label = texts.phrase(Phrase::AlbumLabel);
+fn album_bar(playback: &Playback<'_>, context: &Context<'_>) -> BarRow {
+    let label = context.phrase(Phrase::AlbumLabel);
     let Some((index, run)) = current_album(playback) else {
         return BarRow {
             label,
             content: BarContent::Segments(EMPTY_BAR, ALBUM_BAR),
-            right: String::new(),
+            right: Line::default(),
         };
     };
     let in_album = index - run.first_index;
     let songs = &playback.queue[run.indices()];
-    let number = song_number(index, run, texts);
+    let number = song_number(index, run, context.texts);
     let (input, right) = match run.duration {
         Some(total) => {
             let weights: Vec<u64> = songs
@@ -296,11 +352,12 @@ fn album_bar(playback: &Playback<'_>, texts: &dyn Catalog) -> BarRow {
                 .collect();
             let before: u64 = weights[..in_album].iter().sum();
             let elapsed = Duration::from_millis(before) + playback.elapsed;
-            let right = format!(
-                "{number}   {} / {}",
+            let times = format!(
+                "{} / {}",
                 playback.elapsed_text(Some(elapsed)),
                 format_duration(total)
             );
+            let right = bar_right(Some(number), ALBUM_DETAIL_GAP, Some(times), context);
             let position = playback.head(before + millis(playback.elapsed));
             (BarInput { weights, position }, right)
         }
@@ -310,7 +367,7 @@ fn album_bar(playback: &Playback<'_>, texts: &dyn Catalog) -> BarRow {
                 weights: vec![COUNT_MODE_WEIGHT; run.song_count],
                 position: playback.head(position),
             };
-            (input, number)
+            (input, bar_right(Some(number), "", None, context))
         }
     };
     BarRow {
@@ -321,8 +378,8 @@ fn album_bar(playback: &Playback<'_>, texts: &dyn Catalog) -> BarRow {
 }
 
 /// Un segmento por álbum de la cola, con ventana alrededor del actual.
-fn queue_bar(playback: &Playback<'_>, texts: &dyn Catalog) -> BarRow {
-    let label = texts.phrase(Phrase::QueueLabel);
+fn queue_bar(playback: &Playback<'_>, context: &Context<'_>) -> BarRow {
+    let label = context.phrase(Phrase::QueueLabel);
     let timeline = playback.timeline;
     let current = playback
         .index
@@ -331,10 +388,10 @@ fn queue_bar(playback: &Playback<'_>, texts: &dyn Catalog) -> BarRow {
         return BarRow {
             label,
             content: BarContent::Segments(EMPTY_BAR, QUEUE_BAR),
-            right: String::new(),
+            right: Line::default(),
         };
     };
-    let album = texts.phrase(Phrase::AlbumLabel);
+    let album = context.phrase(Phrase::AlbumLabel);
     let number = format!("{album} {}/{}", run + 1, timeline.runs.len());
     let offset = timeline.song_offsets[index];
     let (input, right) = match (timeline.total, offset) {
@@ -345,8 +402,8 @@ fn queue_bar(playback: &Playback<'_>, texts: &dyn Catalog) -> BarRow {
                 .map(|run| run.duration.map(millis).unwrap_or_default())
                 .collect();
             let elapsed = offset + playback.elapsed;
-            let right = format!(
-                "{number}  {} / {}",
+            let times = format!(
+                "{} / {}",
                 playback.elapsed_text(Some(elapsed)),
                 format_duration(total)
             );
@@ -354,6 +411,7 @@ fn queue_bar(playback: &Playback<'_>, texts: &dyn Catalog) -> BarRow {
                 weights,
                 position: playback.head(millis(elapsed)),
             };
+            let right = bar_right(Some(number), QUEUE_DETAIL_GAP, Some(times), context);
             (input, right)
         }
         _ => {
@@ -367,7 +425,7 @@ fn queue_bar(playback: &Playback<'_>, texts: &dyn Catalog) -> BarRow {
                 weights,
                 position: playback.head(position),
             };
-            (input, number)
+            (input, bar_right(Some(number), "", None, context))
         }
     };
     BarRow {
@@ -379,7 +437,8 @@ fn queue_bar(playback: &Playback<'_>, texts: &dyn Catalog) -> BarRow {
 
 /// Barra en `width` columnas, contando sus extremos. Muy angosta, no se dibuja. La de un
 /// stream lleva `live` en el medio.
-fn draw_bar(content: &BarContent, width: usize, glyphs: &Glyphs, live: &str) -> Line<'static> {
+fn draw_bar(content: &BarContent, width: usize, context: &Context<'_>) -> Line<'static> {
+    let glyphs = context.glyphs;
     let ends = Span::raw(glyphs.bar_open).width() + Span::raw(glyphs.bar_close).width();
     let inner = width.saturating_sub(ends);
     if inner < BAR_MIN_WIDTH {
@@ -388,14 +447,17 @@ fn draw_bar(content: &BarContent, width: usize, glyphs: &Glyphs, live: &str) -> 
     match content {
         BarContent::Segments(input, policy) => {
             let more_width = Span::raw(glyphs.bar_more).width();
-            bar_line(&segmented_bar(input, inner, *policy, more_width), glyphs)
+            bar_line(&segmented_bar(input, inner, *policy, more_width), context)
         }
-        BarContent::Unknown => unknown_bar_line(inner, &format!(" {live} "), glyphs),
+        BarContent::Unknown => {
+            let live = context.phrase(Phrase::Live);
+            unknown_bar_line(inner, &format!(" {live} "), context)
+        }
     }
 }
 
 /// Las barras empiezan en la misma columna y tienen el mismo ancho.
-fn bar_lines(rows: Vec<BarRow>, width: u16, glyphs: &Glyphs, live: &str) -> Vec<Line<'static>> {
+fn bar_lines(rows: Vec<BarRow>, width: u16, context: &Context<'_>) -> Vec<Line<'static>> {
     let label_width = rows
         .iter()
         .map(|row| Span::raw(row.label).width())
@@ -404,35 +466,35 @@ fn bar_lines(rows: Vec<BarRow>, width: u16, glyphs: &Glyphs, live: &str) -> Vec<
         + LABEL_GAP;
     let right_width = rows
         .iter()
-        .map(|row| Span::raw(&row.right).width())
+        .map(|row| row.right.width())
         .max()
         .unwrap_or_default();
     let bar_width = usize::from(width).saturating_sub(label_width + MIN_GAP + right_width);
     rows.into_iter()
         .map(|row| {
             let label = format!("{:<label_width$}", row.label);
-            let mut spans = vec![Span::styled(label, theme::MUTED)];
-            spans.extend(draw_bar(&row.content, bar_width, glyphs, live).spans);
-            let right = format!("{:>right_width$}", row.right);
-            spread(Line::from(spans), Line::from(right), width, glyphs)
+            let mut spans = vec![Span::styled(label, context.style(Role::Muted))];
+            spans.extend(draw_bar(&row.content, bar_width, context).spans);
+            let padding = " ".repeat(right_width.saturating_sub(row.right.width()));
+            let mut right = vec![Span::raw(padding)];
+            right.extend(row.right.spans);
+            spread(Line::from(spans), Line::from(right), width, context.glyphs)
         })
         .map(owned)
         .collect()
 }
 
 fn full_lines(playback: &Playback<'_>, width: u16, context: &Context<'_>) -> Vec<Line<'static>> {
-    let texts = context.texts;
     let bars = context.progress_bars;
     let mut lines = vec![song_line(playback, width, context)];
-    let mut rows = vec![song_bar(playback, texts)];
+    let mut rows = vec![song_bar(playback, context)];
     if bars.album {
-        rows.push(album_bar(playback, texts));
+        rows.push(album_bar(playback, context));
     }
     if bars.queue {
-        rows.push(queue_bar(playback, texts));
+        rows.push(queue_bar(playback, context));
     }
-    let live = context.phrase(Phrase::Live);
-    lines.extend(bar_lines(rows, width, context.glyphs, live));
+    lines.extend(bar_lines(rows, width, context));
     lines.push(controls_line(playback, width, context));
     lines
 }
@@ -445,7 +507,7 @@ fn song_line(playback: &Playback<'_>, width: u16, context: &Context<'_>) -> Line
     let prefix = now_playing_prefix(glyphs);
     let Some(song) = playback.song else {
         let nothing = context.phrase(Phrase::NothingPlaying);
-        return Line::styled(format!("{prefix}{nothing}"), theme::MUTED);
+        return Line::styled(format!("{prefix}{nothing}"), context.style(Role::Muted));
     };
     let title = song.display_title().to_owned();
     let artist = song
@@ -490,11 +552,12 @@ fn song_line(playback: &Playback<'_>, width: u16, context: &Context<'_>) -> Line
     let lyric = playback
         .lyric
         .is_some()
-        .then(|| fit(lyric, lyric_width, theme::CURRENT_LYRIC));
-    let left = title_spans(fit(title, title_width, theme::BOLD), lyric, glyphs);
-    let mut right = fit(artist, artist_width, theme::PLAIN).spans;
-    right.push(Span::raw(separator));
-    right.extend(fit(album, album_width, theme::MUTED).spans);
+        .then(|| fit(lyric, lyric_width, context.style(Role::Muted)));
+    let title = fit(title, title_width, context.style(Role::TextStrong));
+    let left = title_spans(title, lyric, context);
+    let mut right = fit(artist, artist_width, context.style(Role::Artist)).spans;
+    right.push(Span::styled(separator, context.style(Role::Muted)));
+    right.extend(fit(album, album_width, context.style(Role::Album)).spans);
     owned(spread(Line::from(left), Line::from(right), width, glyphs))
 }
 
@@ -518,23 +581,46 @@ fn shrink_in_order<const N: usize>(
 struct Mode {
     action: Action,
     label: &'static str,
-    flag: &'static str,
+    flag: Flag,
     active: bool,
 }
 
-fn modes(status: &Status, context: &Context<'_>) -> [Mode; 4] {
-    let glyphs = context.glyphs;
-    let flag = |active: bool| {
-        if active {
-            glyphs.flag_on
-        } else {
-            glyphs.flag_off
+/// El indicador de un modo: activo, inactivo o una vez (single).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Flag {
+    On,
+    Off,
+    Once,
+}
+
+impl Flag {
+    fn of(active: bool) -> Self {
+        if active { Flag::On } else { Flag::Off }
+    }
+
+    fn glyph(self, glyphs: &Glyphs) -> &'static str {
+        match self {
+            Flag::On => glyphs.flag_on,
+            Flag::Off => glyphs.flag_off,
+            Flag::Once => glyphs.flag_once,
         }
-    };
+    }
+
+    fn role(self) -> Role {
+        match self {
+            Flag::On => Role::Success,
+            Flag::Off => Role::Subtle,
+            Flag::Once => Role::Warning,
+        }
+    }
+}
+
+fn modes(status: &Status, context: &Context<'_>) -> [Mode; 4] {
+    let flag = Flag::of;
     let single = match status.single {
-        SingleMode::Off => glyphs.flag_off,
-        SingleMode::On => glyphs.flag_on,
-        SingleMode::Oneshot => glyphs.flag_once,
+        SingleMode::Off => Flag::Off,
+        SingleMode::On => Flag::On,
+        SingleMode::Oneshot => Flag::Once,
     };
     [
         Mode {
@@ -564,26 +650,27 @@ fn modes(status: &Status, context: &Context<'_>) -> [Mode; 4] {
     ]
 }
 
-/// `z ● aleatorio` (o `z[x] aleatorio`); compacto, `z●` (o `z[x]`).
+/// `z ● aleatorio` (o `z[x] aleatorio`); compacto, `z●` (o `z[x]`). El nombre va en
+/// `text` si el modo está activo y en `muted` si no.
 fn mode_spans(mode: &Mode, context: &Context<'_>, compact: bool) -> Vec<Span<'static>> {
     let glyphs = context.glyphs;
     let key = context.key(mode.action);
-    let style = if mode.active {
-        theme::MODE_ON
-    } else {
-        theme::MODE_OFF
-    };
     let gap = if compact { "" } else { glyphs.flag_key_gap };
+    let flag = mode.flag.glyph(glyphs);
     let mut spans = vec![
-        Span::styled(key, theme::ACCENT),
+        Span::styled(key, context.strong(Role::Accent)),
         Span::raw(gap),
         Span::styled(
-            format!("{}{}{}", glyphs.bar_open, mode.flag, glyphs.bar_close),
-            style,
+            format!("{}{flag}{}", glyphs.bar_open, glyphs.bar_close),
+            context.style(mode.flag.role()),
         ),
     ];
     if !compact {
-        spans.push(Span::styled(format!(" {}", mode.label), style));
+        let name = if mode.active { Role::Text } else { Role::Muted };
+        spans.push(Span::styled(
+            format!(" {}", mode.label),
+            context.style(name),
+        ));
     }
     spans
 }
@@ -622,8 +709,12 @@ fn controls_line(playback: &Playback<'_>, width: u16, context: &Context<'_>) -> 
     let level = status.volume.map_or(0, |volume| u64::from(volume.value()));
     let maximum = u64::from(MAX_VOLUME);
     let volume_label = context.phrase(Phrase::VolumeLabel);
-    let mut left = vec![Span::styled(format!("{volume_label} "), theme::MUTED)];
-    left.extend(meter_line(&meter(level, maximum, VOLUME_CELLS), glyphs).spans);
+    let mut left = vec![Span::styled(
+        format!("{volume_label} "),
+        context.style(Role::Muted),
+    )];
+    let volume = MeterFill::Gradient(GradientRole::Volume);
+    left.extend(meter_line(&meter(level, maximum, VOLUME_CELLS), volume, context).spans);
     left.push(Span::raw(format!(
         "  {:>4}",
         volume_percent(status, context.texts)
@@ -633,7 +724,7 @@ fn controls_line(playback: &Playback<'_>, width: u16, context: &Context<'_>) -> 
     let position_label = context.phrase(Phrase::PositionLabel);
     let right = Line::styled(
         format!("{position_label} {}", queue_position(playback)),
-        theme::MUTED,
+        context.style(Role::Muted),
     );
     owned(spread(Line::from(left), right, width, glyphs))
 }
@@ -650,10 +741,10 @@ fn compact_lines(playback: &Playback<'_>, width: u16, context: &Context<'_>) -> 
     );
     let bar_width =
         usize::from(width).saturating_sub(Span::raw(&state).width() + Span::raw(&times).width());
-    let mut bar = vec![Span::styled(state, theme::ACCENT)];
-    let live = context.phrase(Phrase::Live);
-    bar.extend(draw_bar(&song_bar(playback, texts).content, bar_width, glyphs, live).spans);
-    bar.push(Span::raw(times));
+    let state_style = context.style(play_state_role(playback.status.state));
+    let mut bar = vec![Span::styled(state, state_style)];
+    bar.extend(draw_bar(&song_bar(playback, context).content, bar_width, context).spans);
+    bar.push(Span::styled(times, context.style(Role::Text)));
 
     let song = compact_song_line(playback, context);
     let album_number = current_album(playback)
@@ -665,7 +756,8 @@ fn compact_lines(playback: &Playback<'_>, width: u16, context: &Context<'_>) -> 
         volume_percent(playback.status, texts),
         queue_position(playback)
     );
-    let details = spread(song, Line::styled(numbers, theme::MUTED), width, glyphs);
+    let numbers = Line::styled(numbers, context.style(Role::Muted));
+    let details = spread(song, numbers, width, glyphs);
     vec![
         Line::from(bar),
         owned(details),
@@ -676,24 +768,29 @@ fn compact_lines(playback: &Playback<'_>, width: u16, context: &Context<'_>) -> 
 /// `♪ título - artista`; con una línea de la letra, `♪ título · línea` (la letra
 /// reemplaza al artista).
 fn compact_song_line(playback: &Playback<'_>, context: &Context<'_>) -> Line<'static> {
-    let glyphs = context.glyphs;
-    let prefix = now_playing_prefix(glyphs);
+    let prefix = now_playing_prefix(context.glyphs);
     let Some(song) = playback.song else {
         let nothing = context.phrase(Phrase::NothingPlaying);
-        return Line::raw(format!("{prefix}{nothing}"));
+        return Line::styled(format!("{prefix}{nothing}"), context.style(Role::Muted));
     };
-    let title = song.display_title().to_owned();
+    let title = Line::styled(
+        song.display_title().to_owned(),
+        context.style(Role::TextStrong),
+    );
     if let Some(lyric) = playback.lyric {
-        let lyric = Line::styled(lyric.to_owned(), theme::CURRENT_LYRIC);
-        return Line::from(title_spans(Line::raw(title), Some(lyric), glyphs));
+        let lyric = Line::styled(lyric.to_owned(), context.style(Role::Muted));
+        return Line::from(title_spans(title, Some(lyric), context));
     }
-    let artist = song.artist.as_deref().unwrap_or_default();
+    let artist = song.artist.clone().unwrap_or_default();
     let separator = if artist.is_empty() {
         ""
     } else {
         ARTIST_ALBUM_SEPARATOR
     };
-    Line::raw(format!("{prefix}{title}{separator}{artist}"))
+    let mut spans = title_spans(title, None, context);
+    spans.push(Span::styled(separator, context.style(Role::Muted)));
+    spans.push(Span::styled(artist, context.style(Role::Artist)));
+    Line::from(spans)
 }
 
 /// Copia los textos para que la línea no dependa de textos armados en el momento.
@@ -712,19 +809,16 @@ mod tests {
 
     use super::*;
     use crate::domain::{AudioFormat, LyricLine, Lyrics, LyricsSource, SampleFormat};
-    use crate::i18n::Spanish;
     use crate::service::PlaybackClock;
     use crate::tui::glyphs::ASCII;
+    use crate::tui::views::chrome::testing;
 
     fn lyrics_context(mode: LayoutMode, lyrics_line: bool, now: Instant) -> Context<'static> {
         Context {
-            glyphs: &ASCII,
-            texts: &Spanish,
             mode,
-            width: 100,
             now,
-            progress_bars: ProgressBars::default(),
             lyrics_line,
+            ..testing::context(&ASCII)
         }
     }
 
@@ -859,16 +953,52 @@ mod tests {
             file: "a.flac".into(),
             ..Song::default()
         });
+        let context = testing::context(&ASCII);
+        let text = |state: &AppState, width| {
+            audio_format(state, width, &context).map(|line| line.to_string())
+        };
         let full = "FLAC  44.1 kHz  16 bit  estéreo  1411 kbps";
-        assert_eq!(audio_format(&state, 60, &Spanish).as_deref(), Some(full));
+        assert_eq!(text(&state, 60).as_deref(), Some(full));
         assert_eq!(
-            audio_format(&state, 40, &Spanish).as_deref(),
+            text(&state, 40).as_deref(),
             Some("44.1 kHz  16 bit  estéreo  1411 kbps")
         );
         state.player.status.state = PlayState::Pause;
-        assert_eq!(audio_format(&state, 60, &Spanish).as_deref(), Some(full));
+        assert_eq!(text(&state, 60).as_deref(), Some(full));
         state.player.status.state = PlayState::Stop;
-        assert_eq!(audio_format(&state, 60, &Spanish), None);
+        assert_eq!(text(&state, 60), None);
+    }
+
+    #[test]
+    fn the_codec_is_colored_by_its_quality() {
+        let mut state = AppState::default();
+        state.player.status = Status {
+            state: PlayState::Play,
+            audio: Some(AudioFormat {
+                sample_rate: Some(96_000),
+                format: SampleFormat::Integer { bits: 24 },
+                channels: 2,
+            }),
+            ..Status::default()
+        };
+        state.player.current_song = Some(Song {
+            file: "a.flac".into(),
+            ..Song::default()
+        });
+        let context = testing::context(&ASCII);
+        let line = audio_format(&state, 60, &context).unwrap();
+        let style_of = |text: &str| {
+            line.spans
+                .iter()
+                .find(|span| span.content == text)
+                .map(|span| span.style)
+        };
+        assert_eq!(style_of("FLAC"), Some(context.style(Role::Lossless)));
+        assert_eq!(
+            style_of("96 kHz"),
+            Some(context.style(Role::HighResolution))
+        );
+        assert_eq!(style_of("estéreo"), Some(context.style(Role::Muted)));
     }
 
     #[test]
@@ -895,7 +1025,7 @@ mod tests {
                     },
                     SONG_BAR,
                 ),
-                right: "1:00 / 2:00".into(),
+                right: Line::from("1:00 / 2:00"),
             },
             BarRow {
                 label: "álbum",
@@ -906,15 +1036,15 @@ mod tests {
                     },
                     ALBUM_BAR,
                 ),
-                right: "tema 2/2   3:00 / 4:00".into(),
+                right: Line::from("tema 2/2   3:00 / 4:00"),
             },
             BarRow {
                 label: "cola",
                 content: BarContent::Unknown,
-                right: String::new(),
+                right: Line::default(),
             },
         ];
-        let lines = bar_lines(rows.into(), 60, &crate::tui::glyphs::ASCII, "en vivo");
+        let lines = bar_lines(rows.into(), 60, &testing::context(&ASCII));
         let texts: Vec<String> = lines.iter().map(ToString::to_string).collect();
         let column_of = |text: &str, wanted: char| text.chars().position(|found| found == wanted);
         for text in &texts {

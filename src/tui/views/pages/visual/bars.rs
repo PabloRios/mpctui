@@ -2,15 +2,14 @@
 
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
-use ratatui::style::Style;
 
-use super::columns::{BarLayout, BarShape, fill_glyph, sub_cells, zone_style};
+use super::columns::{BarLayout, BarShape, fill_glyph, height_position, sub_cells};
 use crate::domain::{BandFrame, SPECTRUM_MAX_HZ, SPECTRUM_MIN_HZ, VisualRequest, VisualizerStyle};
 use crate::i18n::{Catalog, Message};
 use crate::tui::glyphs::Glyphs;
+use crate::tui::theme::{GradientRole, Role};
 use crate::tui::views::chrome::Context;
 use crate::tui::views::format::{frequency, saturating_u16};
-use crate::tui::views::theme;
 
 const AXIS_ROWS: u16 = 1;
 /// Frecuencias del eje, en Hz.
@@ -51,8 +50,12 @@ pub fn render(frame: &mut Frame, area: Rect, bands: &BandFrame, context: &Contex
             rows,
         };
         for row in 0..rows {
-            let Some((symbol, style)) = column.cell(row, context.glyphs) else {
+            let Some((symbol, part)) = column.cell(row, context.glyphs) else {
                 continue;
+            };
+            let style = match part {
+                BarPart::Fill => context.gradient(GradientRole::Bars, height_position(row, rows)),
+                BarPart::Peak => context.style(Role::Peak),
             };
             let y = bars_area.bottom() - 1 - saturating_u16(row);
             frame
@@ -64,9 +67,16 @@ pub fn render(frame: &mut Frame, area: Rect, bands: &BandFrame, context: &Contex
         for (x, label) in layout.axis_labels(axis_area, &AXIS_FREQUENCIES, "") {
             frame
                 .buffer_mut()
-                .set_string(x, axis_area.y, label, theme::MUTED);
+                .set_string(x, axis_area.y, label, context.style(Role::Muted));
         }
     }
+}
+
+/// Qué ocupa una celda de una barra.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BarPart {
+    Fill,
+    Peak,
 }
 
 /// Una barra en sub-celdas, con la marca de su pico.
@@ -77,16 +87,15 @@ struct BarColumn {
 }
 
 impl BarColumn {
-    /// Glifo y estilo de la fila `row` contando desde abajo; `None` si va vacía. El
+    /// Glifo de la fila `row` contando desde abajo y qué es; `None` si va vacía. El
     /// pico solo se dibuja en una celda vacía.
-    fn cell(&self, row: usize, glyphs: &Glyphs) -> Option<(&'static str, Style)> {
-        let style = zone_style(row, self.rows);
+    fn cell(&self, row: usize, glyphs: &Glyphs) -> Option<(&'static str, BarPart)> {
         if let Some(symbol) = fill_glyph(self.level, self.rows, row, glyphs.spectrum_levels) {
-            return Some((symbol, style));
+            return Some((symbol, BarPart::Fill));
         }
         let steps = glyphs.spectrum_levels.len() - 1;
         let peak = sub_cells(self.peak, self.rows, steps);
-        (peak > 0 && peak / steps == row).then_some((glyphs.spectrum_peak, style))
+        (peak > 0 && peak / steps == row).then_some((glyphs.spectrum_peak, BarPart::Peak))
     }
 }
 

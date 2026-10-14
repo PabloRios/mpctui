@@ -15,6 +15,10 @@ const CONFIG_FILE_NAME: &str = "config.toml";
 const HOST_VARIABLE: &str = "MPD_HOST";
 pub const PORT_VARIABLE: &str = "MPD_PORT";
 pub const GLYPHS_VARIABLE: &str = "MPCTUI_GLYPHS";
+pub const COLORS_VARIABLE: &str = "MPCTUI_COLORS";
+/// Estándar de no-color.org: con cualquier valor no vacío, `colors = "auto"` es `none`.
+const NO_COLOR_VARIABLE: &str = "NO_COLOR";
+const COLOR_TERM_VARIABLE: &str = "COLORTERM";
 /// Variables de locale, en orden de prioridad.
 const LOCALE_VARIABLES: [&str; 3] = ["LC_ALL", "LC_CTYPE", "LANG"];
 const TERMINAL_VARIABLE: &str = "TERM";
@@ -22,6 +26,20 @@ const TERMINAL_VARIABLE: &str = "TERM";
 const UTF8_MARKERS: [&str; 2] = ["utf-8", "utf8"];
 /// Terminales sin los símbolos Unicode del diseño: la consola virtual y la "tonta".
 const ASCII_TERMINALS: [&str; 2] = ["linux", "dumb"];
+/// Terminal sin color.
+const DUMB_TERMINAL: &str = "dumb";
+/// Valores de `COLORTERM` de las terminales con color de 24 bits.
+const TRUECOLOR_MARKERS: [&str; 2] = ["truecolor", "24bit"];
+/// Parte de `TERM` de las terminales de 256 colores (`xterm-256color`).
+const PALETTE_256_MARKER: &str = "256color";
+/// Nombres de `colors`, en inglés como los de `glyphs`.
+const COLOR_NAMES: [(&str, ColorSetting); 5] = [
+    ("auto", ColorSetting::Auto),
+    ("truecolor", ColorSetting::Fixed(ColorDepth::TrueColor)),
+    ("256", ColorSetting::Fixed(ColorDepth::Palette256)),
+    ("16", ColorSetting::Fixed(ColorDepth::Ansi16)),
+    ("none", ColorSetting::Fixed(ColorDepth::NoColor)),
+];
 /// Salida fifo de MPD que lee el visualizador, y su formato (el `format` de `mpd.conf`).
 const DEFAULT_VISUALIZER_FIFO: &str = "/tmp/mpd.fifo";
 const DEFAULT_VISUALIZER_FORMAT: &str = "44100:16:2";
@@ -111,6 +129,74 @@ pub enum GlyphMode {
     Ascii,
 }
 
+/// Tema de colores.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ThemeId {
+    /// Los 16 colores ANSI de la paleta de la terminal.
+    #[default]
+    Terminal,
+    Midnight,
+    Vinyl,
+    Neon,
+}
+
+impl ThemeId {
+    /// En el orden del ciclo de la tecla `t`.
+    pub const ALL: [ThemeId; 4] = [
+        ThemeId::Terminal,
+        ThemeId::Midnight,
+        ThemeId::Vinyl,
+        ThemeId::Neon,
+    ];
+
+    /// El nombre de la opción `theme`; no se traduce.
+    pub fn name(self) -> &'static str {
+        match self {
+            ThemeId::Terminal => "terminal",
+            ThemeId::Midnight => "midnight",
+            ThemeId::Vinyl => "vinyl",
+            ThemeId::Neon => "neon",
+        }
+    }
+
+    pub fn next(self) -> Self {
+        let position = Self::ALL
+            .iter()
+            .position(|theme| *theme == self)
+            .unwrap_or_default();
+        Self::ALL[(position + 1) % Self::ALL.len()]
+    }
+}
+
+/// Cuántos colores muestra la terminal.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ColorDepth {
+    /// 24 bits.
+    TrueColor,
+    /// La paleta de 256 colores de xterm.
+    Palette256,
+    /// Los 16 colores ANSI con nombre.
+    Ansi16,
+    /// Solo modificadores (negrita, video inverso, subrayado).
+    NoColor,
+}
+
+impl ColorDepth {
+    /// Los temas necesitan al menos 256 colores; con menos se usa `terminal`.
+    pub fn shows_themes(self) -> bool {
+        matches!(self, ColorDepth::TrueColor | ColorDepth::Palette256)
+    }
+}
+
+/// Profundidad de color pedida por el usuario.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ColorSetting {
+    /// Se decide según `NO_COLOR`, `COLORTERM` y `TERM`.
+    #[default]
+    Auto,
+    Fixed(ColorDepth),
+}
+
 /// Idioma de la interfaz.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum Language {
@@ -129,6 +215,10 @@ pub struct FileConfig {
     pub glyphs: Option<GlyphSetting>,
     /// Idioma de la interfaz: `en` o `es`.
     pub language: Option<String>,
+    /// Tema de colores: `terminal`, `midnight`, `vinyl` o `neon`.
+    pub theme: Option<String>,
+    /// Profundidad de color: `auto`, `truecolor`, `256`, `16` o `none`.
+    pub colors: Option<String>,
     /// Barra de progreso del álbum en el panel; oculta por defecto.
     pub album_progress: Option<bool>,
     /// Barra de progreso de la cola en el panel; oculta por defecto.
@@ -166,17 +256,22 @@ pub struct Environment {
     pub host: Option<String>,
     pub port: Option<String>,
     pub glyphs: Option<String>,
+    /// `MPCTUI_COLORS`.
+    pub colors: Option<String>,
     pub terminal: TerminalEnvironment,
     /// Directorio del usuario, para `~/` y la caché de letras por defecto.
     pub home: Option<PathBuf>,
 }
 
-/// Lo que dice el entorno sobre la terminal, para resolver `glyphs = "auto"`.
+/// Lo que dice el entorno sobre la terminal, para resolver `glyphs = "auto"` y
+/// `colors = "auto"`.
 #[derive(Debug, Default)]
 pub struct TerminalEnvironment {
     /// Valores de `LC_ALL`, `LC_CTYPE` y `LANG`, en ese orden.
     pub locale: [Option<String>; LOCALE_VARIABLES.len()],
     pub term: Option<String>,
+    pub color_term: Option<String>,
+    pub no_color: Option<String>,
 }
 
 /// Configuración ya validada.
@@ -186,6 +281,8 @@ pub struct Settings {
     pub password: Option<Password>,
     pub glyph_mode: GlyphMode,
     pub language: Language,
+    pub theme: ThemeId,
+    pub color_depth: ColorDepth,
     pub album_progress: bool,
     pub queue_progress: bool,
     pub visualizer_fifo: PathBuf,
@@ -225,6 +322,10 @@ pub enum ConfigError {
     InvalidGlyphs(InvalidGlyphSetting),
     #[error("language debe ser {choices}, no {0:?}", choices = language_choices())]
     InvalidLanguage(String),
+    #[error("theme debe ser {choices}, no {0:?}", choices = theme_choices())]
+    InvalidTheme(String),
+    #[error("colors (o {COLORS_VARIABLE}) debe ser {choices}, no {0:?}", choices = color_choices())]
+    InvalidColors(String),
     #[error("visualizer_fifo no puede estar vacío")]
     EmptyVisualizerFifo,
     #[error("visualizer_format inválido: {0}")]
@@ -271,9 +372,12 @@ pub fn load() -> Result<Settings, ConfigFailure> {
         host: env::var(HOST_VARIABLE).ok(),
         port: env::var(PORT_VARIABLE).ok(),
         glyphs: env::var(GLYPHS_VARIABLE).ok(),
+        colors: env::var(COLORS_VARIABLE).ok(),
         terminal: TerminalEnvironment {
             locale: LOCALE_VARIABLES.map(|name| env::var(name).ok()),
             term: env::var(TERMINAL_VARIABLE).ok(),
+            color_term: env::var(COLOR_TERM_VARIABLE).ok(),
+            no_color: env::var(NO_COLOR_VARIABLE).ok(),
         },
         home: BaseDirs::new().map(|directories| directories.home_dir().to_path_buf()),
     };
@@ -318,6 +422,14 @@ pub fn resolve(file: FileConfig, environment: Environment) -> Result<Settings, C
         Some(name) => language(&name)?,
         None => Language::default(),
     };
+    let theme = match file.theme {
+        Some(name) => theme(&name)?,
+        None => ThemeId::default(),
+    };
+    let color_setting = match environment.colors.or(file.colors) {
+        Some(name) => color_setting(&name)?,
+        None => ColorSetting::default(),
+    };
     let visualizer_fifo = file
         .visualizer_fifo
         .unwrap_or_else(|| DEFAULT_VISUALIZER_FIFO.to_owned());
@@ -340,6 +452,8 @@ pub fn resolve(file: FileConfig, environment: Environment) -> Result<Settings, C
         password,
         glyph_mode: resolve_glyph_mode(glyph_setting, &environment.terminal),
         language,
+        theme,
+        color_depth: resolve_color_depth(color_setting, &environment.terminal),
         album_progress: file.album_progress.unwrap_or_default(),
         queue_progress: file.queue_progress.unwrap_or_default(),
         visualizer_fifo: PathBuf::from(visualizer_fifo),
@@ -457,6 +571,29 @@ fn language(name: &str) -> Result<Language, ConfigError> {
     named(&LANGUAGE_NAMES, name).ok_or_else(|| ConfigError::InvalidLanguage(name.to_owned()))
 }
 
+/// `"terminal", "midnight", "vinyl", "neon"`.
+pub fn theme_choices() -> String {
+    ThemeId::ALL
+        .map(|theme| format!("{:?}", theme.name()))
+        .join(", ")
+}
+
+fn theme(name: &str) -> Result<ThemeId, ConfigError> {
+    ThemeId::ALL
+        .into_iter()
+        .find(|theme| theme.name() == name)
+        .ok_or_else(|| ConfigError::InvalidTheme(name.to_owned()))
+}
+
+/// `"auto", "truecolor", "256", "16", "none"`.
+pub fn color_choices() -> String {
+    choices(&COLOR_NAMES)
+}
+
+fn color_setting(name: &str) -> Result<ColorSetting, ConfigError> {
+    named(&COLOR_NAMES, name).ok_or_else(|| ConfigError::InvalidColors(name.to_owned()))
+}
+
 /// La forma por su nombre; una estéreo con un FIFO de un canal no se puede mostrar.
 fn visualizer_style(name: &str, format: PcmFormat) -> Result<VisualizerStyle, ConfigError> {
     let style = named(&VISUALIZER_STYLE_NAMES, name)
@@ -496,6 +633,32 @@ fn is_utf8_locale(terminal: &TerminalEnvironment) -> bool {
         let locale = locale.to_lowercase();
         UTF8_MARKERS.iter().any(|marker| locale.contains(marker))
     })
+}
+
+/// `auto`, en orden: `NO_COLOR` no vacío o `TERM=dumb` → sin color; `COLORTERM`
+/// `truecolor`/`24bit` → 24 bits; `TERM` con `256color` → 256; si no, 16.
+pub fn resolve_color_depth(setting: ColorSetting, terminal: &TerminalEnvironment) -> ColorDepth {
+    if let ColorSetting::Fixed(depth) = setting {
+        return depth;
+    }
+    let term = terminal.term.as_deref().unwrap_or_default();
+    let no_color = terminal
+        .no_color
+        .as_deref()
+        .is_some_and(|value| !value.is_empty());
+    if no_color || term == DUMB_TERMINAL {
+        ColorDepth::NoColor
+    } else if terminal
+        .color_term
+        .as_deref()
+        .is_some_and(|value| TRUECOLOR_MARKERS.contains(&value))
+    {
+        ColorDepth::TrueColor
+    } else if term.contains(PALETTE_256_MARKER) {
+        ColorDepth::Palette256
+    } else {
+        ColorDepth::Ansi16
+    }
 }
 
 fn is_ascii_terminal(terminal: &TerminalEnvironment) -> bool {
@@ -547,6 +710,7 @@ mod tests {
         TerminalEnvironment {
             locale: locale.map(|value| value.map(str::to_owned)),
             term: term.map(str::to_owned),
+            ..TerminalEnvironment::default()
         }
     }
 
@@ -813,6 +977,8 @@ mod tests {
         assert_eq!(dist.address, defaults.address);
         assert_eq!(dist.glyph_mode, defaults.glyph_mode);
         assert_eq!(dist.language, defaults.language);
+        assert_eq!(dist.theme, defaults.theme);
+        assert_eq!(dist.color_depth, defaults.color_depth);
         assert_eq!(
             (dist.album_progress, dist.queue_progress),
             (defaults.album_progress, defaults.queue_progress)
@@ -854,6 +1020,101 @@ mod tests {
             resolve(file, environment(None, None)),
             Err(ConfigError::InvalidLanguage(name)) if name == "fr"
         ));
+    }
+
+    /// `colors = "auto"` con `TERM`, `COLORTERM` y `NO_COLOR`.
+    fn auto_depth(
+        term: Option<&str>,
+        color_term: Option<&str>,
+        no_color: Option<&str>,
+    ) -> ColorDepth {
+        let terminal = TerminalEnvironment {
+            term: term.map(str::to_owned),
+            color_term: color_term.map(str::to_owned),
+            no_color: no_color.map(str::to_owned),
+            ..TerminalEnvironment::default()
+        };
+        resolve_color_depth(ColorSetting::Auto, &terminal)
+    }
+
+    #[test]
+    fn auto_colors_follow_the_terminal() {
+        let xterm = Some("xterm-256color");
+        assert_eq!(
+            auto_depth(xterm, Some("truecolor"), None),
+            ColorDepth::TrueColor
+        );
+        assert_eq!(
+            auto_depth(xterm, Some("24bit"), None),
+            ColorDepth::TrueColor
+        );
+        assert_eq!(auto_depth(xterm, None, None), ColorDepth::Palette256);
+        assert_eq!(auto_depth(Some("linux"), None, None), ColorDepth::Ansi16);
+        assert_eq!(auto_depth(None, None, None), ColorDepth::Ansi16);
+        assert_eq!(
+            auto_depth(Some("dumb"), Some("truecolor"), None),
+            ColorDepth::NoColor
+        );
+    }
+
+    #[test]
+    fn no_color_only_changes_auto() {
+        let xterm = Some("xterm-256color");
+        assert_eq!(
+            auto_depth(xterm, Some("truecolor"), Some("1")),
+            ColorDepth::NoColor
+        );
+        assert_eq!(auto_depth(xterm, None, Some("")), ColorDepth::Palette256);
+        let terminal = TerminalEnvironment {
+            no_color: Some("1".into()),
+            ..TerminalEnvironment::default()
+        };
+        let explicit = ColorSetting::Fixed(ColorDepth::TrueColor);
+        assert_eq!(
+            resolve_color_depth(explicit, &terminal),
+            ColorDepth::TrueColor
+        );
+    }
+
+    #[test]
+    fn theme_and_colors_come_from_the_file_and_the_environment() {
+        let defaults = resolve(FileConfig::default(), environment(None, None)).unwrap();
+        assert_eq!(defaults.theme, ThemeId::Terminal);
+        let file: FileConfig = toml::from_str("theme = \"vinyl\"\ncolors = \"256\"").unwrap();
+        let settings = resolve(file, environment(None, None)).unwrap();
+        assert_eq!(settings.theme, ThemeId::Vinyl);
+        assert_eq!(settings.color_depth, ColorDepth::Palette256);
+        let file: FileConfig = toml::from_str("colors = \"256\"").unwrap();
+        let mut environment = environment(None, None);
+        environment.colors = Some("none".into());
+        let settings = resolve(file, environment).unwrap();
+        assert_eq!(settings.color_depth, ColorDepth::NoColor);
+    }
+
+    #[test]
+    fn invalid_theme_or_colors_fail_fast() {
+        let resolve_toml =
+            |raw: &str| resolve(toml::from_str(raw).unwrap(), environment(None, None));
+        let error = resolve_toml("theme = \"solarized\"").unwrap_err();
+        assert!(matches!(error, ConfigError::InvalidTheme(_)));
+        assert!(error.to_string().contains("\"neon\""), "{error}");
+        assert!(matches!(
+            resolve_toml("colors = \"8\""),
+            Err(ConfigError::InvalidColors(_))
+        ));
+        let mut environment = environment(None, None);
+        environment.colors = Some("Truecolor".into());
+        assert!(matches!(
+            resolve(FileConfig::default(), environment),
+            Err(ConfigError::InvalidColors(_))
+        ));
+    }
+
+    #[test]
+    fn themes_cycle_in_order() {
+        assert_eq!(ThemeId::Terminal.next(), ThemeId::Midnight);
+        assert_eq!(ThemeId::Vinyl.next(), ThemeId::Neon);
+        assert_eq!(ThemeId::Neon.next(), ThemeId::Terminal);
     }
 
     #[test]

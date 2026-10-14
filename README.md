@@ -49,8 +49,16 @@ now_playing_line = false                               # línea actual de la let
 | `MPD_HOST` | `servidor`, `clave@servidor`, `/run/mpd/socket` | Host o socket; admite `contraseña@host` |
 | `MPD_PORT` | `6600` | Puerto TCP |
 | `MPCTUI_GLYPHS` | `ascii` | Fuerza el juego de glifos (`auto`, `unicode` o `ascii`) |
+| `MPCTUI_COLORS` | `256` | Fuerza la profundidad de color (`auto`, `truecolor`, `256`, `16` o `none`) |
+| `NO_COLOR` | `1` | Estándar no-color.org: con `colors = "auto"`, sin color |
 
-Si la configuración es inválida (puerto no numérico, host vacío, campo desconocido en el TOML, contraseña con saltos de línea, `glyphs` distinto de `auto`/`unicode`/`ascii`, `language` distinto de `en`/`es`, `album_progress` o `queue_progress` que no sean `true`/`false`, `visualizer_fifo` vacío, `visualizer_format` que no sea de 16 bits, 1 o 2 canales y entre 8000 y 192000 Hz, `visualizer_style` desconocido, `mirror`/`vectorscope` con un FIFO de un canal, una fuente de letras desconocida o repetida, `lyrics.sources` vacía con las letras activadas, o `song_folder` sin `music_directory`), mpctui no arranca y explica el motivo en el idioma configurado (si el TOML no se puede leer, en inglés). Que el FIFO no exista no es un error de configuración: la vista Visual explica cómo crearlo.
+Si la configuración es inválida (puerto no numérico, host vacío, campo desconocido en el TOML, contraseña con saltos de línea, `glyphs` distinto de `auto`/`unicode`/`ascii`, `theme` o `colors` desconocidos, `language` distinto de `en`/`es`, `album_progress` o `queue_progress` que no sean `true`/`false`, `visualizer_fifo` vacío, `visualizer_format` que no sea de 16 bits, 1 o 2 canales y entre 8000 y 192000 Hz, `visualizer_style` desconocido, `mirror`/`vectorscope` con un FIFO de un canal, una fuente de letras desconocida o repetida, `lyrics.sources` vacía con las letras activadas, o `song_folder` sin `music_directory`), mpctui no arranca y explica el motivo en el idioma configurado (si el TOML no se puede leer, en inglés). Que el FIFO no exista no es un error de configuración: la vista Visual explica cómo crearlo.
+
+### Colores y temas
+
+Cada tipo de dato tiene su color (artista, álbum, duración, estado, calidad del audio, niveles). Hay cuatro temas, que se eligen con `theme`: `terminal` (por defecto: los 16 colores de la paleta de tu terminal), `midnight` (frío), `vinyl` (cálido) y `neon` (synthwave). Los tres últimos están pensados para terminales oscuras y necesitan 256 colores; con 16 se usa `terminal`. La tecla `t` pasa al tema siguiente sin guardarlo.
+
+Con `colors = "auto"` la profundidad sale de `NO_COLOR` (sin color), `TERM=dumb` (sin color), `COLORTERM` (`truecolor`/`24bit`: 24 bits), `TERM` con `256color` (256) o, si no, 16. Sin color todo se sigue distinguiendo por los glifos, la negrita y el video inverso. El texto común usa el color de tu terminal y el fondo no se pinta.
 
 ### Glifos: Unicode o ASCII
 
@@ -75,7 +83,7 @@ mpctui
 | `5` | Playlists | Playlists guardadas y el contenido de la seleccionada. `l` pasa a los temas para editarla y `h` vuelve a los nombres |
 | `6` | Visual | Visualizador en vivo, leyendo la salida fifo de MPD. Apretando `6` otra vez se pasa a la forma siguiente |
 | `7` | Letra | La letra del tema que suena; si viene sincronizada (LRC), sigue la canción |
-| `8` | Salidas | Las particiones de MPD y las salidas de audio de la elegida. `l` pasa a las salidas y `h` vuelve a las particiones |
+| `8` | Salidas | Las particiones de MPD y las salidas de audio de la elegida. `◆` marca la que usa mpctui. `l` pasa a las salidas y `h` vuelve a las particiones |
 
 `Tab` / `Shift+Tab` recorren las vistas.
 
@@ -99,7 +107,7 @@ mpctui
 
   Con un FIFO de un canal, Espejo y Vectorscopio salen del ciclo y los Medidores muestran una sola barra. En pausa o detenido las formas caen a cero y se lee `sin señal`. En modo compacto se ocultan la fila de título, los ejes y las escalas. El FIFO solo se lee mientras la vista está activa, y solo se calcula la forma que se ve.
 - **Letra:** la del tema que suena. Una letra sincronizada deja la línea actual en el medio, marcada con `▸`, y las ya cantadas apagadas; cambia de línea justo a tiempo. Una sin sincronizar se recorre con `j`/`k`, las páginas y `g`/`G`. El título dice si es `sincronizada` o `texto` y de dónde salió. Mientras busca se lee `buscando letra ◐`; si no la encuentra, lo dice (y por qué, si se sabe).
-- **Salidas:** a la izquierda, cada partición con su cantidad de salidas; a la derecha, las salidas de la elegida con su estado (`●` activa, `○` inactiva; en ASCII `[x]`/`[ ]`) y su plugin. Una partición es otro "reproductor" dentro del mismo MPD, con su propia cola y sus propias salidas: sirve, por ejemplo, para que otra habitación escuche otra cosa. Administrar particiones y salidas requiere el permiso `admin` de MPD (lo tiene cualquier cliente si el servidor no usa contraseñas). La salida fifo del visualizador muestra lo que suena en la partición que la tiene.
+- **Salidas:** a la izquierda, cada partición con su cantidad de salidas; a la derecha, las salidas de la elegida con su estado (`●` activa, `○` inactiva; en ASCII `[x]`/`[ ]`) y su plugin. Una partición es otro "reproductor" dentro del mismo MPD, con su propia cola y sus propias salidas: sirve, por ejemplo, para que otra habitación escuche otra cosa. Administrar particiones y salidas requiere el permiso `admin` de MPD (lo tiene cualquier cliente si el servidor no usa contraseñas). La salida fifo del visualizador muestra lo que suena en la partición que la tiene. Con `Enter` sobre una partición, mpctui pasa a usarla: la cola, el panel, los controles y las playlists (cargar, guardar) son los de esa partición, y el encabezado lo indica (`● localhost:6600 · cocina`). Al arrancar, mpctui usa `default`; si MPD se reinicia, las particiones creadas desaparecen y mpctui vuelve a `default`.
 - **Línea inferior:** los atajos más útiles de la vista activa. Los avisos y errores la reemplazan durante 5 segundos.
 - **Tamaño:** desde 100 × 28 se ve todo (si los títulos de las pestañas no entran, se abrevian). Desde 60 × 16 hay un modo compacto: panel de 3 filas, pestañas abreviadas y, por debajo de 80 columnas, sin columna Álbum. Más chica, mpctui muestra el mínimo necesario y el tamaño actual.
 
@@ -108,10 +116,10 @@ mpctui
 | Teclas | Acción |
 |---|---|
 | `j` `k` / `↓` `↑` | Moverse; `g`/`G` principio/final; `AvPág`/`RePág` o `Ctrl+d`/`Ctrl+u` por páginas. En Letra sincronizada, eligen una línea |
-| `Enter` | Cola: reproducir · Biblioteca/Directorios: entrar o agregar · Búsqueda: agregar · Playlists: cargar · Letra: reproducir desde la línea elegida · Salidas: activar o desactivar la salida |
+| `Enter` | Cola: reproducir · Biblioteca/Directorios: entrar o agregar · Búsqueda: agregar · Playlists: cargar · Letra: reproducir desde la línea elegida · Salidas: usar la partición o activar/desactivar la salida |
 | `l` / `h` | Columna siguiente/anterior · entrar/subir de directorio · Letra: volver a seguir la canción |
 | `a` / `A` | Agregar la selección / agregar todos (resultados, temas del álbum) |
-| `d` | Borrar de la cola · borrar playlist (pide confirmación) · con foco en los temas de una playlist, quitar el tema · Salidas: borrar la partición (pide confirmación; sus salidas vuelven a `default`, que no se puede borrar) |
+| `d` | Borrar de la cola · borrar playlist (pide confirmación) · con foco en los temas de una playlist, quitar el tema · Salidas: borrar la partición (pide confirmación; sus salidas vuelven a `default`; ni `default` ni la que está en uso se pueden borrar) |
 | `J` / `K` | Correr el tema seleccionado un lugar abajo / arriba (cola y temas de una playlist); el cursor lo acompaña |
 | `P` | Agregar la selección a una playlist: elegir una existente o «Nueva playlist» (pide el nombre). Agrega lo mismo que `a`: tema, álbum, artista, archivo o directorio |
 | `p` o `Espacio` | Pausa / reanudar |
@@ -122,6 +130,7 @@ mpctui
 | `S` | Guardar la cola como playlist (si el nombre no es válido, el diálogo lo dice y sigue abierto) |
 | `c` | Vaciar la cola (pide confirmación) |
 | `o` | Ir al tema que suena |
+| `t` | Pasar al tema de colores siguiente |
 | `u` | Actualizar la biblioteca (MPD relee la carpeta de música; el encabezado muestra el avance) |
 | `n` | Salidas: crear una partición (pide el nombre: letras y dígitos ASCII, `-` y `_`) |
 | `m` | Salidas: mover la salida seleccionada a otra partición (se elige en un selector) |

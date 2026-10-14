@@ -12,15 +12,17 @@ mod visual;
 
 use ratatui::Frame;
 use ratatui::layout::{Margin, Rect};
-use ratatui::text::Line;
+use ratatui::text::{Line, Span};
 
 use super::chrome::Context;
+use super::format::fit_line_start;
 use super::widgets::{
     GroupedSongRows, NowPlaying, RowSource, Selection, SongColumns, content_offset, content_width,
     render_list,
 };
 use crate::tui::list::SelectableList;
 use crate::tui::state::{AppState, GroupedSongs, ViewKind};
+use crate::tui::theme::Role;
 
 pub fn render(frame: &mut Frame, area: Rect, state: &mut AppState, context: &Context<'_>) {
     match state.view {
@@ -53,7 +55,7 @@ fn draw_list<'a, T, S: RowSource>(
         centered,
     };
     let mut offset = table.offset();
-    render_list(frame, area, context.glyphs, &rows, selection, &mut offset);
+    render_list(frame, area, context, &rows, selection, &mut offset);
     *table.offset_mut() = offset;
 }
 
@@ -82,6 +84,7 @@ fn draw_grouped(
         timeline,
         glyphs: context.glyphs,
         texts: context.texts,
+        theme: context.theme,
         columns: look.columns,
         now_playing: look.now_playing,
         highlight: look.highlight,
@@ -102,16 +105,34 @@ fn draw_grouped(
         centered,
     };
     let mut offset = table.offset();
-    render_list(frame, area, context.glyphs, &rows, selection, &mut offset);
+    render_list(frame, area, context, &rows, selection, &mut offset);
     *table.offset_mut() = offset;
 }
 
-/// Une segmentos con el glifo de migas de pan.
-fn breadcrumbs<'a>(parts: impl IntoIterator<Item = &'a str>, context: &Context<'_>) -> String {
-    parts
-        .into_iter()
-        .collect::<Vec<_>>()
-        .join(context.glyphs.breadcrumb)
+/// Une segmentos con el glifo de migas de pan en `width` columnas: el último tramo
+/// (dónde estoy) en negrita, los anteriores en `muted` y los separadores en `subtle`.
+/// Si no entra, se recorta por la izquierda.
+fn breadcrumbs<'a>(
+    parts: impl IntoIterator<Item = &'a str>,
+    width: usize,
+    context: &Context<'_>,
+) -> Line<'static> {
+    let parts: Vec<&str> = parts.into_iter().collect();
+    let last = parts.len().saturating_sub(1);
+    let mut spans = Vec::new();
+    for (index, part) in parts.into_iter().enumerate() {
+        if index > 0 {
+            let separator = context.glyphs.breadcrumb;
+            spans.push(Span::styled(separator, context.style(Role::Subtle)));
+        }
+        let style = if index == last {
+            context.strong(Role::Text)
+        } else {
+            context.style(Role::Muted)
+        };
+        spans.push(Span::styled(part.to_owned(), style));
+    }
+    fit_line_start(Line::from(spans), width, context.glyphs.ellipsis)
 }
 
 /// Margen a cada lado de las filas de texto (migas de pan, búsqueda, resúmenes).

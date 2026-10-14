@@ -6,11 +6,11 @@ use mpctui::domain::{
     Entry, PartitionName, Password, PlayState, PlaylistName, SampleFormat, SearchText, Status,
     Subsystem, Tag, TagFilter, Volume,
 };
-use mpctui::factory::connect_mpd;
-use mpctui::repository::mpd::Address;
+use mpctui::factory::{connect_following, connect_mpd};
+use mpctui::repository::mpd::{Address, SharedPartition};
 use mpctui::repository::{
     ChangesRepository, EmbeddedLyricsRepository, Error, LibraryRepository, OutputRepository,
-    PlayerRepository, PlaylistRepository, QueueRepository,
+    PartitionSelection, PlayerRepository, PlaylistRepository, QueueRepository,
 };
 use mpctui::service::{OutputService, UpdateTransition, update_transition};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -228,7 +228,8 @@ async fn lists_partitions_with_their_own_outputs() {
          attribute: dop=0\nOK\n",
     ));
     let (address, server) = fake_server(script).await;
-    let mut service = OutputService::new(connect_mpd(&address, None).await.unwrap());
+    let repository = connect_mpd(&address, None).await.unwrap();
+    let mut service = OutputService::new(repository, SharedPartition::default());
     let partitions = service.overview().await.unwrap();
     let owned: Vec<(&str, Vec<&str>)> = partitions
         .iter()
@@ -276,6 +277,37 @@ async fn manages_partitions_and_outputs() {
         Err(Error::Ack(ack)) => assert_eq!(ack.command, "delpartition"),
         other => panic!("se esperaba ACK, llegó {other:?}"),
     }
+    server.await.unwrap();
+}
+
+#[tokio::test]
+async fn following_connections_enter_the_partition_in_use() {
+    let (address, server) = fake_server(vec![
+        ("playlistinfo", "OK\n"),
+        (r#"partition "cocina""#, "OK\n"),
+        ("playlistinfo", "file: a.flac\nPos: 0\nOK\n"),
+        ("status", "partition: cocina\nstate: stop\nOK\n"),
+        (r#"partition "default""#, "OK\n"),
+        ("status", "state: play\nOK\n"),
+        (
+            r#"partition "vieja""#,
+            "ACK [50@0] {partition} partition does not exist\n",
+        ),
+        ("status", "state: play\nOK\n"),
+    ])
+    .await;
+    let partition = SharedPartition::default();
+    let mut client = connect_following(&address, None, &partition).await.unwrap();
+    assert!(client.queue().await.unwrap().is_empty());
+    partition.select(PartitionName::new("cocina").unwrap());
+    assert_eq!(client.queue().await.unwrap().len(), 1);
+    assert_eq!(client.status().await.unwrap().state, PlayState::Stop);
+    partition.select(PartitionName::default_partition());
+    client.status().await.unwrap();
+    partition.select(PartitionName::new("vieja").unwrap());
+    assert!(matches!(client.status().await, Err(Error::Ack(ack)) if ack.code == 50));
+    assert!(partition.active().is_default());
+    assert_eq!(client.status().await.unwrap().state, PlayState::Play);
     server.await.unwrap();
 }
 

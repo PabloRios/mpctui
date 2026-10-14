@@ -7,13 +7,12 @@ use ratatui::text::{Line, Span};
 
 use super::{GroupedLook, draw_grouped, draw_line, draw_list};
 use crate::domain::PlaylistName;
-use crate::i18n::{Catalog, Message, Phrase};
+use crate::i18n::{Message, Phrase};
 use crate::tui::action::Action;
-use crate::tui::glyphs::Glyphs;
 use crate::tui::state::{AppState, GroupedSongs, PlaylistsColumn};
+use crate::tui::theme::Role;
 use crate::tui::views::chrome::{self, Context};
 use crate::tui::views::format::format_duration;
-use crate::tui::views::theme;
 use crate::tui::views::widgets::{ItemRows, RowSource, SongColumns, centered_message, panel_title};
 
 const NAMES_SHARE: u16 = 30;
@@ -27,7 +26,8 @@ pub fn render(frame: &mut Frame, area: Rect, state: &mut AppState, context: &Con
     if playlists.names.items().is_empty() {
         let key = context.key(Action::SaveQueue);
         let text = context.message(Message::NoPlaylists { key: &key });
-        return centered_message(frame, area, Line::styled(text, theme::MUTED));
+        let text = Line::styled(text, context.style(Role::Muted));
+        return centered_message(frame, area, text);
     }
     let [titles_area, rule_area, lists_area] = Layout::vertical([
         Constraint::Length(1),
@@ -39,7 +39,7 @@ pub fn render(frame: &mut Frame, area: Rect, state: &mut AppState, context: &Con
         Layout::horizontal([Constraint::Percentage(NAMES_SHARE), Constraint::Fill(1)])
             .spacing(DIVIDER_WIDTH)
             .areas(area);
-    chrome::rule(frame.buffer_mut(), rule_area, context.glyphs, None);
+    chrome::rule(frame.buffer_mut(), rule_area, context, None);
     let names_focused = playlists.focus == PlaylistsColumn::Names;
     let names_title = panel_title(
         format!(
@@ -48,6 +48,7 @@ pub fn render(frame: &mut Frame, area: Rect, state: &mut AppState, context: &Con
             playlists.names.items().len()
         ),
         names_focused,
+        context,
     );
     draw_line(
         frame,
@@ -58,18 +59,17 @@ pub fn render(frame: &mut Frame, area: Rect, state: &mut AppState, context: &Con
         playlists.names.selected(),
         &playlists.preview,
         !names_focused,
-        context.texts,
+        context,
     );
     draw_line(frame, column_row(songs_column, titles_area), &preview_title);
 
-    let glyphs = context.glyphs;
     draw_list(
         frame,
         column_row(names_column, lists_area),
         context,
         &mut playlists.names,
         names_focused,
-        |names| name_rows(names, glyphs),
+        |names| name_rows(names, context),
     );
     let look = GroupedLook {
         columns: SongColumns {
@@ -93,7 +93,7 @@ pub fn render(frame: &mut Frame, area: Rect, state: &mut AppState, context: &Con
         frame.buffer_mut(),
         names_column.right(),
         divider_rows,
-        glyphs,
+        context,
         true,
     );
 }
@@ -108,27 +108,30 @@ fn preview_title(
     name: Option<&PlaylistName>,
     preview: &GroupedSongs,
     focused: bool,
-    texts: &dyn Catalog,
+    context: &Context<'_>,
 ) -> Line<'static> {
     let Some(name) = name else {
         return Line::default();
     };
-    let songs = texts.message(&Message::SongCount(preview.items().len()));
+    let songs = context.message(Message::SongCount(preview.items().len()));
     let mut text = format!("{name}: {songs}");
     if let Some(total) = preview.timeline().total {
         text.push_str(&format!("  {}", format_duration(total)));
     }
-    Line::from(panel_title(text, focused))
+    Line::from(panel_title(text, focused, context))
 }
 
-fn name_rows<'a>(names: &'a [PlaylistName], glyphs: &'a Glyphs) -> impl RowSource + 'a {
+/// Nombres e insignias en el color de las playlists.
+fn name_rows<'a>(names: &'a [PlaylistName], context: &Context<'_>) -> impl RowSource + use<'a> {
+    let glyph = context.glyphs.playlist;
+    let style = context.style(Role::Playlist);
     ItemRows {
         items: names,
         line: move |name: &'a PlaylistName| {
             Line::from(vec![
-                Span::styled(glyphs.playlist, theme::MUTED),
+                Span::styled(glyph, style),
                 Span::raw(BADGE_GAP),
-                Span::raw(name.as_str()),
+                Span::styled(name.as_str(), style),
             ])
         },
     }

@@ -127,6 +127,13 @@ pub trait OutputRepository {
     ) -> impl Future<Output = Result<()>> + Send;
 }
 
+/// La partición que usan las conexiones de mpctui (no las de administración).
+pub trait PartitionSelection {
+    fn active(&self) -> PartitionName;
+    /// Cada conexión entra a la nueva antes de su próximo comando.
+    fn select(&self, partition: PartitionName);
+}
+
 pub trait ChangesRepository {
     /// Bloquea hasta que cambie algo en el servidor y devuelve qué cambió.
     fn wait_for_changes(&mut self) -> impl Future<Output = Result<Vec<Subsystem>>> + Send;

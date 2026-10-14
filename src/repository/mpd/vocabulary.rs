@@ -158,6 +158,8 @@ pub const AUDIO_FIELD_SEPARATOR: char = ':';
 pub const SAMPLE_FORMAT_FLOAT: &str = "f";
 /// Prefijo de la tasa DSD (`dsd64`).
 pub const DSD_PREFIX: &str = "dsd";
+/// Código de `ACK` de lo que no existe (una partición, una salida, una playlist…).
+pub const ACK_NO_EXIST: u32 = 50;
 /// Plugin con el que una partición lista las salidas que pertenecen a otra.
 pub const DUMMY_PLUGIN: &str = "dummy";
 /// Bitrate que MPD informa cuando no lo conoce.

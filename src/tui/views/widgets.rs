@@ -6,18 +6,20 @@ use std::time::Duration;
 
 use ratatui::Frame;
 use ratatui::layout::{Alignment, Constraint, Layout, Rect};
+use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState};
 
+use super::chrome::Context;
 use super::format::{
-    album_title, cell, duration_or_unknown, fit_line, format_duration, highlight_matches,
-    or_missing, saturating_u16,
+    ARTIST_ALBUM_SEPARATOR, album_title, cell, duration_or_unknown, fit_line, format_duration,
+    highlight_matches, or_missing, saturating_u16,
 };
-use super::gauges::{meter, meter_line, meter_width};
-use super::theme;
+use super::gauges::{MeterFill, meter, meter_line, meter_width};
 use crate::domain::{PlayState, Song, Timeline};
 use crate::i18n::{Catalog, Message, Phrase};
 use crate::tui::glyphs::Glyphs;
+use crate::tui::theme::{GradientRole, Role, Theme};
 
 /// Columna de la barra de desplazamiento, a la derecha de toda lista.
 const SCROLLBAR_WIDTH: u16 = 1;
@@ -88,11 +90,12 @@ pub fn content_offset(glyphs: &Glyphs) -> u16 {
 pub fn render_list(
     frame: &mut Frame,
     area: Rect,
-    glyphs: &Glyphs,
+    context: &Context<'_>,
     source: &impl RowSource,
     selection: Selection,
     offset: &mut usize,
 ) {
+    let glyphs = context.glyphs;
     let height = usize::from(area.height);
     let total = source.row_count();
     let top = scroll_offset(source, selection, *offset, height);
@@ -115,20 +118,33 @@ pub fn render_list(
             }
             ListRow::Item(line) => {
                 let selected = selection.row == Some(index);
-                draw_item(frame, row_area, glyphs, line, selected);
+                draw_item(frame, row_area, context, line, selected);
                 if selected && selection.focused {
-                    frame.buffer_mut().set_style(row_area, theme::SELECTED_ROW);
+                    let selection_style = context.style(Role::Selection);
+                    frame.buffer_mut().set_style(row_area, selection_style);
                 }
             }
         }
     }
-    render_scrollbar(frame, area, glyphs, total, selection.row.unwrap_or(top));
+    render_scrollbar(frame, area, context, total, selection.row.unwrap_or(top));
 }
 
-fn draw_item(frame: &mut Frame, row_area: Rect, glyphs: &Glyphs, line: Line<'_>, selected: bool) {
+/// El cursor va en video inverso para que se vea aunque la fila tenga fondo.
+pub fn cursor_style(context: &Context<'_>) -> Style {
+    context.style(Role::Accent).add_modifier(Modifier::REVERSED)
+}
+
+fn draw_item(
+    frame: &mut Frame,
+    row_area: Rect,
+    context: &Context<'_>,
+    line: Line<'_>,
+    selected: bool,
+) {
+    let glyphs = context.glyphs;
     let buffer = frame.buffer_mut();
     if selected {
-        buffer.set_string(row_area.x, row_area.y, glyphs.cursor, theme::ACCENT);
+        buffer.set_string(row_area.x, row_area.y, glyphs.cursor, cursor_style(context));
     }
     let offset = content_offset(glyphs);
     let width = row_area.width.saturating_sub(offset + SCROLLBAR_GAP);
@@ -171,16 +187,27 @@ fn scroll_offset(
 }
 
 /// Barra de desplazamiento en la última columna; solo si la lista no entra completa.
-fn render_scrollbar(frame: &mut Frame, area: Rect, glyphs: &Glyphs, total: usize, position: usize) {
+fn render_scrollbar(
+    frame: &mut Frame,
+    area: Rect,
+    context: &Context<'_>,
+    total: usize,
+    position: usize,
+) {
     if total <= usize::from(area.height) {
         return;
     }
+    let glyphs = context.glyphs;
+    let arrows = context.style(Role::Muted);
     let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
         .begin_symbol(Some(glyphs.scroll_up))
         .end_symbol(Some(glyphs.scroll_down))
         .track_symbol(Some(glyphs.scroll_track))
         .thumb_symbol(glyphs.scroll_thumb)
-        .style(theme::MUTED);
+        .begin_style(arrows)
+        .end_style(arrows)
+        .track_style(context.style(Role::Subtle))
+        .thumb_style(context.style(Role::Accent));
     let mut state = ScrollbarState::new(total)
         .position(position)
         .viewport_content_length(usize::from(area.height));
@@ -273,6 +300,7 @@ pub struct GroupedSongRows<'a> {
     pub timeline: &'a Timeline,
     pub glyphs: &'a Glyphs,
     pub texts: &'a dyn Catalog,
+    pub theme: &'a Theme,
     pub columns: SongColumns,
     pub now_playing: Option<NowPlaying>,
     /// Texto buscado, para resaltarlo.
@@ -392,7 +420,34 @@ impl GroupedSongRows<'_> {
                 Alignment::Right,
             ),
         ])
-        .style(theme::TABLE_HEADER)
+        .style(self.theme.style(Role::Muted))
+    }
+
+    /// El estilo de cada columna; el tema que suena va entero en `playing` (o `paused`).
+    fn song_styles(&self, playing: Option<NowPlaying>) -> SongStyles {
+        let theme = self.theme;
+        match playing {
+            Some(now) => {
+                let role = if now.state == PlayState::Pause {
+                    Role::Paused
+                } else {
+                    Role::Playing
+                };
+                let style = theme.style(role);
+                SongStyles {
+                    number: style,
+                    title: style,
+                    album: style,
+                    duration: style,
+                }
+            }
+            None => SongStyles {
+                number: theme.style(Role::Muted),
+                title: theme.style(Role::Text),
+                album: theme.style(Role::Album),
+                duration: theme.style(Role::Duration),
+            },
+        }
     }
 
     fn song_line(&self, index: usize, width: u16) -> Line<'_> {
@@ -402,11 +457,8 @@ impl GroupedSongRows<'_> {
         let playing = self
             .now_playing
             .filter(|now| song.position == Some(now.position));
-        let style = if playing.is_some() {
-            theme::CURRENT_SONG
-        } else {
-            theme::PLAIN
-        };
+        let styles = self.song_styles(playing);
+        let found = self.theme.style(Role::Match);
         let state = playing.map_or("", |now| state_glyph(now.state, glyphs));
         let position = song
             .position
@@ -417,42 +469,79 @@ impl GroupedSongRows<'_> {
         let duration = song.duration.map(format_duration).unwrap_or_default();
         join_cells(vec![
             table_cell(
-                Line::styled(state, style),
+                Line::styled(state, styles.title),
                 widths.state,
                 Alignment::Left,
                 glyphs,
             ),
             table_cell(
-                Line::styled(position, theme::MUTED),
+                Line::styled(position, styles.number),
                 widths.position,
                 Alignment::Right,
                 glyphs,
             ),
             table_cell(
-                Line::styled(track, theme::MUTED),
+                Line::styled(track, styles.number),
                 widths.track,
                 Alignment::Right,
                 glyphs,
             ),
             table_cell(
-                highlight_matches(song.display_title(), self.highlight, style),
+                highlight_matches(song.display_title(), self.highlight, styles.title, found),
                 widths.title,
                 Alignment::Left,
                 glyphs,
             ),
             table_cell(
-                highlight_matches(album, self.highlight, style),
+                highlight_matches(album, self.highlight, styles.album, found),
                 widths.album,
                 Alignment::Left,
                 glyphs,
             ),
             table_cell(
-                Line::styled(duration, style),
+                Line::styled(duration, styles.duration),
                 widths.duration,
                 Alignment::Right,
                 glyphs,
             ),
         ])
+    }
+
+    /// El tramo tiene el tema que suena.
+    fn is_playing_run(&self, run_index: usize) -> bool {
+        let Some(now) = self.now_playing else {
+            return false;
+        };
+        let run = self.timeline.runs[run_index];
+        self.songs[run.indices()]
+            .iter()
+            .any(|song| song.position == Some(now.position))
+    }
+
+    /// `Artista - Álbum (año)`: el artista y el álbum en negrita con su color, el resto
+    /// en `muted`; las coincidencias de la búsqueda, resaltadas.
+    fn run_title(&self, song: &Song) -> Line<'static> {
+        let theme = self.theme;
+        let found = theme.style(Role::Match);
+        let muted = theme.style(Role::Muted);
+        let title = album_title(song);
+        let Some(album) = title.album else {
+            return Line::styled(self.texts.phrase(Phrase::NoAlbum), muted);
+        };
+        let mut spans = Vec::new();
+        if let Some(artist) = title.artist {
+            spans.extend(
+                highlight_matches(artist, self.highlight, theme.strong(Role::Artist), found).spans,
+            );
+            spans.push(Span::styled(ARTIST_ALBUM_SEPARATOR, muted));
+        }
+        spans.extend(
+            highlight_matches(album, self.highlight, theme.strong(Role::Album), found).spans,
+        );
+        if let Some(year) = title.year {
+            spans.push(Span::styled(format!(" ({year})"), muted));
+        }
+        owned_line(Line::from(spans))
     }
 
     /// `── Artista - Álbum (año) ─────── 10 temas  42:51 ──`. Se trunca solo el título:
@@ -468,24 +557,39 @@ impl GroupedSongRows<'_> {
         let left = format!("{edge} ");
         let right = format!(" {summary} {edge}");
         let fixed = Span::raw(&left).width() + Span::raw(&right).width() + SEPARATOR_MIN_FILL;
-        let title = album_title(&self.songs[run.first_index], self.texts);
-        let title = owned_line(highlight_matches(
-            &title,
-            self.highlight,
-            theme::GROUP_TITLE,
-        ));
+        let title = self.run_title(&self.songs[run.first_index]);
         let available = usize::from(width).saturating_sub(fixed);
         let title = fit_line(title, available, self.glyphs.ellipsis);
         // Una celda de regla ya está contada en `fixed`.
         let fill = available.saturating_sub(title.width()) + SEPARATOR_MIN_FILL - 1;
-        let mut spans = vec![Span::styled(left, theme::GROUP_RULE)];
+        // La regla del tramo que suena se ve aunque el tema quede fuera de pantalla.
+        let rule_role = if self.is_playing_run(run_index) {
+            Role::Playing
+        } else {
+            Role::Subtle
+        };
+        let rule_style = self.theme.style(rule_role);
+        let mut spans = vec![Span::styled(left, rule_style)];
         spans.extend(title.spans);
         spans.push(Span::raw(" "));
-        spans.push(Span::styled(rule.repeat(fill), theme::GROUP_RULE));
-        spans.push(Span::styled(format!(" {summary}"), theme::MUTED));
-        spans.push(Span::styled(format!(" {edge}"), theme::GROUP_RULE));
+        spans.push(Span::styled(rule.repeat(fill), rule_style));
+        spans.push(Span::styled(
+            format!(" {summary}"),
+            self.theme.style(Role::Muted),
+        ));
+        spans.push(Span::styled(format!(" {edge}"), rule_style));
         Line::from(spans)
     }
+}
+
+/// Estilos de las columnas de una fila de tema.
+#[derive(Debug, Clone, Copy)]
+struct SongStyles {
+    /// `pos` y `#`.
+    number: Style,
+    title: Style,
+    album: Style,
+    duration: Style,
 }
 
 /// Copia los textos de una línea para que no dependa de un texto armado en el momento.
@@ -528,26 +632,28 @@ impl RowSource for GroupedSongRows<'_> {
 /// más largo del álbum mostrado.
 pub struct LibrarySongRows<'a> {
     songs: &'a [Song],
-    glyphs: &'a Glyphs,
+    context: Context<'a>,
     longest: Option<Duration>,
 }
 
 impl<'a> LibrarySongRows<'a> {
-    pub fn new(songs: &'a [Song], glyphs: &'a Glyphs) -> Self {
+    pub fn new(songs: &'a [Song], context: Context<'a>) -> Self {
         let longest = songs.iter().filter_map(|song| song.duration).max();
         Self {
             songs,
-            glyphs,
+            context,
             longest,
         }
     }
 
-    /// Con duración desconocida, la celda queda vacía.
+    /// Con duración desconocida, la celda queda vacía. Lo lleno toma el degradado de
+    /// progreso según la posición.
     fn relative_duration(&self, song: &Song) -> Line<'static> {
         match (song.duration, self.longest) {
             (Some(duration), Some(longest)) => {
                 let cells = meter(millis(duration), millis(longest), RELATIVE_DURATION_CELLS);
-                meter_line(&cells, self.glyphs)
+                let fill = MeterFill::Gradient(GradientRole::Progress);
+                meter_line(&cells, fill, &self.context)
             }
             _ => Line::default(),
         }
@@ -561,7 +667,7 @@ impl RowSource for LibrarySongRows<'_> {
 
     fn row(&self, index: usize, width: u16) -> ListRow<'_> {
         let song = &self.songs[index];
-        let glyphs = self.glyphs;
+        let glyphs = self.context.glyphs;
         let meter_columns = saturating_u16(meter_width(RELATIVE_DURATION_CELLS, glyphs));
         let [track, title, duration, relative] = column_widths(
             width,
@@ -575,7 +681,7 @@ impl RowSource for LibrarySongRows<'_> {
         let number = song.track_number().unwrap_or_default();
         ListRow::Item(join_cells(vec![
             table_cell(
-                Line::styled(number, theme::MUTED),
+                Line::styled(number, self.context.style(Role::Muted)),
                 track,
                 Alignment::Right,
                 glyphs,
@@ -587,7 +693,10 @@ impl RowSource for LibrarySongRows<'_> {
                 glyphs,
             ),
             table_cell(
-                Line::from(duration_or_unknown(song.duration)),
+                Line::styled(
+                    duration_or_unknown(song.duration),
+                    self.context.style(Role::Duration),
+                ),
                 duration,
                 Alignment::Right,
                 glyphs,
@@ -626,12 +735,12 @@ pub fn centered_message(frame: &mut Frame, area: Rect, text: Line<'_>) {
     frame.render_widget(Paragraph::new(text.centered()), middle);
 }
 
-/// Título de una columna o panel: con foco va entre corchetes, en negrita e invertido.
-pub fn panel_title(text: String, focused: bool) -> Span<'static> {
+/// Título de una columna o panel: con foco va entre corchetes, como la pestaña activa.
+pub fn panel_title(text: String, focused: bool, context: &Context<'_>) -> Span<'static> {
     if focused {
-        Span::styled(format!("[{text}]"), theme::FOCUSED)
+        Span::styled(format!("[{text}]"), context.style(Role::TabActive))
     } else {
-        Span::styled(format!(" {text} "), theme::PLAIN)
+        Span::styled(format!(" {text} "), context.style(Role::Text))
     }
 }
 
@@ -641,6 +750,7 @@ mod tests {
     use crate::domain::timeline;
     use crate::i18n::Spanish;
     use crate::tui::glyphs::ASCII;
+    use crate::tui::views::chrome::testing;
 
     fn album_song(album: &str) -> Song {
         Song {
@@ -657,6 +767,7 @@ mod tests {
             timeline,
             glyphs: &ASCII,
             texts: &Spanish,
+            theme: testing::theme(),
             columns: SongColumns {
                 position: true,
                 album: true,

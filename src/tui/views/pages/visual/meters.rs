@@ -4,7 +4,6 @@
 use ratatui::Frame;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
-use ratatui::style::Style;
 use ratatui::text::Span;
 
 use super::correlation::correlation_line;
@@ -13,9 +12,9 @@ use crate::domain::{
 };
 use crate::i18n::{Catalog, Message, Phrase};
 use crate::tui::glyphs::Glyphs;
+use crate::tui::theme::{GradientRole, Role};
 use crate::tui::views::chrome::Context;
 use crate::tui::views::format::{MISSING, saturating_u16};
-use crate::tui::views::theme;
 
 /// Letra del canal y comienzo de la barra.
 const LABEL_INDENT: u16 = 1;
@@ -31,9 +30,13 @@ const MONO_LABEL: &str = "M";
 /// Marcas de la escala, en dBFS.
 const SCALE_MARKS: [f32; 8] = [-60.0, -40.0, -30.0, -20.0, -12.0, -6.0, -3.0, 0.0];
 const SCALE_UNIT: &str = "dBFS";
-/// Hasta acá verde; hasta `YELLOW_UNTIL_DB`, amarillo; más arriba, rojo.
+/// Las zonas del degradado `volume`: hasta acá el primer tercio (verde); hasta
+/// `YELLOW_UNTIL_DB`, el segundo (amarillo); más arriba, el último (rojo).
 const GREEN_UNTIL_DB: f32 = -12.0;
 const YELLOW_UNTIL_DB: f32 = -3.0;
+const ZONES: f32 = 3.0;
+/// Lo que ocupa cada valor dentro de su tramo, sin tocar el borde del siguiente.
+const ZONE_FILL: f32 = 0.999;
 /// Separación mínima entre etiquetas de la escala.
 const SCALE_LABEL_GAP: u16 = 1;
 
@@ -105,12 +108,13 @@ pub fn render(
             if y + row >= area.bottom() {
                 return;
             }
-            draw_bar(buffer, layout, y + row, *channel, glyphs);
+            draw_bar(buffer, layout, y + row, *channel, context);
         }
-        buffer.set_string(area.x + LABEL_INDENT, y, *label, theme::BOLD);
+        let label_style = context.style(Role::TextStrong);
+        buffer.set_string(area.x + LABEL_INDENT, y, *label, label_style);
         let numbers_x = layout.bar_x + layout.scale_width + 2;
         let numbers = numbers(*channel, context.texts);
-        buffer.set_string(numbers_x, y, numbers, theme::PLAIN);
+        buffer.set_string(numbers_x, y, numbers, context.style(Role::Text));
         y += bar_rows + GAP_ROWS;
     }
     if compact {
@@ -126,16 +130,16 @@ pub fn render(
             return;
         }
         match row {
-            Row::Scale => draw_scale(buffer, layout, y, glyphs),
-            Row::ScaleLabels => draw_scale_labels(buffer, layout, y),
+            Row::Scale => draw_scale(buffer, layout, y, context),
+            Row::ScaleLabels => draw_scale_labels(buffer, layout, y, context),
             Row::Correlation(value) => {
                 let available = area.right().saturating_sub(layout.bar_x);
-                let line = correlation_line(value, available, glyphs, context.texts);
+                let line = correlation_line(value, available, context);
                 buffer.set_line(layout.bar_x, y, &line, available);
             }
             Row::Legend => {
                 let legend = legend(glyphs, context.texts);
-                buffer.set_string(layout.bar_x, y, legend, theme::MUTED);
+                buffer.set_string(layout.bar_x, y, legend, context.style(Role::Muted));
             }
             Row::Gap => {}
         }
@@ -158,37 +162,45 @@ fn draw_bar(
     layout: MeterLayout,
     y: u16,
     level: ChannelLevel,
-    glyphs: &Glyphs,
+    context: &Context<'_>,
 ) {
+    let glyphs = context.glyphs;
+    let zone = |cell: usize| {
+        let decibels = layout.decibels_at(saturating_u16(cell));
+        context.gradient(GradientRole::Volume, volume_position(decibels))
+    };
     let steps = glyphs.meter_eighths.len();
     let filled = (layout.position(level.rms) * steps as f32).round() as usize;
     let (full, partial) = (filled / steps, filled % steps);
     for cell in 0..full {
         let x = layout.bar_x + saturating_u16(cell);
-        let style = zone_style(layout.decibels_at(saturating_u16(cell)));
-        buffer.set_string(x, y, glyphs.meter_eighths[steps - 1], style);
+        buffer.set_string(x, y, glyphs.meter_eighths[steps - 1], zone(cell));
     }
     if partial > 0 {
         let x = layout.bar_x + saturating_u16(full);
-        let style = zone_style(layout.decibels_at(saturating_u16(full)));
-        buffer.set_string(x, y, glyphs.meter_eighths[partial - 1], style);
+        buffer.set_string(x, y, glyphs.meter_eighths[partial - 1], zone(full));
     }
     if level.peak > METER_FLOOR_DB {
         let cell = (layout.position(level.peak) as u16).min(layout.scale_width);
-        let style = zone_style(level.peak);
+        let style = context.style(Role::Peak);
         buffer.set_string(layout.bar_x + cell, y, glyphs.meter_peak, style);
     }
 }
 
-/// Verde hasta -12, amarillo hasta -3 y rojo arriba.
-fn zone_style(decibels: f32) -> Style {
-    if decibels <= GREEN_UNTIL_DB {
-        theme::SPECTRUM_LOW
+/// La posición de `decibels` en el degradado `volume`, por tramos: de -60 a -12 el
+/// primer tercio, hasta -3 el segundo y hasta 0 el último. Así, con un degradado de
+/// tres colores escalonado, las zonas caen justo en -12 y -3.
+fn volume_position(decibels: f32) -> f32 {
+    let within = |value: f32, low: f32, high: f32| ((value - low) / (high - low)).clamp(0.0, 1.0);
+    let (zone, fraction) = if decibels <= GREEN_UNTIL_DB {
+        (0.0, within(decibels, METER_FLOOR_DB, GREEN_UNTIL_DB))
     } else if decibels <= YELLOW_UNTIL_DB {
-        theme::SPECTRUM_MIDDLE
+        (1.0, within(decibels, GREEN_UNTIL_DB, YELLOW_UNTIL_DB))
     } else {
-        theme::SPECTRUM_HIGH
-    }
+        (2.0, within(decibels, YELLOW_UNTIL_DB, 0.0))
+    };
+    // Un poco antes del final del tramo, para que su último valor no pase al siguiente.
+    ((zone + fraction * ZONE_FILL) / ZONES).clamp(0.0, 1.0)
 }
 
 /// `  -9.4 dB  pico   -3.1`; en el piso, `—`.
@@ -214,20 +226,22 @@ fn mark_cell(layout: MeterLayout, mark: f32) -> u16 {
 }
 
 /// `┴──────┴───┴ dBFS`.
-fn draw_scale(buffer: &mut Buffer, layout: MeterLayout, y: u16, glyphs: &Glyphs) {
+fn draw_scale(buffer: &mut Buffer, layout: MeterLayout, y: u16, context: &Context<'_>) {
+    let glyphs = context.glyphs;
+    let ticks = context.style(Role::Subtle);
     let cells = usize::from(layout.scale_width) + 1;
     let rule = glyphs.border.horizontal_top.repeat(cells);
-    buffer.set_string(layout.bar_x, y, rule, theme::MUTED);
+    buffer.set_string(layout.bar_x, y, rule, ticks);
     for mark in SCALE_MARKS {
         let x = layout.bar_x + mark_cell(layout, mark);
-        buffer.set_string(x, y, glyphs.scale_tick, theme::MUTED);
+        buffer.set_string(x, y, glyphs.scale_tick, ticks);
     }
     let unit_x = layout.bar_x + saturating_u16(cells) + 1;
-    buffer.set_string(unit_x, y, SCALE_UNIT, theme::MUTED);
+    buffer.set_string(unit_x, y, SCALE_UNIT, context.style(Role::Muted));
 }
 
 /// Los valores de las marcas, cada uno desde su marca; el que se pisa se omite.
-fn draw_scale_labels(buffer: &mut Buffer, layout: MeterLayout, y: u16) {
+fn draw_scale_labels(buffer: &mut Buffer, layout: MeterLayout, y: u16, context: &Context<'_>) {
     let mut free_from = layout.bar_x;
     for mark in SCALE_MARKS {
         let label = format!("{mark:.0}");
@@ -236,7 +250,7 @@ fn draw_scale_labels(buffer: &mut Buffer, layout: MeterLayout, y: u16) {
             continue;
         }
         free_from = x + saturating_u16(Span::raw(&label).width()) + SCALE_LABEL_GAP;
-        buffer.set_string(x, y, label, theme::MUTED);
+        buffer.set_string(x, y, label, context.style(Role::Muted));
     }
 }
 
@@ -280,9 +294,14 @@ mod tests {
 
     #[test]
     fn colors_change_at_minus_twelve_and_minus_three() {
-        assert_eq!(zone_style(-12.0), theme::SPECTRUM_LOW);
-        assert_eq!(zone_style(-6.0), theme::SPECTRUM_MIDDLE);
-        assert_eq!(zone_style(-1.0), theme::SPECTRUM_HIGH);
+        let third = |decibels| (volume_position(decibels) * ZONES) as usize;
+        assert_eq!(third(METER_FLOOR_DB), 0);
+        assert_eq!(third(-12.0), 0);
+        assert_eq!(third(-6.0), 1);
+        assert_eq!(third(-3.0), 1);
+        assert_eq!(third(-1.0), 2);
+        assert_eq!(volume_position(0.0), (2.0 + ZONE_FILL) / ZONES);
+        assert!(volume_position(-20.0) < volume_position(-13.0));
     }
 
     #[test]

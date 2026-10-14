@@ -6,22 +6,24 @@ use std::time::Instant;
 
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
+use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Block;
 
 use super::format::saturating_u16;
 use super::layout::{ALBUM_COLUMN_MIN_WIDTH, LayoutMode};
-use super::theme;
 use crate::i18n::{Catalog, Message, Phrase};
 use crate::tui::action::{Action, key_label};
 use crate::tui::appearance::ProgressBars;
 use crate::tui::glyphs::Glyphs;
+use crate::tui::theme::{GradientRole, Role, Theme};
 
 /// Lo que todas las vistas necesitan saber para dibujarse.
 #[derive(Debug, Clone, Copy)]
 pub struct Context<'a> {
     pub glyphs: &'a Glyphs,
     pub texts: &'a dyn Catalog,
+    pub theme: &'a Theme,
     pub mode: LayoutMode,
     /// Ancho total de la terminal.
     pub width: u16,
@@ -53,12 +55,30 @@ impl Context<'_> {
     pub fn key(&self, action: Action) -> String {
         key_label(action, self.glyphs, self.texts).unwrap_or_default()
     }
+
+    pub fn style(&self, role: Role) -> Style {
+        self.theme.style(role)
+    }
+
+    /// El rol en negrita: teclas, nombre de la aplicación, artista y álbum de las
+    /// separadoras.
+    pub fn strong(&self, role: Role) -> Style {
+        self.theme.strong(role)
+    }
+
+    /// El color de un degradado en `position`, entre 0 y 1.
+    pub fn gradient(&self, role: GradientRole, position: f32) -> Style {
+        self.theme.gradient(role, position)
+    }
 }
 
 /// Título de bloque `─ texto `, pegado al borde como en `┌─ mpctui ──`.
-pub fn block_title<'a>(text: Line<'a>, glyphs: &Glyphs) -> Line<'a> {
+pub fn block_title<'a>(text: Line<'a>, context: &Context<'_>) -> Line<'a> {
     let mut spans = vec![
-        Span::styled(glyphs.border.horizontal_top, theme::BORDER),
+        Span::styled(
+            context.glyphs.border.horizontal_top,
+            context.style(Role::Subtle),
+        ),
         Span::raw(" "),
     ];
     spans.extend(text.spans);
@@ -67,50 +87,64 @@ pub fn block_title<'a>(text: Line<'a>, glyphs: &Glyphs) -> Line<'a> {
 }
 
 /// Título al final de un borde, ` texto ─`, como en `── ● localhost:6600 ─┐`.
-pub fn end_title<'a>(text: Line<'a>, glyphs: &Glyphs) -> Line<'a> {
+pub fn end_title<'a>(text: Line<'a>, context: &Context<'_>) -> Line<'a> {
     let mut spans = vec![Span::raw(" ")];
     spans.extend(text.spans);
     spans.push(Span::raw(" "));
-    spans.push(Span::styled(glyphs.border.horizontal_top, theme::BORDER));
+    spans.push(Span::styled(
+        context.glyphs.border.horizontal_top,
+        context.style(Role::Subtle),
+    ));
     Line::from(spans)
 }
 
-/// Bloque con bordes del juego de glifos y título a la izquierda.
-pub fn titled_block<'a>(title: Line<'a>, glyphs: &Glyphs) -> Block<'a> {
+/// Bloque con bordes del juego de glifos y título a la izquierda. El borde es `subtle`;
+/// una ventana con foco o un diálogo lo pintan con otro rol.
+pub fn titled_block<'a>(title: Line<'a>, border: Role, context: &Context<'_>) -> Block<'a> {
     Block::bordered()
-        .border_set(glyphs.border)
-        .border_style(theme::BORDER)
-        .title(block_title(title, glyphs))
+        .border_set(context.glyphs.border)
+        .border_style(context.style(border))
+        .title(block_title(title, context))
 }
 
 /// Regla horizontal en la fila `row` (un área interior de una sola fila) que se une a
 /// los bordes izquierdo y derecho: `├───┤`. El título, si hay, va después de `├─`.
-pub fn rule(buffer: &mut Buffer, row: Rect, glyphs: &Glyphs, title: Option<Line<'_>>) {
+pub fn rule(buffer: &mut Buffer, row: Rect, context: &Context<'_>, title: Option<Line<'_>>) {
+    let glyphs = context.glyphs;
+    let border = context.style(Role::Subtle);
     let junction = glyphs.junction;
     let horizontal = glyphs.border.horizontal_top;
     for x in row.x..row.right() {
-        set_symbol(buffer, x, row.y, horizontal);
+        set_symbol(buffer, x, row.y, horizontal, border);
     }
     if let Some(left) = row.x.checked_sub(1) {
-        set_symbol(buffer, left, row.y, junction.tee_right);
+        set_symbol(buffer, left, row.y, junction.tee_right, border);
     }
-    set_symbol(buffer, row.right(), row.y, junction.tee_left);
+    set_symbol(buffer, row.right(), row.y, junction.tee_left, border);
     if let Some(title) = title {
-        let title = block_title(title, glyphs);
+        let title = block_title(title, context);
         buffer.set_line(row.x, row.y, &title, row.width);
     }
 }
 
 /// Agrega a una regla ya dibujada un título pegado a su extremo derecho (`── texto ─┤`).
-pub fn rule_end_title(buffer: &mut Buffer, row: Rect, glyphs: &Glyphs, title: Line<'_>) {
-    let title = end_title(title, glyphs);
+pub fn rule_end_title(buffer: &mut Buffer, row: Rect, context: &Context<'_>, title: Line<'_>) {
+    let title = end_title(title, context);
     let width = saturating_u16(title.width()).min(row.width);
     buffer.set_line(row.right() - width, row.y, &title, width);
 }
 
 /// Línea vertical entre columnas en `rows`. Donde cruza una regla pone `┼`; abajo se
 /// une a la regla que cierra la vista (`┴`) y, si `join_top`, arriba también (`┬`).
-pub fn divider(buffer: &mut Buffer, x: u16, rows: Range<u16>, glyphs: &Glyphs, join_top: bool) {
+pub fn divider(
+    buffer: &mut Buffer,
+    x: u16,
+    rows: Range<u16>,
+    context: &Context<'_>,
+    join_top: bool,
+) {
+    let glyphs = context.glyphs;
+    let border = context.style(Role::Subtle);
     let horizontal = glyphs.border.horizontal_top;
     let junction = glyphs.junction;
     for y in rows.clone() {
@@ -119,16 +153,16 @@ pub fn divider(buffer: &mut Buffer, x: u16, rows: Range<u16>, glyphs: &Glyphs, j
         } else {
             glyphs.border.vertical_left
         };
-        set_symbol(buffer, x, y, symbol);
+        set_symbol(buffer, x, y, symbol, border);
     }
     if join_top
         && let Some(above) = rows.start.checked_sub(1)
         && symbol_at(buffer, x, above) == Some(horizontal)
     {
-        set_symbol(buffer, x, above, junction.tee_down);
+        set_symbol(buffer, x, above, junction.tee_down, border);
     }
     if symbol_at(buffer, x, rows.end) == Some(horizontal) {
-        set_symbol(buffer, x, rows.end, junction.tee_up);
+        set_symbol(buffer, x, rows.end, junction.tee_up, border);
     }
 }
 
@@ -136,9 +170,40 @@ fn symbol_at(buffer: &Buffer, x: u16, y: u16) -> Option<&str> {
     buffer.cell((x, y)).map(|cell| cell.symbol())
 }
 
-fn set_symbol(buffer: &mut Buffer, x: u16, y: u16, symbol: &str) {
+fn set_symbol(buffer: &mut Buffer, x: u16, y: u16, symbol: &str, style: Style) {
     if let Some(cell) = buffer.cell_mut((x, y)) {
-        cell.set_symbol(symbol).set_style(theme::BORDER);
+        cell.set_symbol(symbol).set_style(style);
+    }
+}
+
+/// Un contexto completo para los tests de las vistas, con el tema por defecto.
+#[cfg(test)]
+pub mod testing {
+    use std::sync::LazyLock;
+    use std::time::Instant;
+
+    use super::*;
+    use crate::config::{ColorDepth, ThemeId};
+    use crate::i18n::Spanish;
+
+    pub fn theme() -> &'static Theme {
+        static THEME: LazyLock<Theme> =
+            LazyLock::new(|| Theme::resolve(ThemeId::Terminal, ColorDepth::Ansi16));
+        &THEME
+    }
+
+    /// En español, modo completo y a 100 columnas.
+    pub fn context(glyphs: &'static Glyphs) -> Context<'static> {
+        Context {
+            glyphs,
+            texts: &Spanish,
+            theme: theme(),
+            mode: LayoutMode::Full,
+            width: 100,
+            now: Instant::now(),
+            progress_bars: ProgressBars::default(),
+            lyrics_line: false,
+        }
     }
 }
 
@@ -155,21 +220,27 @@ mod tests {
 
     #[test]
     fn rules_and_dividers_join() {
+        let context = testing::context(&ASCII);
         let mut buffer = Buffer::empty(Rect::new(0, 0, 9, 5));
-        rule(&mut buffer, Rect::new(1, 0, 7, 1), &ASCII, None);
-        rule(&mut buffer, Rect::new(1, 2, 7, 1), &ASCII, None);
+        rule(&mut buffer, Rect::new(1, 0, 7, 1), &context, None);
+        rule(&mut buffer, Rect::new(1, 2, 7, 1), &context, None);
         rule(
             &mut buffer,
             Rect::new(1, 4, 7, 1),
-            &ASCII,
+            &context,
             Some(Line::from("t")),
         );
-        divider(&mut buffer, 4, 1..4, &ASCII, true);
+        divider(&mut buffer, 4, 1..4, &context, true);
         assert_eq!(row_text(&buffer, 0), "+---+---+");
         assert_eq!(row_text(&buffer, 1), "    |    ");
         assert_eq!(row_text(&buffer, 2), "+---+---+");
         assert_eq!(row_text(&buffer, 4), "+- t ---+");
-        rule_end_title(&mut buffer, Rect::new(1, 4, 7, 1), &ASCII, Line::from("x"));
+        rule_end_title(
+            &mut buffer,
+            Rect::new(1, 4, 7, 1),
+            &context,
+            Line::from("x"),
+        );
         assert_eq!(row_text(&buffer, 4), "+- t x -+");
     }
 }
