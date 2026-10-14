@@ -18,7 +18,7 @@ Base de conocimiento para cualquier agente o persona que trabaje en este reposit
 
 Todo diseño respeta SOLID. En este proyecto eso significa:
 
-- Las abstracciones son **traits angostos** (ver `src/repository/traits.rs`): `PlayerRepository`, `OptionsRepository`, `QueueRepository`, `LibraryRepository`, `PlaylistRepository`, `OutputRepository`, `PartitionSelection`, `ChangesRepository`, `PcmSource`, más `Transport` en `src/repository/mpd/transport.rs`. Se extiende componiendo e implementando traits, no modificando structs existentes.
+- Las abstracciones son **traits angostos** (ver `src/repository/traits.rs`): `PlayerRepository`, `OptionsRepository`, `QueueRepository`, `LibraryRepository`, `PlaylistRepository`, `OutputRepository`, `PartitionSelection`, `ChangesRepository`, `PcmSource`, `EmbeddedLyricsRepository`, `LyricsFiles`, `LyricsProvider`, más `Transport` en `src/repository/mpd/transport.rs`. Se extiende componiendo e implementando traits, no modificando structs existentes.
 - Cada consumidor depende **solo del trait que necesita** (p. ej. el vigilante de cambios solo pide `ChangesRepository`), nunca de `MpdClient` ni de `Connection`.
 - Las dependencias se **inyectan por constructor** (`MpdClient::new(transport)`) y se arman en **`src/factory.rs`** (composition root). Ninguna struct instancia sus colaboradores.
 
@@ -31,7 +31,7 @@ Todo diseño respeta SOLID. En este proyecto eso significa:
   - "Pausa/reanuda según el estado" es lógica de negocio: va en un servicio, no en el repositorio.
   - El repositorio solo expone `set_pause(bool)`.
 - **Composición sobre herencia:** structs chicas y enfocadas que se combinan; un tipo puede implementar varios traits angostos.
-- **Fail fast:** validar los inputs en el borde (capa TUI/entrada) antes de ejecutar cualquier lógica de negocio. En Rust el equivalente de Pydantic son los **newtypes con constructor validado** de `src/domain/inputs.rs`:
+- **Fail fast:** validar los inputs en el borde (capa TUI/entrada) antes de ejecutar cualquier lógica de negocio, con los **newtypes con constructor validado** (`new() -> Result<_, InputError>`) de `src/domain/inputs.rs`:
   - Tipos actuales: `Volume`, `SearchText`, `PlaylistName`, `PartitionName` (ASCII alfanumérico, `-` y `_`), `Password` (este último con `Debug` enmascarado) y `PcmFormat` (16 bits, 1 o 2 canales, 8–192 kHz).
   - Si existe un valor de estos tipos, es válido. Servicios y repositorios los reciben ya validados y no revalidan.
   - Nunca corregir en silencio (nada de `.min(100)`): devolver `InputError`.
@@ -42,15 +42,6 @@ Todo diseño respeta SOLID. En este proyecto eso significa:
   - En `vocabulary.rs` están `Verb` (comandos), `keys::*` (claves de respuesta), `FLAG_ON/OFF`, `SINGLE_ONESHOT` y `VOLUME_UNAVAILABLE`.
   - En `address.rs` están `DEFAULT_HOST/PORT`.
   - En `domain/inputs.rs` están `MAX_VOLUME` y `PATH_SEPARATOR`.
-
-### Equivalencias con la versión Python de estas reglas
-
-| Regla original (Python) | En este proyecto (Rust) |
-|---|---|
-| `typing.Protocol` en `repository/protocols.py` | traits en `src/repository/traits.rs` |
-| armado en `tui/factory.py` | `src/factory.rs` |
-| Pydantic `BaseModel` + validators | newtypes con `new() -> Result<_, InputError>` en `src/domain/inputs.rs` |
-| `Enum` / constantes | `enum` y `const` (ver `vocabulary.rs`) |
 
 ---
 
@@ -97,7 +88,7 @@ i18n (textos del usuario) ← tui, main
   - Reciben entradas ya validadas y nunca tocan la terminal.
 - **`src/tui/`:**
   - `app/` contiene `App<B: Backend>`. Corre el loop `tokio::select!` (teclas, `ServerEvent`, tick de 1 s) y tiene un submódulo por vista (`queue`, `library`, `browse`, `search`, `playlists`, `visual`, `lyrics`, `outputs`), más `playback`, `picker`, `prompt` y `refresh`.
-  - `action.rs`: **tabla única `BINDINGS`** de la que salen `action_for` y la ayuda (`help_entries`). Un atajo nuevo se agrega solo ahí.
+  - `action.rs`: **tabla única `BINDINGS`** de la que salen `action_for` y la ayuda (`help_sections`). Un atajo nuevo se agrega solo ahí.
   - Las acciones de vista (`Activate`, `Add`, `AddAll`, `Delete`, `Back`, `Forward`, `Navigate`) las interpreta la vista activa.
   - `list.rs`: `SelectableList<T>` con `SelectionPolicy::{Keep, Reset}` (Keep para refrescos, Reset para contenido nuevo). La usan todas las listas.
   - `prompt.rs`: texto libre y confirmaciones s/n. Las acciones destructivas (vaciar cola, borrar playlist) siempre confirman; quitar un tema (de la cola o de una playlist) no.
@@ -113,10 +104,11 @@ i18n (textos del usuario) ← tui, main
   - La TUI construye las entradas validadas (`SearchText`, `PlaylistName`) a partir de lo que tipea el usuario.
 - **`src/config.rs` (borde de entrada):**
   - `resolve(FileConfig, Environment) -> Settings` es pura y testeable.
-  - Precedencia: defecto < `~/.config/mpctui/config.toml` < `MPD_HOST`/`MPD_PORT`/`MPD_TIMEOUT`/`MPCTUI_GLYPHS`. `MPD_HOST` admite `contraseña@host`, `@abstracto` y `contraseña@@abstracto`.
+  - Precedencia: defecto < `~/.config/mpctui/config.toml` < `MPD_HOST`/`MPD_PORT`/`MPD_TIMEOUT`/`MPCTUI_GLYPHS`/`MPCTUI_COLORS`. `MPD_HOST` admite `contraseña@host`, `@abstracto` y `contraseña@@abstracto`.
   - Sin host configurado, `Settings.addresses` son los candidatos del manual de clientes (`$XDG_RUNTIME_DIR/mpd/socket`, `/run/mpd/socket`, `localhost:port`); `build_app` elige una vez el primero que responde. `MPD_TIMEOUT` (segundos enteros > 0, 30 por defecto) va en `Settings.connection`.
   - `language` (`en` por defecto, `es`) elige el catálogo de textos. `load()` devuelve `ConfigFailure { language, error }` para que `main` explique el error en el idioma configurado (en inglés si el TOML no se pudo leer).
   - `glyphs = "auto"` se resuelve con `resolve_glyph_mode` (pura): ASCII si el locale no es UTF-8 o `TERM` es `linux`/`dumb`.
+  - `theme` (`terminal` por defecto, `midnight`, `vinyl`, `neon`; los tres últimos necesitan 256 colores, con 16 se usa `terminal`) y `colors` (`auto`, `truecolor`, `256`, `16`, `none`). `colors = "auto"` se resuelve con `resolve_color_depth` (pura): sin color si `NO_COLOR` tiene valor o `TERM` es `dumb`; 24 bits si `COLORTERM` es `truecolor`/`24bit`; 256 si `TERM` incluye `256color`; si no, 16.
   - `visualizer_fifo` (`/tmp/mpd.fifo`), `visualizer_format` (`44100:16:2`, validado como `PcmFormat`) y `visualizer_style` (`bars` por defecto; una forma estéreo con FIFO mono es error). Vacío o inválido no arranca; un FIFO inexistente no es error de configuración (la vista lo explica). La forma inicial viaja en `Appearance`.
   - `[lyrics]`: `enabled`, `sources`, `directory`, `music_directory`, `fetch_in_background` y `now_playing_line` (bool, `false` por defecto). Las dos últimas viajan como `Services.lyrics_in_background` y `Appearance.lyrics_line` (ya cruzada con `enabled`); `now_playing_line` implica buscar la letra siempre.
   - `album_progress` / `queue_progress` (bool, `false` por defecto) muestran las barras opcionales del panel. La factory los convierte en `tui::appearance::ProgressBars` dentro de `Appearance` (junto con los glifos), que se inyecta en `App`; la TUI no conoce `Settings`.
@@ -195,7 +187,7 @@ i18n (textos del usuario) ← tui, main
   - `music_directory ~/Music`; playlists en `~/Music/playlists`.
   - Salidas: pulse, alsa `hw:1,3`, alsa dmix NVidia y **FIFO `/tmp/mpd.fifo` (44100:16:2)**, que lee la vista Visual. Leerla es solo lectura y se puede probar contra el servidor real (`cargo run --example spectrum_smoke`).
   - La salida `alsa hw:1,3 BLOCKING` apunta a un dispositivo que no existe: MPD registra una excepción en `~/Music/.mpd/log` cada vez que arranca un tema. Es ruido del entorno, no un problema de mpctui.
-- **Biblioteca real (referencia):** unos 1229 temas en cola, 223 artistas, 43 entradas en la raíz y 0 playlists guardadas.
+- **Biblioteca real (referencia):** miles de temas y cientos de artistas. Las cifras actuales salen de `mpc stats`, `mpc playlist | wc -l`, `mpc ls` y `mpc lsplaylists`, y sirven para comparar con lo que muestra mpctui.
 - **`mpc`** está instalado: sirve para comparar resultados (`mpc status`, `mpc lsplaylists`).
 - **Rust:**
   - Instalado con rustup en `~/.cargo/bin` (Rust 1.99).
@@ -210,7 +202,7 @@ i18n (textos del usuario) ← tui, main
 ```bash
 cargo fmt                                   # formato
 cargo clippy --all-targets -- -D warnings   # lint, cero warnings
-cargo test                                  # unitarios + integración
+cargo test                                  # unitarios + integración (lo corre el usuario)
 cargo run --example smoke                   # solo lectura contra el MPD real
 cargo run --example spectrum_smoke          # lee el FIFO 3 s (solo lectura)
 cargo run --example lyrics_smoke            # consulta LRCLIB con el tema actual (solo lectura; usa la red)
@@ -233,7 +225,7 @@ Contra el MPD real solo se envían teclas de lectura: `1`–`8`, `Tab`, `j`/`k`,
 
 Checklist antes de dar un cambio por terminado:
 
-1. `cargo fmt`, `clippy` sin warnings y `cargo test` en verde.
+1. `cargo fmt` y `clippy` sin warnings. Los tests (`cargo test`) los corre el usuario, no el agente.
 2. Tests nuevos para la lógica nueva:
    - Unitarios dentro del módulo (`#[cfg(test)]`).
    - De punta a punta en `tests/fake_server.rs`. El servidor falso exige cada comando **textual** en orden y responde con un guion fijo.
@@ -254,20 +246,13 @@ Checklist antes de dar un cambio por terminado:
 - **Clippy:**
   - Variantes de enum grandes se encajonan (`Entry::File(Box<Song>)`, por `large_enum_variant`).
   - No se silencian lints con `allow` sin justificar.
-- **Commits:**
-  - Formato Conventional Commits en español: `<type>(<scope>): <descripción>`.
-  - Body: listado por archivo de lo que se hizo.
-  - Footer solo si hay `BREAKING CHANGE`; cerrar con `Co-Authored-By`.
-  - El mensaje se **agrega al final de `.gitmessage`** (un hook lo abre en gedit).
-  - Va delimitado por una línea vacía, después `# ---- inicio commit ----` y al final `# ---- fin commit ----`.
-  - No se hace commit sin pedido explícito.
 
 ## 9. Lecciones aprendidas
 
 - **El prompt debe ignorar combinaciones con Ctrl o Alt.** Si no, `Ctrl+u` agrega una "u" al texto. Lo cubre el test `control_combinations_are_not_text`.
 - **Nunca registrar comandos completos en el log**, porque el comando `password` lleva la contraseña. `Password` implementa `Debug` enmascarado.
 - **Las listas largas no se clonan al dibujar.** `SelectableList::parts_mut` devuelve elementos y `TableState` a la vez.
-- **Con 1000+ temas en la cola hace falta un salto al tema actual** (`o`).
+- **La cola puede tener miles de temas:** la vista no puede depender del desplazamiento manual; `o` salta al tema actual.
 - **La ayuda debe entrar en 30 filas.** Se agrupa por acción y se muestra en dos columnas.
 - **ratatui trae glifos Unicode de fábrica** (divisor de `Tabs`, símbolos de `Scrollbar`, `LineGauge`, bordes). Siempre se configuran desde `Glyphs`; el test `ascii_screens_have_no_unicode_glyphs` lo vigila.
 - **Los anchos se miden en columnas, también en los tests:** `str::find` devuelve bytes y `á` ocupa dos. Para ubicar columnas usar `chars().position` o `Span::width()`.

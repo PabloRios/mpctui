@@ -919,7 +919,7 @@ Particiones a la izquierda y salidas de la elegida a la derecha, con foco por co
 
 ### 5.9 Ayuda (`?`)
 
-Superpuesta y centrada (limpiar el fondo con `Clear`). Dos columnas agrupadas por acción. **Debe entrar en 30 filas** (lección aprendida de `AGENTS.md`) y sale de `help_entries()` / `BINDINGS`: el mockup es ilustrativo.
+Superpuesta y centrada (limpiar el fondo con `Clear`). Dos columnas agrupadas por acción. **Debe entrar en 30 filas** (lección aprendida de `AGENTS.md`) y sale de `help_sections()` / `BINDINGS`: el mockup es ilustrativo.
 
 ```text
 ┌─ Ayuda ──────────────────────────────────────────────────────────────────────────────────┐
