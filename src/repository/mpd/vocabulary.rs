@@ -117,6 +117,7 @@ pub mod keys {
     pub const ALBUM: &str = "Album";
     pub const DATE: &str = "Date";
     pub const TRACK: &str = "Track";
+    pub const DISC: &str = "Disc";
     pub const DURATION: &str = "duration";
     pub const LEGACY_TIME: &str = "Time";
     pub const POSITION: &str = "Pos";

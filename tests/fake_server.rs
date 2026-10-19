@@ -3,8 +3,8 @@
 use std::time::Duration;
 
 use mpctui::domain::{
-    Entry, PartitionName, Password, PlayState, PlaylistName, SampleFormat, SearchText, Status,
-    Subsystem, Tag, TagFilter, Volume,
+    Entry, PartitionName, Password, PlayState, PlaylistName, SampleFormat, SearchText, SongMove,
+    Status, Subsystem, Tag, TagFilter, Volume,
 };
 use mpctui::factory::{connect_following, connect_mpd};
 use mpctui::repository::mpd::{
@@ -206,6 +206,23 @@ async fn edits_the_queue_and_stored_playlists() {
     client.add_to_playlist(&rock, "a/b.flac").await.unwrap();
     client.delete_from_playlist(&rock, 2).await.unwrap();
     client.move_in_playlist(&rock, 1, 0).await.unwrap();
+    server.await.unwrap();
+}
+
+#[tokio::test]
+async fn sorts_the_queue_with_one_command_list() {
+    let (address, server) = fake_server(vec![
+        ("command_list_begin", ""),
+        (r#"move "2" "0""#, ""),
+        (r#"move "2" "1""#, ""),
+        ("command_list_end", "OK\n"),
+    ])
+    .await;
+    let mut client = connect_mpd(&address, &ConnectionSettings::default())
+        .await
+        .unwrap();
+    let moves = [SongMove { from: 2, to: 0 }, SongMove { from: 2, to: 1 }];
+    client.move_songs(&moves).await.unwrap();
     server.await.unwrap();
 }
 

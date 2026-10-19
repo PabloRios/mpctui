@@ -7,7 +7,7 @@ use std::time::Duration;
 use super::error::Result;
 use crate::domain::{
     Entry, FetchedLyrics, Output, PartitionName, PlaylistName, SearchText, SingleMode, Song,
-    Status, Subsystem, Tag, TagFilter, TrackIdentity, Volume,
+    SongMove, Status, Subsystem, Tag, TagFilter, TrackIdentity, Volume,
 };
 
 pub trait PlayerRepository {
@@ -42,6 +42,8 @@ pub trait QueueRepository {
     fn delete(&mut self, position: u32) -> impl Future<Output = Result<()>> + Send;
     /// Lleva el tema de la posición `from` a la posición `to`.
     fn move_song(&mut self, from: u32, to: u32) -> impl Future<Output = Result<()>> + Send;
+    /// Aplica los movimientos en orden, de una sola vez.
+    fn move_songs(&mut self, moves: &[SongMove]) -> impl Future<Output = Result<()>> + Send;
     fn clear(&mut self) -> impl Future<Output = Result<()>> + Send;
 }
 

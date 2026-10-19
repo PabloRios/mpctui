@@ -79,6 +79,7 @@ pub enum Phrase {
     NewPartition,
     MoveOutput,
     NextTheme,
+    SortQueue,
     // Secciones y marco de la ayuda.
     HelpNavigation,
     HelpLists,
@@ -129,6 +130,7 @@ pub enum Phrase {
     HintToggleOutput,
     HintMoveOutput,
     HintUsePartition,
+    HintSort,
     /// Teclas de la línea de búsqueda.
     SearchKeys,
     // Diálogos.
@@ -143,6 +145,8 @@ pub enum Phrase {
     NewPlaylistChoice,
     NewPartitionTitle,
     PartitionPickerTitle,
+    SortPickerTitle,
+    SortPickerKeys,
     Yes,
     No,
     /// La tecla que se muestra para confirmar (se aceptan las de los dos idiomas).
@@ -193,6 +197,14 @@ pub enum Phrase {
     ColumnDuration,
     ColumnSong,
     PartitionsTitle,
+    // Criterios para ordenar la cola.
+    SortArtist,
+    SortYear,
+    SortAlbum,
+    SortDisc,
+    SortTrack,
+    SortTitle,
+    SortFile,
     // Formato de audio.
     Mono,
     Stereo,
@@ -233,6 +245,7 @@ pub enum Phrase {
     LyricsDisabled,
     LibraryUpdateRequested,
     QueueCleared,
+    QueueSorted,
     NoVolumeControl,
     DefaultPartitionUndeletable,
     ActivePartitionUndeletable,

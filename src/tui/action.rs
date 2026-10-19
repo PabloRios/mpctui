@@ -68,6 +68,8 @@ pub enum Action {
     MoveSong(MoveDirection),
     /// Abre el selector de playlists para agregar lo seleccionado.
     AddToPlaylist,
+    /// En la cola, abre el diálogo para elegir los criterios de orden.
+    SortQueue,
     TogglePause,
     Stop,
     NextSong,
@@ -305,6 +307,7 @@ pub const BINDINGS: &[Binding] = &[
         Action::ShowPlaying,
         Phrase::ShowPlaying,
     ),
+    plain(&[KeyCode::Char('O')], Action::SortQueue, Phrase::SortQueue),
     control(
         &[KeyCode::Char('r')],
         Action::RetryLyrics,
@@ -389,6 +392,7 @@ impl HelpGroup {
             | Action::Delete
             | Action::MoveSong(_)
             | Action::AddToPlaylist
+            | Action::SortQueue
             | Action::ClearQueue
             | Action::SaveQueue
             | Action::ShowPlaying => HelpGroup::Lists,
@@ -661,6 +665,18 @@ mod tests {
         assert_eq!(press('8'), Some(Action::ShowView(ViewKind::Outputs)));
         assert_eq!(press('n'), Some(Action::NewPartition));
         assert_eq!(press('m'), Some(Action::MoveOutput));
+    }
+
+    #[test]
+    fn shifted_o_sorts_the_queue_and_plain_o_shows_the_playing_song() {
+        assert_eq!(
+            action_for(key(KeyCode::Char('O'), KeyModifiers::SHIFT)),
+            Some(Action::SortQueue)
+        );
+        assert_eq!(
+            action_for(key(KeyCode::Char('o'), KeyModifiers::NONE)),
+            Some(Action::ShowPlaying)
+        );
     }
 
     #[test]

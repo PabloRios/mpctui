@@ -1,5 +1,5 @@
 //! Selectores: el de playlists se abre con lo que hay que agregar y, al elegir, lo
-//! agrega; el de particiones mueve la salida elegida.
+//! agrega; el de particiones mueve la salida elegida y el de orden ordena la cola.
 
 use crossterm::event::KeyEvent;
 
@@ -47,6 +47,14 @@ impl<B: Backend> App<B> {
                     if let Some(Picker::Partition(picker)) = self.state.picker.take() {
                         self.move_output(&picker.output, &destination).await;
                     }
+                }
+            },
+            Some(Picker::Sort(picker)) => match picker.handle_key(key) {
+                PickerOutcome::Browsing => {}
+                PickerOutcome::Cancelled => self.state.picker = None,
+                PickerOutcome::Chosen(keys) => {
+                    self.state.picker = None;
+                    self.sort_queue(&keys).await;
                 }
             },
             None => {}

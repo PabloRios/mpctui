@@ -13,7 +13,6 @@ use super::chrome::{self, Context, block_title, end_title};
 use super::format::{
     ARTIST_ALBUM_SEPARATOR, AUDIO_PART_SEPARATOR, AudioPart, AudioPartKind, AudioQuality, MISSING,
     TIME_UNKNOWN, audio_parts, duration_or_unknown, fit_line, fit_parts_from_left, format_duration,
-    year,
 };
 use super::gauges::{
     ALBUM_BAR, BAR_MIN_WIDTH, BarInput, BarPolicy, MeterFill, QUEUE_BAR, SONG_BAR, bar_line, meter,
@@ -515,13 +514,13 @@ fn song_line(playback: &Playback<'_>, width: u16, context: &Context<'_>) -> Line
         .clone()
         .or_else(|| song.album_artist.clone())
         .unwrap_or_default();
-    let album =
-        song.album
-            .as_deref()
-            .map_or_else(String::new, |album| match year(song.date.as_deref()) {
-                Some(year) => format!("{album} ({year})"),
-                None => album.to_owned(),
-            });
+    let album = song
+        .album
+        .as_deref()
+        .map_or_else(String::new, |album| match song.year() {
+            Some(year) => format!("{album} ({year})"),
+            None => album.to_owned(),
+        });
     let separator = if artist.is_empty() || album.is_empty() {
         ""
     } else {

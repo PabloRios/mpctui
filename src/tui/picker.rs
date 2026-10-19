@@ -1,11 +1,14 @@
-//! Selectores: a qué playlist agregar lo seleccionado (o a una nueva) y a qué partición
-//! mover una salida. Los dos se navegan igual.
+//! Selectores: a qué playlist agregar lo seleccionado (o a una nueva), a qué partición
+//! mover una salida y por qué criterios ordenar la cola. Todos se navegan igual.
 
 use crossterm::event::{KeyCode, KeyEvent};
 
 use super::action::{Action, action_for};
 use super::list::{SelectableList, SelectionPolicy};
-use crate::domain::{Output, PartitionName, PlaylistName, Song};
+use crate::domain::{Output, PartitionName, PlaylistName, Song, SortKey};
+
+/// Agrega o quita el criterio resaltado en el selector de orden.
+const TOGGLE_KEY: KeyCode = KeyCode::Char(' ');
 
 /// Lo que se agrega a una playlist y cómo nombrarlo en el aviso.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -57,6 +60,7 @@ pub enum PickerOutcome<T> {
 pub enum Picker {
     Playlist(PlaylistPicker),
     Partition(PartitionPicker),
+    Sort(SortPicker),
 }
 
 /// Enter elige, Esc cancela y las teclas de navegación son las de la tabla de atajos.
@@ -115,6 +119,78 @@ impl PartitionPicker {
 
     pub fn handle_key(&mut self, key: KeyEvent) -> PickerOutcome<PartitionName> {
         choose(&mut self.choices, key)
+    }
+}
+
+/// Los criterios de orden de la cola, elegidos de a uno: el orden en que se eligen es el
+/// orden en que se aplican.
+#[derive(Debug)]
+pub struct SortPicker {
+    pub choices: SelectableList<SortKey>,
+    pub order: SortOrder,
+}
+
+impl Default for SortPicker {
+    fn default() -> Self {
+        let mut choices = SelectableList::default();
+        choices.set_items(SortKey::ALL.to_vec(), SelectionPolicy::Reset);
+        Self {
+            choices,
+            order: SortOrder::default(),
+        }
+    }
+}
+
+impl SortPicker {
+    /// Espacio elige o descarta; Enter ordena por los elegidos o, si no hay ninguno, por
+    /// el resaltado.
+    pub fn handle_key(&mut self, key: KeyEvent) -> PickerOutcome<Vec<SortKey>> {
+        match key.code {
+            TOGGLE_KEY => {
+                if let Some(&key) = self.choices.selected() {
+                    self.order.toggle(key);
+                }
+                PickerOutcome::Browsing
+            }
+            KeyCode::Enter => self
+                .criteria()
+                .map_or(PickerOutcome::Browsing, PickerOutcome::Chosen),
+            _ => match choose(&mut self.choices, key) {
+                PickerOutcome::Cancelled => PickerOutcome::Cancelled,
+                PickerOutcome::Browsing | PickerOutcome::Chosen(_) => PickerOutcome::Browsing,
+            },
+        }
+    }
+
+    fn criteria(&self) -> Option<Vec<SortKey>> {
+        if self.order.keys.is_empty() {
+            return self.choices.selected().map(|key| vec![*key]);
+        }
+        Some(self.order.keys.clone())
+    }
+}
+
+/// Los criterios elegidos, sin repetir, en el orden en que se eligieron.
+#[derive(Debug, Default)]
+pub struct SortOrder {
+    keys: Vec<SortKey>,
+}
+
+impl SortOrder {
+    /// Lo agrega al final o, si ya estaba, lo quita (los siguientes suben un lugar).
+    fn toggle(&mut self, key: SortKey) {
+        match self.keys.iter().position(|chosen| *chosen == key) {
+            Some(index) => {
+                self.keys.remove(index);
+            }
+            None => self.keys.push(key),
+        }
+    }
+
+    /// El lugar del criterio en el orden, desde 1, si está elegido.
+    pub fn rank(&self, key: SortKey) -> Option<usize> {
+        let index = self.keys.iter().position(|chosen| *chosen == key)?;
+        Some(index + 1)
     }
 }
 
@@ -200,6 +276,59 @@ mod tests {
         );
         assert_eq!(
             picker.handle_key(key(KeyCode::Esc)),
+            PickerOutcome::Cancelled
+        );
+    }
+
+    fn press_sort(picker: &mut SortPicker, code: KeyCode) -> PickerOutcome<Vec<SortKey>> {
+        picker.handle_key(KeyEvent::new(code, KeyModifiers::NONE))
+    }
+
+    #[test]
+    fn space_picks_criteria_in_order_and_enter_sorts_by_them() {
+        let mut picker = SortPicker::default();
+        press_sort(&mut picker, KeyCode::Char('j'));
+        press_sort(&mut picker, TOGGLE_KEY);
+        press_sort(&mut picker, KeyCode::Char('k'));
+        press_sort(&mut picker, TOGGLE_KEY);
+        assert_eq!(picker.order.rank(SortKey::Year), Some(1));
+        assert_eq!(picker.order.rank(SortKey::Artist), Some(2));
+        assert_eq!(picker.order.rank(SortKey::Album), None);
+        assert_eq!(
+            press_sort(&mut picker, KeyCode::Enter),
+            PickerOutcome::Chosen(vec![SortKey::Year, SortKey::Artist])
+        );
+    }
+
+    #[test]
+    fn space_again_drops_the_criterion_and_renumbers_the_rest() {
+        let mut picker = SortPicker::default();
+        press_sort(&mut picker, TOGGLE_KEY);
+        press_sort(&mut picker, KeyCode::Char('j'));
+        press_sort(&mut picker, TOGGLE_KEY);
+        press_sort(&mut picker, KeyCode::Char('k'));
+        press_sort(&mut picker, TOGGLE_KEY);
+        assert_eq!(picker.order.rank(SortKey::Artist), None);
+        assert_eq!(picker.order.rank(SortKey::Year), Some(1));
+    }
+
+    #[test]
+    fn enter_without_criteria_sorts_by_the_highlighted_one() {
+        let mut picker = SortPicker::default();
+        press_sort(&mut picker, KeyCode::Char('j'));
+        press_sort(&mut picker, KeyCode::Char('j'));
+        assert_eq!(
+            press_sort(&mut picker, KeyCode::Enter),
+            PickerOutcome::Chosen(vec![SortKey::Album])
+        );
+    }
+
+    #[test]
+    fn escape_cancels_the_sort() {
+        let mut picker = SortPicker::default();
+        press_sort(&mut picker, TOGGLE_KEY);
+        assert_eq!(
+            press_sort(&mut picker, KeyCode::Esc),
             PickerOutcome::Cancelled
         );
     }

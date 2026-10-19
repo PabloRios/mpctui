@@ -1,5 +1,5 @@
 //! Diálogos superpuestos y centrados: confirmación, nombre de playlist (guardar la cola
-//! o crear una nueva) o de partición, y selectores de playlist y de partición.
+//! o crear una nueva) o de partición, y selectores de playlist, de partición y de orden.
 
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Margin, Rect};
@@ -9,10 +9,10 @@ use ratatui::widgets::{Clear, Paragraph};
 use super::chrome::{Context, titled_block};
 use super::format::{fit_start, saturating_u16};
 use super::widgets::{ItemRows, RowSource, Selection, render_list};
-use crate::domain::PartitionName;
+use crate::domain::{PartitionName, SortKey};
 use crate::i18n::{Message, Phrase};
 use crate::tui::list::SelectableList;
-use crate::tui::picker::{Picker, PlaylistChoice};
+use crate::tui::picker::{Picker, PlaylistChoice, SortOrder};
 use crate::tui::prompt::{Confirmation, DECLINE_KEYS, Prompt, PromptKind};
 use crate::tui::state::AppState;
 use crate::tui::theme::Role;
@@ -36,6 +36,8 @@ const PICKER_MAX_ROWS: usize = 10;
 const PICKER_FIXED_ROWS: usize = 4;
 /// Separación entre una insignia y el nombre.
 const BADGE_GAP: &str = " ";
+/// Lo que ocupa el número de un criterio de orden sin elegir.
+const UNRANKED: &str = " ";
 
 pub fn render(frame: &mut Frame, area: Rect, state: &AppState, context: &Context<'_>) {
     let Some(prompt) = &state.prompt else {
@@ -213,7 +215,7 @@ pub fn render_picker(frame: &mut Frame, area: Rect, picker: &mut Picker, context
             picker_dialog(
                 frame,
                 area,
-                Phrase::PickerTitle,
+                [Phrase::PickerTitle, Phrase::PickerKeys],
                 &mut picker.choices,
                 context,
                 |choices| choice_rows(choices, new_playlist, context),
@@ -222,19 +224,27 @@ pub fn render_picker(frame: &mut Frame, area: Rect, picker: &mut Picker, context
         Picker::Partition(picker) => picker_dialog(
             frame,
             area,
-            Phrase::PartitionPickerTitle,
+            [Phrase::PartitionPickerTitle, Phrase::PickerKeys],
             &mut picker.choices,
             context,
             partition_rows,
         ),
+        Picker::Sort(picker) => picker_dialog(
+            frame,
+            area,
+            [Phrase::SortPickerTitle, Phrase::SortPickerKeys],
+            &mut picker.choices,
+            context,
+            |keys| sort_rows(keys, &picker.order, context),
+        ),
     }
 }
 
-/// Marco, lista desplazable de opciones y teclas al pie.
+/// Marco, lista desplazable de opciones y teclas al pie; `[título, teclas]`.
 fn picker_dialog<'a, T, S: RowSource>(
     frame: &mut Frame,
     area: Rect,
-    title: Phrase,
+    [title, keys]: [Phrase; 2],
     choices: &'a mut SelectableList<T>,
     context: &Context<'_>,
     make_rows: impl FnOnce(&'a [T]) -> S,
@@ -269,10 +279,7 @@ fn picker_dialog<'a, T, S: RowSource>(
     let mut offset = table.offset();
     render_list(frame, list_area, context, &rows, selection, &mut offset);
     *table.offset_mut() = offset;
-    let keys = Line::styled(
-        context.phrase(Phrase::PickerKeys).to_owned(),
-        context.style(Role::Muted),
-    );
+    let keys = Line::styled(context.phrase(keys).to_owned(), context.style(Role::Muted));
     frame
         .buffer_mut()
         .set_line(keys_area.x, keys_area.y, &keys, keys_area.width);
@@ -282,6 +289,46 @@ fn partition_rows<'a>(names: &'a [PartitionName]) -> impl RowSource + 'a {
     ItemRows {
         items: names,
         line: |name: &'a PartitionName| Line::raw(name.as_str()),
+    }
+}
+
+/// Cada criterio con su lugar en el orden; los elegidos, resaltados.
+fn sort_rows<'a, 'texts>(
+    keys: &'a [SortKey],
+    order: &'a SortOrder,
+    context: &Context<'texts>,
+) -> impl RowSource + use<'a, 'texts> {
+    let texts = context.texts;
+    let chosen = context.style(Role::Accent);
+    ItemRows {
+        items: keys,
+        line: move |key: &'a SortKey| {
+            let name = texts.phrase(sort_key_phrase(*key));
+            match order.rank(*key) {
+                Some(rank) => Line::from(vec![
+                    Span::styled(rank.to_string(), chosen),
+                    Span::raw(BADGE_GAP),
+                    Span::styled(name, chosen),
+                ]),
+                None => Line::from(vec![
+                    Span::raw(UNRANKED),
+                    Span::raw(BADGE_GAP),
+                    Span::raw(name),
+                ]),
+            }
+        },
+    }
+}
+
+fn sort_key_phrase(key: SortKey) -> Phrase {
+    match key {
+        SortKey::Artist => Phrase::SortArtist,
+        SortKey::Year => Phrase::SortYear,
+        SortKey::Album => Phrase::SortAlbum,
+        SortKey::Disc => Phrase::SortDisc,
+        SortKey::Track => Phrase::SortTrack,
+        SortKey::Title => Phrase::SortTitle,
+        SortKey::File => Phrase::SortFile,
     }
 }
 

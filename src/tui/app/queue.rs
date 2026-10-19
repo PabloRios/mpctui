@@ -1,9 +1,10 @@
 //! Acciones de la vista de cola.
 
 use super::{App, Backend};
-use crate::domain::{MoveDirection, Song};
-use crate::i18n::Message;
+use crate::domain::{MoveDirection, Song, SortKey};
+use crate::i18n::{Message, Phrase};
 use crate::tui::action::{Action, Navigation};
+use crate::tui::picker::{Picker, SortPicker};
 use crate::tui::state::ViewKind;
 
 impl<B: Backend> App<B> {
@@ -19,6 +20,7 @@ impl<B: Backend> App<B> {
                 let song = self.state.queue.selected().cloned();
                 self.pick_playlist_for_song(song).await;
             }
+            Action::SortQueue => self.state.picker = Some(Picker::Sort(SortPicker::default())),
             _ => {}
         }
     }
@@ -60,6 +62,14 @@ impl<B: Backend> App<B> {
         let result = self.services.queue.shift(position, direction, length).await;
         if let Some(Some(_)) = self.report(result) {
             self.state.queue.navigate(Navigation::following(direction));
+        }
+    }
+
+    /// La cola nueva llega por `idle`, como cualquier otro cambio.
+    pub(super) async fn sort_queue(&mut self, keys: &[SortKey]) {
+        let result = self.services.queue.sort(keys).await;
+        if self.report(result).is_some() {
+            self.notify_info(self.phrase(Phrase::QueueSorted));
         }
     }
 

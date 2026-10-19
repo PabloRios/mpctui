@@ -10,8 +10,8 @@ use super::protocol::{Command, FilterOperator, Pair, filter_expression};
 use super::transport::Transport;
 use super::vocabulary::{SEEK_DECIMALS, Verb, flag, keys, single_mode_argument, tag_name};
 use crate::domain::{
-    Entry, Output, PartitionName, PlaylistName, SearchText, SingleMode, Song, Status, Subsystem,
-    Tag, TagFilter, Volume,
+    Entry, Output, PartitionName, PlaylistName, SearchText, SingleMode, Song, SongMove, Status,
+    Subsystem, Tag, TagFilter, Volume,
 };
 use crate::repository::error::Result;
 use crate::repository::traits::{
@@ -139,12 +139,22 @@ impl<T: Transport + Send> QueueRepository for MpdClient<T> {
     }
 
     async fn move_song(&mut self, from: u32, to: u32) -> Result<()> {
-        self.run(Command::new(Verb::Move).arg(from).arg(to)).await
+        self.run(move_command(from, to)).await
+    }
+
+    /// En una lista: MPD los aplica de corrido, sin cambios de otros clientes en medio.
+    async fn move_songs(&mut self, moves: &[SongMove]) -> Result<()> {
+        let commands = moves.iter().map(|step| move_command(step.from, step.to));
+        self.run(Command::list(commands)).await
     }
 
     async fn clear(&mut self) -> Result<()> {
         self.run(Command::new(Verb::Clear)).await
     }
+}
+
+fn move_command(from: u32, to: u32) -> Command {
+    Command::new(Verb::Move).arg(from).arg(to)
 }
 
 impl<T: Transport + Send> LibraryRepository for MpdClient<T> {

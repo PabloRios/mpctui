@@ -52,6 +52,7 @@ fn view_hints(state: &AppState) -> &'static [(Action, Phrase)] {
             (Action::MoveSong(MoveDirection::Down), Phrase::HintMoveDown),
             (Action::MoveSong(MoveDirection::Up), Phrase::HintMoveUp),
             (Action::AddToPlaylist, Phrase::HintToPlaylist),
+            (Action::SortQueue, Phrase::HintSort),
             (Action::ShowPlaying, Phrase::HintShowPlaying),
             (Action::ToggleHelp, Phrase::HintHelp),
         ],

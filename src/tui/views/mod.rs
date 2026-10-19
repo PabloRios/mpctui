@@ -124,7 +124,9 @@ mod tests {
     use crate::tui::appearance::ProgressBars;
     use crate::tui::glyphs::{ASCII, Glyphs, UNICODE};
     use crate::tui::list::SelectionPolicy;
-    use crate::tui::picker::{PartitionPicker, Picker, PlaylistAddition, PlaylistPicker};
+    use crate::tui::picker::{
+        PartitionPicker, Picker, PlaylistAddition, PlaylistPicker, SortPicker,
+    };
     use crate::tui::prompt::{Confirmation, Prompt, PromptKind};
     use crate::tui::state::{
         ConnectionState, LyricsStatus, Notice, NoticeLevel, OutputsColumn, PlaylistsColumn,
@@ -385,6 +387,7 @@ mod tests {
             |state| state.prompt = Some(Prompt::confirm(Confirmation::ClearQueue)),
             |state| state.picker = Some(Picker::Playlist(sample_picker())),
             |state| state.picker = Some(Picker::Partition(sample_partition_picker())),
+            |state| state.picker = Some(Picker::Sort(sample_sort_picker())),
             |state| state.prompt = Some(Prompt::text(PromptKind::NewPartition, "z".into())),
             |state| {
                 let partition = sample_partitions().remove(0);
@@ -1207,6 +1210,34 @@ mod tests {
             .navigate(crate::tui::action::Navigation::Last);
         let screen = screen_lines(&render_to_buffer(&mut state, &ASCII, SIZES[0]));
         assert!(screen.contains("> = lista 13"), "{screen}");
+    }
+
+    /// Artista primero y Año segundo, con el cursor en Año.
+    fn sample_sort_picker() -> SortPicker {
+        use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+        let mut picker = SortPicker::default();
+        for code in [KeyCode::Char(' '), KeyCode::Char('j'), KeyCode::Char(' ')] {
+            picker.handle_key(KeyEvent::new(code, KeyModifiers::NONE));
+        }
+        picker
+    }
+
+    #[test]
+    fn the_sort_picker_numbers_the_chosen_criteria() {
+        let mut state = sample_state();
+        state.picker = Some(Picker::Sort(sample_sort_picker()));
+        let screen = screen_lines(&render_to_buffer(&mut state, &ASCII, SIZES[0]));
+        assert_contains(
+            &screen,
+            &[
+                "Ordenar la cola por",
+                "1 Artista",
+                "> 2 Año",
+                "  Disco",
+                "Archivo",
+                "Espacio elige  Enter ordena  Esc cancela",
+            ],
+        );
     }
 
     #[test]

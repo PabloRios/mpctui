@@ -259,6 +259,7 @@ impl<B: Backend> App<B> {
             | Action::Delete
             | Action::MoveSong(_)
             | Action::AddToPlaylist
+            | Action::SortQueue
             | Action::NewPartition
             | Action::MoveOutput => self.perform_in_view(action).await,
             _ => self.perform_playback(action).await,

@@ -87,6 +87,7 @@ pub fn parse_song(record: &[Pair]) -> Result<Song> {
             keys::ALBUM => song.album = Some(value.clone()),
             keys::DATE => song.date = Some(value.clone()),
             keys::TRACK => song.track = Some(value.clone()),
+            keys::DISC => song.disc = Some(value.clone()),
             keys::DURATION => song.duration = Some(parse_seconds(key, value)?),
             keys::LEGACY_TIME => legacy_duration = Some(parse_seconds(key, value)?),
             keys::POSITION => song.position = Some(parse_number(key, value)?),
@@ -371,6 +372,12 @@ mod tests {
         assert_eq!(song.date.as_deref(), Some("1973-03-01"));
         let odd = parse_song(&pairs("file: b.mp3\nDate: circa 70s")).unwrap();
         assert_eq!(odd.date.as_deref(), Some("circa 70s"));
+    }
+
+    #[test]
+    fn song_keeps_the_disc_tag() {
+        let song = parse_song(&pairs("file: a.flac\nDisc: 2/2\nTrack: 5")).unwrap();
+        assert_eq!(song.disc.as_deref(), Some("2/2"));
     }
 
     #[test]

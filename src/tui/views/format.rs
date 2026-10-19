@@ -17,8 +17,6 @@ const MILLIS_PER_SECOND: u128 = 1_000;
 pub const MISSING: &str = "—";
 /// Tiempo que no se conoce (detenido o stream).
 pub const TIME_UNKNOWN: &str = "--:--";
-/// Cifras del año al principio de `Date`.
-const YEAR_DIGITS: usize = 4;
 /// Separación entre las partes del formato de audio.
 pub const AUDIO_PART_SEPARATOR: &str = "  ";
 /// Las URL (`http://…`) son streams: su "extensión" no dice nada del códec.
@@ -65,20 +63,12 @@ pub fn duration_or_unknown(duration: Option<Duration>) -> String {
     duration.map_or_else(|| TIME_UNKNOWN.to_owned(), format_duration)
 }
 
-/// El año, si `Date` empieza con cuatro dígitos; si no, nada (es un tag libre).
-pub fn year(date: Option<&str>) -> Option<&str> {
-    let year = date?.get(..YEAR_DIGITS)?;
-    year.bytes()
-        .all(|byte| byte.is_ascii_digit())
-        .then_some(year)
-}
-
 /// `Artista - Álbum (año)`, o `[sin álbum]`.
 pub fn album_title(song: &Song) -> AlbumTitle<'_> {
     AlbumTitle {
         artist: song.album.as_ref().and(song.album_owner()),
         album: song.album.as_deref(),
-        year: song.album.as_ref().and(year(song.date.as_deref())),
+        year: song.album.as_ref().and(song.year()),
     }
 }
 
@@ -521,15 +511,6 @@ mod tests {
     #[test]
     fn unknown_times_and_plurals() {
         assert_eq!(duration_or_unknown(None), TIME_UNKNOWN);
-    }
-
-    #[test]
-    fn year_needs_four_leading_digits() {
-        assert_eq!(year(Some("1973-03-01")), Some("1973"));
-        assert_eq!(year(Some("1973")), Some("1973"));
-        assert_eq!(year(Some("circa 1970")), None);
-        assert_eq!(year(Some("97")), None);
-        assert_eq!(year(None), None);
     }
 
     #[test]

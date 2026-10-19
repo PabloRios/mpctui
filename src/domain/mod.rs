@@ -4,6 +4,7 @@ mod audio;
 mod inputs;
 mod lyrics;
 mod models;
+mod sort;
 mod spectrum;
 mod timeline;
 mod visual;
@@ -16,9 +17,10 @@ pub use inputs::{
 };
 pub use lyrics::{FetchedLyrics, LyricLine, Lyrics, LyricsQuery, LyricsSource, TrackIdentity};
 pub use models::{
-    Entry, MoveDirection, Output, Partition, PlayState, SingleMode, Song, Status, Subsystem, Tag,
-    TagFilter,
+    Entry, MoveDirection, Output, Partition, PlayState, SingleMode, Song, SongMove, Status,
+    Subsystem, Tag, TagFilter,
 };
+pub use sort::{SortKey, compare_songs};
 pub use spectrum::{SPECTRUM_MAX_HZ, SPECTRUM_MIN_HZ, band_centers, band_edges};
 pub use timeline::{AlbumRun, Timeline, timeline};
 pub use visual::{

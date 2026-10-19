@@ -63,6 +63,8 @@ pub struct Song {
     /// Tag libre del usuario (`2003`, `2003-05-12`…); se muestra solo si trae el año.
     pub date: Option<String>,
     pub track: Option<String>,
+    /// Número de disco (`1`, `2/2`…).
+    pub disc: Option<String>,
     pub duration: Option<Duration>,
     /// Solo presente en canciones de la cola.
     pub position: Option<u32>,
@@ -86,14 +88,32 @@ impl Song {
 
     /// Número de pista sin el total del disco (`3/12` → `3`).
     pub fn track_number(&self) -> Option<&str> {
-        self.track
-            .as_deref()
-            .and_then(|track| track.split(TRACK_TOTAL_SEPARATOR).next())
+        number_before_total(self.track.as_deref())
+    }
+
+    /// Número de disco sin el total de discos (`1/2` → `1`).
+    pub fn disc_number(&self) -> Option<&str> {
+        number_before_total(self.disc.as_deref())
+    }
+
+    /// El año, si `Date` empieza con cuatro dígitos; si no, nada (es un tag libre).
+    pub fn year(&self) -> Option<&str> {
+        let year = self.date.as_deref()?.get(..YEAR_DIGITS)?;
+        year.bytes()
+            .all(|byte| byte.is_ascii_digit())
+            .then_some(year)
     }
 }
 
-/// Separa el número de pista del total en el tag `Track` (`3/12`).
-const TRACK_TOTAL_SEPARATOR: char = '/';
+/// Separa el número del total en los tags `Track` y `Disc` (`3/12`).
+const TOTAL_SEPARATOR: char = '/';
+/// Cifras del año al principio de `Date`.
+const YEAR_DIGITS: usize = 4;
+
+/// La parte de un tag numerado antes del total.
+fn number_before_total(tag: Option<&str>) -> Option<&str> {
+    tag?.split(TOTAL_SEPARATOR).next()
+}
 
 /// Último tramo de una ruta de la biblioteca.
 fn last_component(path: &str) -> &str {
@@ -185,6 +205,13 @@ impl TagFilter {
     }
 }
 
+/// Un `move` de la cola: lleva el tema de la posición `from` a la posición `to`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SongMove {
+    pub from: u32,
+    pub to: u32,
+}
+
 /// Hacia dónde se corre un tema dentro de una lista (cola o playlist).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MoveDirection {
@@ -231,5 +258,31 @@ mod tests {
         assert_eq!(song_with_track("3/12").track_number(), Some("3"));
         assert_eq!(song_with_track("7").track_number(), Some("7"));
         assert_eq!(Song::default().track_number(), None);
+    }
+
+    #[test]
+    fn disc_number_drops_the_disc_total() {
+        let song = Song {
+            disc: Some("2/3".into()),
+            ..Song::default()
+        };
+        assert_eq!(song.disc_number(), Some("2"));
+        assert_eq!(Song::default().disc_number(), None);
+    }
+
+    fn song_with_date(date: &str) -> Song {
+        Song {
+            date: Some(date.into()),
+            ..Song::default()
+        }
+    }
+
+    #[test]
+    fn year_needs_four_leading_digits() {
+        assert_eq!(song_with_date("1973-03-01").year(), Some("1973"));
+        assert_eq!(song_with_date("1973").year(), Some("1973"));
+        assert_eq!(song_with_date("circa 1970").year(), None);
+        assert_eq!(song_with_date("97").year(), None);
+        assert_eq!(Song::default().year(), None);
     }
 }
