@@ -14,6 +14,7 @@ mod help;
 mod layout;
 mod now_playing;
 mod pages;
+mod song_info;
 mod widgets;
 
 use std::time::Instant;
@@ -77,6 +78,9 @@ pub fn render(frame: &mut Frame, state: &mut AppState, appearance: &Appearance, 
     if let Some(picker) = &mut state.picker {
         dialogs::render_picker(frame, area, picker, &context);
     }
+    if let Some(info) = &mut state.song_info {
+        song_info::render(frame, area, info, &context);
+    }
     if state.help_visible {
         help::render(frame, area, &context);
     }
@@ -116,7 +120,8 @@ mod tests {
     use crate::domain::{
         AudioFormat, BandFrame, ChannelLevel, Entry, LyricLine, Lyrics, LyricsSource, Output,
         Partition, PartitionName, PlayState, PlaylistName, SampleFormat, SampleRange, ScopePoint,
-        SearchText, Song, Status, VisualContent, VisualFrame, VisualizerStyle, Volume,
+        SearchText, Song, SongDetails, SongTag, Status, TagName, VisualContent, VisualFrame,
+        VisualizerStyle, Volume,
     };
     use crate::i18n::{Catalog, English, Spanish};
     use crate::repository::Error;
@@ -130,7 +135,7 @@ mod tests {
     use crate::tui::prompt::{Confirmation, Prompt, PromptKind};
     use crate::tui::state::{
         ConnectionState, LyricsStatus, Notice, NoticeLevel, OutputsColumn, PlaylistsColumn,
-        ViewKind, VisualView,
+        SongInfoView, ViewKind, VisualView,
     };
     use crate::tui::theme::Theme;
 
@@ -399,7 +404,35 @@ mod tests {
                 state.prompt = Some(Prompt::text(kind, "y".into()));
             },
             |state| state.playlists.focus = PlaylistsColumn::Songs,
+            |state| state.song_info = Some(sample_song_info()),
         ]
+    }
+
+    /// Ficha con tags conocidos, uno con dos valores, uno raro y un comentario largo.
+    fn sample_song_info() -> SongInfoView {
+        let details = SongDetails {
+            file: song(3).file,
+            duration: Some(Duration::from_secs(400)),
+            format: Some(AudioFormat {
+                sample_rate: Some(44_100),
+                format: SampleFormat::Integer { bits: 16 },
+                channels: 2,
+            }),
+            last_modified: Some("2019-04-21T19:23:18Z".into()),
+            tags: vec![
+                SongTag::new(TagName::Other("Ensemble".into()), "[Pink Floyd]"),
+                SongTag::new(TagName::Title, "Astronomy Domine"),
+                SongTag::new(TagName::Artist, "Pink Floyd"),
+                SongTag::new(TagName::Artist, "Syd Barrett"),
+                SongTag::new(TagName::Genre, "Psicodelia"),
+                SongTag::new(
+                    TagName::Comment,
+                    "Una grabación de 1967 con un comentario larguísimo que no entra \
+                     en una sola fila de la ficha y tiene que partirse en varias",
+                ),
+            ],
+        };
+        SongInfoView::new(song(3), details)
     }
 
     /// Más playlists de las que entran en el selector, para que se desplace.
@@ -1237,6 +1270,56 @@ mod tests {
                 "Archivo",
                 "Espacio elige  Enter ordena  Esc cancela",
             ],
+        );
+    }
+
+    #[test]
+    fn the_song_information_translates_known_tags_and_keeps_the_rest() {
+        let mut state = sample_state();
+        state.song_info = Some(sample_song_info());
+        let screen = screen_lines(&render_to_buffer(&mut state, &ASCII, SIZES[0]));
+        assert_contains(
+            &screen,
+            &[
+                "Información del tema",
+                "Título      Astronomy Domine",
+                "Artista     Pink Floyd",
+                "            Syd Barrett",
+                "Género      Psicodelia",
+                "Ensemble    [Pink Floyd]",
+                "Formato     FLAC  44.1 kHz  16 bit  estéreo",
+                "Duración    6:40",
+                "Modificado  2019-04-21T19:23:18Z",
+                "j k desplazan   otra tecla cierra",
+            ],
+        );
+        let title = screen.find("Título").unwrap();
+        let ensemble = screen.find("Ensemble").unwrap();
+        assert!(title < ensemble, "los conocidos van primero:\n{screen}");
+        assert!(
+            screen.contains("en varias"),
+            "el comentario se parte:\n{screen}"
+        );
+    }
+
+    #[test]
+    fn a_long_song_information_scrolls() {
+        let mut state = sample_state();
+        state.song_info = Some(sample_song_info());
+        let small = SIZES[1];
+        let top = screen_lines(&render_to_buffer(&mut state, &ASCII, small));
+        assert!(top.contains("Astronomy Domine"), "{top}");
+        assert!(!top.contains("Modificado"), "{top}");
+        if let Some(info) = state.song_info.as_mut() {
+            info.scroll = usize::MAX;
+        }
+        let bottom = screen_lines(&render_to_buffer(&mut state, &ASCII, small));
+        assert!(bottom.contains("Modificado"), "{bottom}");
+        assert!(!bottom.contains("Astronomy Domine"), "{bottom}");
+        let scroll = state.song_info.as_ref().map(|info| info.scroll);
+        assert!(
+            scroll < Some(usize::MAX),
+            "la vista limita el desplazamiento"
         );
     }
 

@@ -13,6 +13,7 @@ mod prompt;
 mod queue;
 mod refresh;
 mod search;
+mod song_info;
 mod visual;
 
 use std::io;
@@ -42,6 +43,8 @@ use crate::service::{
 /// Cada cuánto se redibuja el progreso y la cuenta regresiva de la reconexión.
 const TICK_INTERVAL: Duration = Duration::from_secs(1);
 const FIRST_ATTEMPT: u32 = 1;
+/// Líneas que salta una página en los textos que se desplazan (letra, ficha del tema).
+const PAGE_LINES: usize = 10;
 /// Ticks entre relecturas del estado mientras suena. Se cuenta en ticks y no por
 /// tiempo desde la última lectura, para que la demora de cada tick no la corra.
 const STATUS_POLL_TICKS: usize =
@@ -170,6 +173,9 @@ impl<B: Backend> App<B> {
         if self.state.picker.is_some() {
             return self.handle_picker_key(key).await;
         }
+        if self.state.song_info.is_some() {
+            return self.handle_song_info_key(key);
+        }
         if self.state.help_visible {
             self.state.help_visible = false;
             return;
@@ -244,6 +250,7 @@ impl<B: Backend> App<B> {
             Action::RetryLyrics => self.retry_lyrics(),
             Action::UpdateDatabase => self.request_database_update().await,
             Action::NextTheme => self.next_theme(),
+            Action::ShowSongInfo => self.show_song_info().await,
             Action::SaveQueue => {
                 self.state.prompt = Some(Prompt::text(PromptKind::SavePlaylist, String::new()));
             }

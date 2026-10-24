@@ -60,7 +60,7 @@ i18n (textos del usuario) ← tui, main
   - Un texto nuevo de la interfaz se agrega como variante de `Phrase` o `Message` y en los dos catálogos; nunca como literal en una vista.
   - No se traducen: el protocolo de MPD (`vocabulary.rs`), las claves del TOML y las variables de entorno, las unidades (`kHz`, `dB`, `ms`), los nombres propios (LRCLIB) ni las teclas que se escriben igual (`Enter`, `Tab`, `Ctrl+`).
 
-- **`src/domain/`:** modelos compartidos (`Song`, `SongMove`, `Status`, `AudioFormat`, `PlayState`, `SingleMode`, `Entry`, `Subsystem`, `Tag`, `TagFilter`, `Output`, `Partition`), entradas validadas, los criterios de orden (`sort.rs`: `SortKey`, `compare_songs`), la línea de tiempo (`timeline()`: tramos consecutivos del mismo álbum y offsets de cada tema) las bandas del espectro (`band_edges`/`band_centers` logarítmicos de 40 Hz a 16 kHz) y el visualizador (`visual.rs`: `VisualizerStyle` y su ciclo, `VisualRequest`, `VisualFrame` con un `VisualContent` por forma). No depende de ninguna otra capa ni conoce MPD.
+- **`src/domain/`:** modelos compartidos (`Song`, `SongMove`, `Status`, `AudioFormat`, `PlayState`, `SingleMode`, `Entry`, `Subsystem`, `Tag`, `TagFilter`, `Output`, `Partition`), la ficha de un tema (`details.rs`: `SongDetails` con `SongTag`/`TagName`; los tags que no se conocen quedan como `TagName::Other`), entradas validadas, los criterios de orden (`sort.rs`: `SortKey`, `compare_songs`), la línea de tiempo (`timeline()`: tramos consecutivos del mismo álbum y offsets de cada tema) las bandas del espectro (`band_edges`/`band_centers` logarítmicos de 40 Hz a 16 kHz) y el visualizador (`visual.rs`: `VisualizerStyle` y su ciclo, `VisualRequest`, `VisualFrame` con un `VisualContent` por forma). No depende de ninguna otra capa ni conoce MPD.
 - **`src/repository/`:**
   - `traits.rs` define los contratos y `error.rs` el error de acceso a datos. Es `Clone + Eq` (el de E/S se guarda como `IoFailure`, con su tipo y su texto) para que viaje tal cual hasta la TUI en eventos y resultados.
   - `lrclib.rs`: `LrclibProvider` implementa `LyricsProvider` sobre `reqwest` (rustls, User-Agent `mpctui/<versión>`, 10 s de espera). `/api/get` exige álbum y duración; sin ellos, o sin coincidencia, `/api/search` y se elige por duración (±2 s), prefiriendo letras sincronizadas. La URL base se inyecta (los tests usan un servidor HTTP local). Los errores de red son `Error::Http`.
@@ -74,7 +74,7 @@ i18n (textos del usuario) ← tui, main
     - `transport.rs`: trait `Transport`, `Connection` real (TCP, socket unix o abstracto; autentica al conectar), `ConnectionSettings` (contraseña y timeout), `MpdConnector` y `first_reachable` (el primer candidato que responde; un `ACK` corta la búsqueda). El timeout cubre la conexión y cada respuesta, salvo `idle`; vencido es `Error::Timeout`, que descarta la conexión pero no se reintenta.
     - `reconnect.rs`: trait `Connector` + `ReconnectingTransport`, que reabre la conexión y reintenta **una vez** si se cortó (`Error::is_disconnection`). Un `ACK` no reconecta. `ReconnectingTransport::lazy` conecta recién con el primer comando (vigilante relanzado).
     - `partition.rs`: `SharedPartition` (implementa `PartitionSelection`: la partición que usa mpctui) y `PartitionConnector`/`PartitionTransport`: antes de cada comando, si la conexión no está en la elegida, envía `partition X`. Cubre el cambio en vivo y la reconexión (una conexión nueva arranca en `default`). Si `partition X` responde `ACK` 50 (MPD se reinició), la selección vuelve a `default`.
-    - `client.rs`: `MpdClient<T: Transport>` implementa todos los traits de repositorio. Lo que depende de una partición (`outputs`, `moveoutput`, `enable/disableoutput`, `delpartition`) va en una lista con `partition X` delante (`fetch_in`/`run_in`).
+    - `client.rs`: `MpdClient<T: Transport>` implementa todos los traits de repositorio. `song_details` (`lsinfo <uri>`) devuelve `None` ante un `ACK` 50 (el archivo ya no está). Lo que depende de una partición (`outputs`, `moveoutput`, `enable/disableoutput`, `delpartition`) va en una lista con `partition X` delante (`fetch_in`/`run_in`).
 - **`src/service/`:** lógica de negocio sobre los traits del repositorio.
   - `PlaybackService`: alterna pausa según el estado, pasos de volumen, ciclo de single y `play_from` (salta a un momento y deja sonando: en pausa reanuda, detenido arranca).
   - `QueueService` (`sort`: relee la cola, la ordena con `domain::compare_songs` y manda los `move` en una sola lista de comandos), `LibraryService` y `PlaylistService`.
@@ -84,6 +84,7 @@ i18n (textos del usuario) ← tui, main
   - `visual/`: análisis en funciones puras. `pcm.rs` (`PcmDecoder` con cuadros partidos, `StereoWindow` de pares L/R), `bands.rs` (Hann, FFT con `rustfft`, bandas, dB, `Smoother`), `levels.rs` (RMS, pico, correlación), `peak.rs` (`HeldPeak`) y un módulo por forma. `Analysis` calcula solo la forma pedida y se reinicia al cambiar de forma; sin señal vacía la ventana, así todas las formas caen a cero.
   - `Visualizer` (`visualizer.rs`): tarea que lee la `PcmSource`, analiza a 20 FPS la forma del último `VisualRequest` y publica el último cuadro por `watch`. `VisualizerLauncher` la lanza con una fuente nueva; `RunningVisualizer` la cancela al soltarse (`Drop` → `abort`).
   - `LyricsService` (`lyrics.rs`): prueba las fuentes de letras en el orden de la configuración (caché, carpeta del tema, tags y LRCLIB); una fuente que falla no corta la búsqueda. Lo descargado se guarda en la caché solo si `cache` es una fuente, y cada respuesta de LRCLIB (también "no hay" o instrumental) se recuerda en memoria durante la sesión. `LyricsLookup` la corre en su propia tarea y atiende solo el último pedido; una búsqueda empezada no se interrumpe, para no dejar a medias un comando de MPD. `parse_lrc` (`lrc.rs`) es pura.
+  - `LibraryService::song_details`: la ficha de un tema. A un stream (`Song::is_stream`) no se le pide (MPD lo abriría para leer los tags); sin ficha del servidor, `SongDetails::from_song`.
   - `PlaybackClock`: interpola el progreso.
   - Reciben entradas ya validadas y nunca tocan la terminal.
 - **`src/tui/`:**
@@ -92,6 +93,7 @@ i18n (textos del usuario) ← tui, main
   - Las acciones de vista (`Activate`, `Add`, `AddAll`, `Delete`, `Back`, `Forward`, `Navigate`) las interpreta la vista activa.
   - `list.rs`: `SelectableList<T>` con `SelectionPolicy::{Keep, Reset}` (Keep para refrescos, Reset para contenido nuevo). La usan todas las listas.
   - `prompt.rs`: texto libre y confirmaciones s/n. Las acciones destructivas (vaciar cola, borrar playlist) siempre confirman; quitar un tema (de la cola o de una playlist) no.
+  - Ficha del tema (`i`, `app/song_info.rs` y `views/song_info.rs`): `AppState::song_info` (`SongInfoView`) lleva el tema y su `SongDetails`. Se abre sobre el tema elegido o, si la selección no es un tema, sobre el que suena. Las teclas de navegación la desplazan (la vista limita el desplazamiento) y cualquier otra la cierra.
   - `picker.rs`: selectores (`Picker`), con la misma navegación (`choose`). El de playlists (`P`): `PlaylistAddition` lleva las URI y el nombre para el aviso; la primera opción es «Nueva playlist», que abre el prompt `NewPlaylist`. El de particiones (`m`, vista Salidas): las demás particiones como destino de la salida elegida. El de orden (`O`, en la cola): `Espacio` elige criterios (`SortOrder` los numera) y `Enter` ordena.
   - `views/` solo dibuja a partir de `AppState`, recibiendo un `chrome::Context` (glifos, textos, tema, modo de layout, ancho, instante). Colores en `src/tui/theme/` (`palettes.rs` es el único lugar con colores; las vistas piden `Role`/`GradientRole`), textos auxiliares en `format.rs`.
     - **Listas:** todas pasan por `widgets::render_list`, que arma solo las filas visibles a partir de un `RowSource` (cursor, foco, desplazamiento, cabecera fija, barra de desplazamiento). Una lista nueva implementa `RowSource`; no usa `Table`.
@@ -221,7 +223,7 @@ tmux capture-pane -t prueba -p        # pantalla
 tmux kill-session -t prueba
 ```
 
-Contra el MPD real solo se envían teclas de lectura: `1`–`8`, `Tab`, `j`/`k`, `g`/`G`, `h`/`l`, `/` + búsqueda, `o` y `?`. **Nunca** `Enter` en la cola o en el diálogo de orden (`O` + `Esc` sí), `p`, `s`, `<`, `>`, `+`, `-`, `f`, `b`, `z`, `r`, `y`, `R`, `a`, `A`, `d`, `c`, `S`, `u`, `J`, `K`, `n`, `m` ni `Enter` en el selector de playlists (`P` + `Esc` sí: solo lo abre y lo cierra) ni en la vista Salidas (activa o desactiva una salida).
+Contra el MPD real solo se envían teclas de lectura: `1`–`8`, `Tab`, `j`/`k`, `g`/`G`, `h`/`l`, `/` + búsqueda, `o`, `i` (la ficha del tema) y `?`. **Nunca** `Enter` en la cola o en el diálogo de orden (`O` + `Esc` sí), `p`, `s`, `<`, `>`, `+`, `-`, `f`, `b`, `z`, `r`, `y`, `R`, `a`, `A`, `d`, `c`, `S`, `u`, `J`, `K`, `n`, `m` ni `Enter` en el selector de playlists (`P` + `Esc` sí: solo lo abre y lo cierra) ni en la vista Salidas (activa o desactiva una salida).
 
 Checklist antes de dar un cambio por terminado:
 
@@ -253,7 +255,7 @@ Checklist antes de dar un cambio por terminado:
 - **Nunca registrar comandos completos en el log**, porque el comando `password` lleva la contraseña. `Password` implementa `Debug` enmascarado.
 - **Las listas largas no se clonan al dibujar.** `SelectableList::parts_mut` devuelve elementos y `TableState` a la vez.
 - **La cola puede tener miles de temas:** la vista no puede depender del desplazamiento manual; `o` salta al tema actual.
-- **La ayuda debe entrar en 30 filas.** Se agrupa por acción y se muestra en dos columnas.
+- **La ayuda debe entrar en 30 filas.** Se agrupa por acción y se muestra en dos columnas. Está justa: un atajo nuevo con descripción propia obliga a juntar otros en una línea (como `Tab`/`Shift+Tab` en `Phrase::CycleViews`).
 - **ratatui trae glifos Unicode de fábrica** (divisor de `Tabs`, símbolos de `Scrollbar`, `LineGauge`, bordes). Siempre se configuran desde `Glyphs`; el test `ascii_screens_have_no_unicode_glyphs` lo vigila.
 - **Los anchos se miden en columnas, también en los tests:** `str::find` devuelve bytes y `á` ocupa dos. Para ubicar columnas usar `chars().position` o `Span::width()`.
 - **Los diálogos y acciones que modifican el MPD no se prueban en el servidor real:** se dibujan con `TestBackend` (las superposiciones están en los tests de `views/mod.rs`).

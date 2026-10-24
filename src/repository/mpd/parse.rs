@@ -6,13 +6,13 @@ use std::time::Duration;
 
 use super::protocol::Pair;
 use super::vocabulary::{
-    AUDIO_FIELD_SEPARATOR, BITRATE_UNKNOWN, DSD_PREFIX, DUMMY_PLUGIN, SAMPLE_FORMAT_FLOAT,
-    SINGLE_ONESHOT, VOLUME_UNAVAILABLE, keys, parse_flag, parse_play_state, parse_single_mode,
-    parse_subsystem,
+    AUDIO_FIELD_SEPARATOR, BITRATE_UNKNOWN, DSD_PREFIX, DUMMY_PLUGIN, IGNORED_SONG_KEYS,
+    SAMPLE_FORMAT_FLOAT, SINGLE_ONESHOT, VOLUME_UNAVAILABLE, keys, parse_flag, parse_play_state,
+    parse_single_mode, parse_subsystem, parse_tag_name,
 };
 use crate::domain::{
-    AudioFormat, Entry, Output, PartitionName, PlaylistName, SampleFormat, Song, Status, Subsystem,
-    Volume,
+    AudioFormat, Entry, Output, PartitionName, PlaylistName, SampleFormat, Song, SongDetails,
+    SongTag, Status, Subsystem, Volume,
 };
 use crate::repository::error::{Error, Result};
 
@@ -99,6 +99,32 @@ pub fn parse_song(record: &[Pair]) -> Result<Song> {
     }
     song.duration = song.duration.or(legacy_duration);
     Ok(song)
+}
+
+/// La ficha del primer tema de la respuesta: todo lo que no es un dato del archivo es
+/// un tag.
+pub fn parse_song_details(pairs: &[Pair]) -> Result<SongDetails> {
+    let record = split_records(pairs, &[keys::FILE])
+        .into_iter()
+        .next()
+        .ok_or_else(|| Error::Protocol("respuesta sin campo `file`".into()))?;
+    let mut details = SongDetails::default();
+    let mut legacy_duration = None;
+    for (key, value) in record {
+        match key.as_str() {
+            keys::FILE => details.file = value.clone(),
+            keys::DURATION => details.duration = Some(parse_seconds(key, value)?),
+            keys::LEGACY_TIME => legacy_duration = Some(parse_seconds(key, value)?),
+            keys::FORMAT => details.format = Some(parse_with(key, value, parse_audio_format)?),
+            keys::LAST_MODIFIED => details.last_modified = Some(value.clone()),
+            ignored if IGNORED_SONG_KEYS.contains(&ignored) => {}
+            tag => details
+                .tags
+                .push(SongTag::new(parse_tag_name(tag), value.as_str())),
+        }
+    }
+    details.duration = details.duration.or(legacy_duration);
+    Ok(details)
 }
 
 pub fn parse_songs(pairs: &[Pair]) -> Result<Vec<Song>> {
@@ -255,7 +281,7 @@ fn invalid_value(key: &str, value: &str) -> Error {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::{PlayState, SingleMode};
+    use crate::domain::{PlayState, SingleMode, TagName};
 
     fn pairs(raw: &str) -> Vec<Pair> {
         raw.lines()
@@ -378,6 +404,48 @@ mod tests {
     fn song_keeps_the_disc_tag() {
         let song = parse_song(&pairs("file: a.flac\nDisc: 2/2\nTrack: 5")).unwrap();
         assert_eq!(song.disc.as_deref(), Some("2/2"));
+    }
+
+    #[test]
+    fn song_details_keep_every_tag() {
+        let details = parse_song_details(&pairs(
+            "file: Rock/a.flac\nLast-Modified: 2019-04-21T19:23:18Z\nFormat: 44100:16:2\n\
+             Title: KRWLNG\nArtist: Linkin Park\nArtist: Aaron Lewis\nGenre: Alternative\n\
+             Ensemble: [Linkin Park]\nTime: 340\nduration: 340.253\nPos: 3\nId: 7",
+        ))
+        .unwrap();
+        assert_eq!(details.file, "Rock/a.flac");
+        assert_eq!(details.duration, Some(Duration::from_millis(340_253)));
+        assert_eq!(
+            details.format.map(|format| format.sample_rate),
+            Some(Some(44_100))
+        );
+        assert_eq!(
+            details.last_modified.as_deref(),
+            Some("2019-04-21T19:23:18Z")
+        );
+        assert_eq!(
+            details.tags,
+            [
+                SongTag::new(TagName::Title, "KRWLNG"),
+                SongTag::new(TagName::Artist, "Linkin Park"),
+                SongTag::new(TagName::Artist, "Aaron Lewis"),
+                SongTag::new(TagName::Genre, "Alternative"),
+                SongTag::new(TagName::Other("Ensemble".into()), "[Linkin Park]"),
+            ]
+        );
+    }
+
+    #[test]
+    fn song_details_fall_back_to_legacy_time() {
+        let details = parse_song_details(&pairs("file: a.mp3\nTime: 200")).unwrap();
+        assert_eq!(details.duration, Some(Duration::from_secs(200)));
+    }
+
+    #[test]
+    fn song_details_fail_fast() {
+        assert!(parse_song_details(&pairs("file: a.flac\nFormat: rápido")).is_err());
+        assert!(parse_song_details(&pairs("directory: Rock")).is_err());
     }
 
     #[test]

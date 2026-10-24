@@ -125,6 +125,7 @@ mpctui
 | `d` | Borrar de la cola · borrar playlist (pide confirmación) · con foco en los temas de una playlist, quitar el tema · Salidas: borrar la partición (pide confirmación; sus salidas vuelven a `default`; ni `default` ni la que está en uso se pueden borrar) |
 | `J` / `K` | Correr el tema seleccionado un lugar abajo / arriba (cola y temas de una playlist); el cursor lo acompaña |
 | `O` | Cola: ordenar. En el diálogo, `Espacio` agrega o quita el criterio resaltado (Artista, Año, Álbum, Disco, Pista, Título, Archivo) y lo numera; `Enter` reordena la cola de MPD en ese orden (sin criterios elegidos, por el resaltado); `Esc` cancela. Los temas sin el dato van primero y los empates conservan su orden |
+| `i` | Ficha del tema elegido (o, si la selección no es un tema, del que suena): todos sus tags —los conocidos traducidos, el resto con el nombre que les da MPD—, la ruta, la duración, el formato y la fecha de modificación. `j`/`k` y las páginas la desplazan; cualquier otra tecla la cierra |
 | `P` | Agregar la selección a una playlist: elegir una existente o «Nueva playlist» (pide el nombre). Agrega lo mismo que `a`: tema, álbum, artista, archivo o directorio |
 | `p` o `Espacio` | Pausa / reanudar |
 | `s` · `>` · `<` | Detener · siguiente · anterior |

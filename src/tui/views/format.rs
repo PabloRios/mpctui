@@ -19,9 +19,9 @@ pub const MISSING: &str = "—";
 pub const TIME_UNKNOWN: &str = "--:--";
 /// Separación entre las partes del formato de audio.
 pub const AUDIO_PART_SEPARATOR: &str = "  ";
-/// Las URL (`http://…`) son streams: su "extensión" no dice nada del códec.
-const URL_SCHEME_SEPARATOR: &str = "://";
 const EXTENSION_SEPARATOR: char = '.';
+/// Donde se puede cortar un texto al partirlo en filas.
+const WORD_SEPARATOR: char = ' ';
 const HERTZ_PER_KILOHERTZ: u32 = 1_000;
 /// Cifras de la parte decimal de los kHz (`44.1`, `22.05`).
 const KILOHERTZ_DECIMALS: usize = 3;
@@ -109,7 +109,7 @@ pub fn or_unnamed<'a>(value: &'a str, texts: &dyn Catalog) -> &'a str {
 /// Códec según la extensión del archivo, en mayúsculas (`FLAC`). Sin extensión o en
 /// streams, nada.
 pub fn codec(song: &Song) -> Option<String> {
-    if song.file.contains(URL_SCHEME_SEPARATOR) {
+    if song.is_stream() {
         return None;
     }
     let (_, extension) = song.file_name().rsplit_once(EXTENSION_SEPARATOR)?;
@@ -334,6 +334,51 @@ pub fn fit_line<'a>(line: Line<'a>, width: usize, ellipsis: &'a str) -> Line<'a>
         alignment,
         spans: kept,
     }
+}
+
+/// Parte el texto en filas de hasta `width` columnas, cortando entre palabras; una
+/// palabra que no entra en una fila se parte. Siempre devuelve al menos una fila.
+pub fn wrap_text(text: &str, width: usize) -> Vec<String> {
+    let mut rows = Vec::new();
+    let mut row = String::new();
+    for word in text.split(WORD_SEPARATOR) {
+        let mut rest = word;
+        loop {
+            let gap = usize::from(!row.is_empty());
+            if Span::raw(&row).width() + gap + Span::raw(rest).width() <= width {
+                if gap > 0 {
+                    row.push(WORD_SEPARATOR);
+                }
+                row.push_str(rest);
+                break;
+            }
+            if !row.is_empty() {
+                rows.push(std::mem::take(&mut row));
+                continue;
+            }
+            let head = longest_prefix(rest, width);
+            rows.push(head.to_owned());
+            rest = &rest[head.len()..];
+            if rest.is_empty() {
+                break;
+            }
+        }
+    }
+    if !row.is_empty() || rows.is_empty() {
+        rows.push(row);
+    }
+    rows
+}
+
+/// Lo que entra en `width`, pero nunca vacío: un carácter más ancho que la fila igual
+/// ocupa una, así el corte siempre avanza.
+fn longest_prefix(text: &str, width: usize) -> &str {
+    let prefix = prefix_within(text, width);
+    if !prefix.is_empty() {
+        return prefix;
+    }
+    let first = text.chars().next().map_or(0, char::len_utf8);
+    &text[..first]
 }
 
 /// Recorta por la izquierda: lo importante es el final (dónde estoy, lo último tipeado).
@@ -764,6 +809,23 @@ mod tests {
         assert_eq!(fitted(9).as_deref(), Some("1411 kbps"));
         assert_eq!(fitted(8), None);
         assert_eq!(fit_parts_from_left(&[], 10), None);
+    }
+
+    #[test]
+    fn wrap_text_cuts_between_words() {
+        assert_eq!(wrap_text("uno dos tres", 7), ["uno dos", "tres"]);
+        assert_eq!(wrap_text("corto", 10), ["corto"]);
+        assert_eq!(wrap_text("", 10), [""]);
+    }
+
+    #[test]
+    fn wrap_text_splits_long_words_by_columns() {
+        assert_eq!(
+            wrap_text("Rock/Él/árbol.flac", 6),
+            ["Rock/É", "l/árbo", "l.flac"]
+        );
+        assert_eq!(wrap_text("a bcdefgh", 4), ["a", "bcde", "fgh"]);
+        assert_eq!(wrap_text("漢字", 1), ["漢", "字"]);
     }
 
     #[test]

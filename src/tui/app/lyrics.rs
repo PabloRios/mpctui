@@ -5,14 +5,11 @@
 
 use std::time::{Duration, Instant};
 
-use super::{App, Backend};
+use super::{App, Backend, PAGE_LINES};
 use crate::domain::LyricsQuery;
 use crate::service::{LyricsLookup, LyricsOutcome, LyricsResult};
 use crate::tui::action::{Action, Navigation};
 use crate::tui::state::{LyricsStatus, ViewKind};
-
-/// Líneas que salta una página en la letra.
-const PAGE_LINES: usize = 10;
 
 impl<B: Backend> App<B> {
     /// Antes de cada dibujado: si hace falta la letra y cambió el tema, pide la del

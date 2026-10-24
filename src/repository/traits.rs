@@ -7,7 +7,7 @@ use std::time::Duration;
 use super::error::Result;
 use crate::domain::{
     Entry, FetchedLyrics, Output, PartitionName, PlaylistName, SearchText, SingleMode, Song,
-    SongMove, Status, Subsystem, Tag, TagFilter, TrackIdentity, Volume,
+    SongDetails, SongMove, Status, Subsystem, Tag, TagFilter, TrackIdentity, Volume,
 };
 
 pub trait PlayerRepository {
@@ -64,6 +64,11 @@ pub trait LibraryRepository {
         field: Tag,
         text: &SearchText,
     ) -> impl Future<Output = Result<Vec<Song>>> + Send;
+    /// La ficha completa de un archivo de la biblioteca; `None` si ya no está.
+    fn song_details(
+        &mut self,
+        uri: &str,
+    ) -> impl Future<Output = Result<Option<SongDetails>>> + Send;
     /// Pide al servidor que relea la biblioteca completa. Solo la encola: el avance
     /// llega por `idle` (`changed: update`).
     fn update_database(&mut self) -> impl Future<Output = Result<()>> + Send;

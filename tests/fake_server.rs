@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use mpctui::domain::{
     Entry, PartitionName, Password, PlayState, PlaylistName, SampleFormat, SearchText, SongMove,
-    Status, Subsystem, Tag, TagFilter, Volume,
+    SongTag, Status, Subsystem, Tag, TagFilter, TagName, Volume,
 };
 use mpctui::factory::{connect_following, connect_mpd};
 use mpctui::repository::mpd::{
@@ -441,6 +441,54 @@ async fn reports_closed_connection() {
         client.status().await,
         Err(Error::Closed | Error::Io(_))
     ));
+}
+
+#[tokio::test]
+async fn reads_song_details() {
+    let (address, server) = fake_server(vec![
+        (
+            r#"lsinfo "Rock/a.flac""#,
+            "file: Rock/a.flac\nLast-Modified: 2019-04-21T19:23:18Z\nFormat: 96000:24:2\n\
+             Title: KRWLNG\nArtist: Linkin Park\nArtist: Aaron Lewis\nGenre: Alternative\n\
+             Ensemble: [Linkin Park]\nTime: 340\nduration: 340.253\nOK\n",
+        ),
+        (
+            r#"lsinfo "Rock/borrado.flac""#,
+            "ACK [50@0] {lsinfo} No such directory\n",
+        ),
+    ])
+    .await;
+    let mut client = connect_mpd(&address, &ConnectionSettings::default())
+        .await
+        .unwrap();
+    let details = client.song_details("Rock/a.flac").await.unwrap().unwrap();
+    assert_eq!(details.file, "Rock/a.flac");
+    assert_eq!(details.duration, Some(Duration::from_millis(340_253)));
+    assert_eq!(
+        details
+            .format
+            .map(|format| (format.sample_rate, format.format)),
+        Some((Some(96_000), SampleFormat::Integer { bits: 24 }))
+    );
+    assert_eq!(
+        details.last_modified.as_deref(),
+        Some("2019-04-21T19:23:18Z")
+    );
+    assert_eq!(
+        details.tags,
+        [
+            SongTag::new(TagName::Title, "KRWLNG"),
+            SongTag::new(TagName::Artist, "Linkin Park"),
+            SongTag::new(TagName::Artist, "Aaron Lewis"),
+            SongTag::new(TagName::Genre, "Alternative"),
+            SongTag::new(TagName::Other("Ensemble".into()), "[Linkin Park]"),
+        ]
+    );
+    assert_eq!(
+        client.song_details("Rock/borrado.flac").await.unwrap(),
+        None
+    );
+    server.await.unwrap();
 }
 
 #[tokio::test]

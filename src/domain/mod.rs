@@ -1,6 +1,7 @@
 //! Dominio: modelos compartidos y entradas validadas. No depende de ninguna otra capa.
 
 mod audio;
+mod details;
 mod inputs;
 mod lyrics;
 mod models;
@@ -10,6 +11,7 @@ mod timeline;
 mod visual;
 
 pub use audio::{AudioFormat, SampleFormat};
+pub use details::{SongDetails, SongTag, TagName};
 pub(crate) use inputs::PATH_SEPARATOR;
 pub use inputs::{
     DEFAULT_PARTITION, InputError, MAX_VOLUME, PCM_BITS, PCM_MAX_CHANNELS, PCM_MAX_SAMPLE_RATE,
@@ -18,7 +20,7 @@ pub use inputs::{
 pub use lyrics::{FetchedLyrics, LyricLine, Lyrics, LyricsQuery, LyricsSource, TrackIdentity};
 pub use models::{
     Entry, MoveDirection, Output, Partition, PlayState, SingleMode, Song, SongMove, Status,
-    Subsystem, Tag, TagFilter,
+    Subsystem, Tag, TagFilter, is_stream_uri,
 };
 pub use sort::{SortKey, compare_songs};
 pub use spectrum::{SPECTRUM_MAX_HZ, SPECTRUM_MIN_HZ, band_centers, band_edges};

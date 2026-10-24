@@ -95,6 +95,8 @@ pub enum Action {
     MoveOutput,
     /// Pasa al tema de colores siguiente (no se guarda al salir).
     NextTheme,
+    /// Abre la ficha del tema elegido o, si no hay, del que suena.
+    ShowSongInfo,
 }
 
 /// Las vistas de listas comparten descripción (`Phrase::GoToView`): la ayuda las
@@ -172,11 +174,11 @@ pub const BINDINGS: &[Binding] = &[
         Action::ShowView(ViewKind::Outputs),
         Phrase::GoToView,
     ),
-    plain(&[KeyCode::Tab], Action::NextView, Phrase::NextView),
+    plain(&[KeyCode::Tab], Action::NextView, Phrase::CycleViews),
     plain(
         &[KeyCode::BackTab],
         Action::PreviousView,
-        Phrase::PreviousView,
+        Phrase::CycleViews,
     ),
     plain(
         &[KeyCode::Char('j'), KeyCode::Down],
@@ -308,6 +310,11 @@ pub const BINDINGS: &[Binding] = &[
         Phrase::ShowPlaying,
     ),
     plain(&[KeyCode::Char('O')], Action::SortQueue, Phrase::SortQueue),
+    plain(
+        &[KeyCode::Char('i')],
+        Action::ShowSongInfo,
+        Phrase::ShowSongInfo,
+    ),
     control(
         &[KeyCode::Char('r')],
         Action::RetryLyrics,
@@ -393,6 +400,7 @@ impl HelpGroup {
             | Action::MoveSong(_)
             | Action::AddToPlaylist
             | Action::SortQueue
+            | Action::ShowSongInfo
             | Action::ClearQueue
             | Action::SaveQueue
             | Action::ShowPlaying => HelpGroup::Lists,
@@ -677,6 +685,23 @@ mod tests {
             action_for(key(KeyCode::Char('o'), KeyModifiers::NONE)),
             Some(Action::ShowPlaying)
         );
+    }
+
+    #[test]
+    fn i_shows_the_song_information() {
+        assert_eq!(
+            action_for(key(KeyCode::Char('i'), KeyModifiers::NONE)),
+            Some(Action::ShowSongInfo)
+        );
+    }
+
+    #[test]
+    fn tab_and_shift_tab_share_a_help_line() {
+        let views = all_entries(&UNICODE)
+            .into_iter()
+            .find(|entry| entry.description == Phrase::CycleViews)
+            .unwrap();
+        assert_eq!(views.keys, "Tab Shift+Tab");
     }
 
     #[test]

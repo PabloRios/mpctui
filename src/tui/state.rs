@@ -10,7 +10,8 @@ use super::picker::Picker;
 use super::prompt::Prompt;
 use crate::domain::{
     Entry, Lyrics, LyricsQuery, Output, PATH_SEPARATOR, Partition, PartitionName, PlaylistName,
-    STEREO_CHANNELS, SearchText, Song, Tag, Timeline, VisualRequest, VisualizerStyle, timeline,
+    STEREO_CHANNELS, SearchText, Song, SongDetails, Tag, Timeline, VisualRequest, VisualizerStyle,
+    timeline,
 };
 use crate::repository::Error;
 use crate::service::{LIBRARY_ROOT, PlaybackClock, PlayerSnapshot, VisualState};
@@ -273,6 +274,25 @@ impl OutputsView {
     }
 }
 
+/// Ficha de un tema abierta. Se guarda el tema para sacar el códec de su extensión.
+#[derive(Debug)]
+pub struct SongInfoView {
+    pub song: Song,
+    pub details: SongDetails,
+    /// Primera fila visible; la vista la limita al dibujar.
+    pub scroll: usize,
+}
+
+impl SongInfoView {
+    pub fn new(song: Song, details: SongDetails) -> Self {
+        Self {
+            song,
+            details,
+            scroll: 0,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NoticeLevel {
     Info,
@@ -346,6 +366,8 @@ pub struct AppState {
     pub prompt: Option<Prompt>,
     /// Selector abierto: de playlist (`P`) o de partición (`m`).
     pub picker: Option<Picker>,
+    /// Ficha del tema (`i`).
+    pub song_info: Option<SongInfoView>,
     pub notice: Option<Notice>,
     pub connection: ConnectionState,
     /// Cuándo se vio por primera vez la actualización de la base en curso.

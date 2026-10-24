@@ -7,7 +7,7 @@ use std::path::{Component, Path, PathBuf};
 
 use super::error::Result;
 use super::traits::LyricsFiles;
-use crate::domain::{PATH_SEPARATOR, TrackIdentity};
+use crate::domain::{PATH_SEPARATOR, TrackIdentity, is_stream_uri};
 
 const SYNCED_EXTENSION: &str = "lrc";
 const PLAIN_EXTENSION: &str = "txt";
@@ -17,8 +17,6 @@ const EXTENSIONS: [&str; 2] = [SYNCED_EXTENSION, PLAIN_EXTENSION];
 const NAME_SEPARATOR: &str = " - ";
 /// Reemplaza lo que no puede ir en un nombre de archivo.
 const UNSAFE_REPLACEMENT: char = '_';
-/// Los streams (`http://…`) no tienen carpeta.
-const URL_SCHEME_SEPARATOR: &str = "://";
 /// Algunos editores guardan el texto con una marca de orden de bytes al principio.
 const BYTE_ORDER_MARK: char = '\u{feff}';
 
@@ -93,7 +91,7 @@ fn safe_name(text: &str) -> String {
 /// La ruta del tema dentro de la biblioteca; `None` para streams o rutas que salen de
 /// ella (`..`, absolutas).
 fn library_path(uri: &str) -> Option<&Path> {
-    if uri.contains(URL_SCHEME_SEPARATOR) {
+    if is_stream_uri(uri) {
         return None;
     }
     let path = Path::new(uri);

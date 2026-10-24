@@ -1,6 +1,6 @@
 //! Vocabulario del protocolo de MPD: comandos, claves y valores de respuesta.
 
-use crate::domain::{PlayState, SingleMode, Subsystem, Tag};
+use crate::domain::{PlayState, SingleMode, Subsystem, Tag, TagName};
 
 /// Comandos que envía el cliente.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -118,9 +118,22 @@ pub mod keys {
     pub const DATE: &str = "Date";
     pub const TRACK: &str = "Track";
     pub const DISC: &str = "Disc";
+    pub const ORIGINAL_DATE: &str = "OriginalDate";
+    pub const GENRE: &str = "Genre";
+    pub const COMPOSER: &str = "Composer";
+    pub const PERFORMER: &str = "Performer";
+    pub const CONDUCTOR: &str = "Conductor";
+    pub const COMMENT: &str = "Comment";
+    pub const LAST_MODIFIED: &str = "Last-Modified";
+    /// Formato del archivo (`44100:16:2`), con la sintaxis de `audio`.
+    pub const FORMAT: &str = "Format";
     pub const DURATION: &str = "duration";
     pub const LEGACY_TIME: &str = "Time";
     pub const POSITION: &str = "Pos";
+    pub const SONG_ID: &str = "Id";
+    pub const PRIORITY: &str = "Prio";
+    /// Tramo de un tema dentro de un archivo (CUE).
+    pub const RANGE: &str = "Range";
     pub const VOLUME: &str = "volume";
     pub const REPEAT: &str = "repeat";
     pub const RANDOM: &str = "random";
@@ -145,6 +158,10 @@ pub mod keys {
     /// Pseudo-tag de filtros que coincide con cualquier tag.
     pub const ANY: &str = "any";
 }
+
+/// Claves de un tema que no son tags ni se muestran en su ficha.
+pub const IGNORED_SONG_KEYS: [&str; 4] =
+    [keys::POSITION, keys::SONG_ID, keys::PRIORITY, keys::RANGE];
 
 pub const FLAG_ON: &str = "1";
 pub const FLAG_OFF: &str = "0";
@@ -227,5 +244,25 @@ pub fn tag_name(tag: Tag) -> &'static str {
         Tag::Album => keys::ALBUM,
         Tag::Title => keys::TITLE,
         Tag::Any => keys::ANY,
+    }
+}
+
+/// Los tags que no se conocen conservan el nombre que les da MPD.
+pub fn parse_tag_name(name: &str) -> TagName {
+    match name {
+        keys::TITLE => TagName::Title,
+        keys::ARTIST => TagName::Artist,
+        keys::ALBUM => TagName::Album,
+        keys::ALBUM_ARTIST => TagName::AlbumArtist,
+        keys::DATE => TagName::Date,
+        keys::ORIGINAL_DATE => TagName::OriginalDate,
+        keys::TRACK => TagName::Track,
+        keys::DISC => TagName::Disc,
+        keys::GENRE => TagName::Genre,
+        keys::COMPOSER => TagName::Composer,
+        keys::PERFORMER => TagName::Performer,
+        keys::CONDUCTOR => TagName::Conductor,
+        keys::COMMENT => TagName::Comment,
+        other => TagName::Other(other.to_owned()),
     }
 }

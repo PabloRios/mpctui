@@ -3,17 +3,19 @@
 use std::time::Duration;
 
 use super::parse::{
-    parse_entries, parse_outputs, parse_partition_names, parse_playlist_names, parse_songs,
-    parse_status, parse_subsystems, values_of,
+    parse_entries, parse_outputs, parse_partition_names, parse_playlist_names, parse_song_details,
+    parse_songs, parse_status, parse_subsystems, values_of,
 };
 use super::protocol::{Command, FilterOperator, Pair, filter_expression};
 use super::transport::Transport;
-use super::vocabulary::{SEEK_DECIMALS, Verb, flag, keys, single_mode_argument, tag_name};
-use crate::domain::{
-    Entry, Output, PartitionName, PlaylistName, SearchText, SingleMode, Song, SongMove, Status,
-    Subsystem, Tag, TagFilter, Volume,
+use super::vocabulary::{
+    ACK_NO_EXIST, SEEK_DECIMALS, Verb, flag, keys, single_mode_argument, tag_name,
 };
-use crate::repository::error::Result;
+use crate::domain::{
+    Entry, Output, PartitionName, PlaylistName, SearchText, SingleMode, Song, SongDetails,
+    SongMove, Status, Subsystem, Tag, TagFilter, Volume,
+};
+use crate::repository::error::{Error, Result};
 use crate::repository::traits::{
     ChangesRepository, EmbeddedLyricsRepository, LibraryRepository, OptionsRepository,
     OutputRepository, PlayerRepository, PlaylistRepository, QueueRepository,
@@ -192,6 +194,14 @@ impl<T: Transport + Send> LibraryRepository for MpdClient<T> {
                 .fetch(Command::new(Verb::Search).optional_arg(expression))
                 .await?,
         )
+    }
+
+    async fn song_details(&mut self, uri: &str) -> Result<Option<SongDetails>> {
+        match self.fetch(Command::new(Verb::ListInfo).arg(uri)).await {
+            Ok(pairs) => parse_song_details(&pairs).map(Some),
+            Err(Error::Ack(ack)) if ack.code == ACK_NO_EXIST => Ok(None),
+            Err(error) => Err(error),
+        }
     }
 
     async fn update_database(&mut self) -> Result<()> {

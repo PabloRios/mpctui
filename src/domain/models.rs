@@ -96,6 +96,11 @@ impl Song {
         number_before_total(self.disc.as_deref())
     }
 
+    /// Un stream (`http://…`) no está en la biblioteca.
+    pub fn is_stream(&self) -> bool {
+        is_stream_uri(&self.file)
+    }
+
     /// El año, si `Date` empieza con cuatro dígitos; si no, nada (es un tag libre).
     pub fn year(&self) -> Option<&str> {
         let year = self.date.as_deref()?.get(..YEAR_DIGITS)?;
@@ -103,6 +108,14 @@ impl Song {
             .all(|byte| byte.is_ascii_digit())
             .then_some(year)
     }
+}
+
+/// Las URL (`http://…`) son streams: no tienen carpeta ni extensión que diga algo.
+const URL_SCHEME_SEPARATOR: &str = "://";
+
+/// Si la URI es un stream y no un archivo de la biblioteca.
+pub fn is_stream_uri(uri: &str) -> bool {
+    uri.contains(URL_SCHEME_SEPARATOR)
 }
 
 /// Separa el número del total en los tags `Track` y `Disc` (`3/12`).
@@ -268,6 +281,17 @@ mod tests {
         };
         assert_eq!(song.disc_number(), Some("2"));
         assert_eq!(Song::default().disc_number(), None);
+    }
+
+    #[test]
+    fn urls_are_streams() {
+        assert!(is_stream_uri("http://radio.example/stream.mp3"));
+        assert!(!is_stream_uri("Rock/a.flac"));
+        let stream = Song {
+            file: "https://radio/".into(),
+            ..Song::default()
+        };
+        assert!(stream.is_stream());
     }
 
     fn song_with_date(date: &str) -> Song {
